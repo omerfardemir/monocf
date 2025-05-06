@@ -1,0 +1,26 @@
+{
+  "name": "{workerName}-{version}",
+  "observability": {
+    "enabled": true
+  },
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "vars": {
+    "ENV": "development"
+  },
+  "env": {
+    "development": {
+      "name": "{workerName}-{version}-development",
+      "vars": {
+        "ENV": "development"
+      }
+    },
+    "production": {
+      "name": "{workerName}-{version}-production",
+      "vars": {
+        "ENV": "production"
+      }
+    }
+  }
+}

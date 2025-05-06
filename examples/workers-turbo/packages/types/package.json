@@ -1,0 +1,10 @@
+{
+  "name": "@workers-turbo/types",
+  "version": "0.0.0",
+  "private": true,
+  "main": "./index.js",
+  "types": "./index.ts",
+  "dependencies": {
+    "typescript": "*"
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "{workerName}-{version}",
+  "main": "src/index.ts",
+  "account_id": "9e0c5de6e569e446c08137120ba21641",
+  "compatibility_date": "2025-01-09",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "observability": {
+    "enabled": true
+  },
+  "vars": {
+    "ENV": "dev",
+    "LOCAL": true,
+    "API_BASE_URL": "http://localhost:8787/api/{version}"
+  },
+  "env": {
+    "dev": {
+      "route": {
+        "pattern": "dev.mydomain.com/api/{version}/campaign-manager*",
+        "zone_name": "mydomain.com"
+      },
+      "vars": {
+        "ENV": "dev",
+        "LOCAL": false,
+        "API_BASE_URL": "https://mydomain.com/api/{version}"
+      }
+    },
+    "production": {
+      "route": {
+        "pattern": "mydomain.com/api/{version}/campaign-manager*",
+        "zone_name": "mydomain.com"
+      },
+      "vars": {
+        "ENV": "production",
+        "LOCAL": false,
+        "API_BASE_URL": "https://mydomain.com/api/{version}"
+      }
+    }
+  }
+}

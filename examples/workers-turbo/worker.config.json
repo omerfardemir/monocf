@@ -1,0 +1,9 @@
+{
+  "rootDir": "./",
+  "workersDirName": "workers",
+  "baseConfig": "base.wrangler.jsonc",
+  "deploySecrets": true,
+  "variables": {
+    "version": "1.0.0"
+  }
+}
