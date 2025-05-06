@@ -3,7 +3,6 @@
 
 # Table of contents
 
-<!-- toc -->
 * [MonoCF](#monocf)
 * [Features](#features)
 * [Architecture](#architecture)
@@ -13,7 +12,6 @@
 * [Commands](#commands)
 * [Contributing](#contributing)
 * [Table of contents](#table-of-contents)
-<!-- tocstop -->
 
 # MonoCF
 
@@ -83,6 +81,18 @@ $ npm install -g monocf
 $ monocf COMMAND
 running command...
 $ monocf (--version)
+monocf/0.0.1 win32-x64 node-v22.14.0
+$ monocf --help [COMMAND]
+USAGE
+  $ monocf COMMAND
+...
+```
+<!-- usagestop -->
+```sh-session
+$ npm install -g monocf
+$ monocf COMMAND
+running command...
+$ monocf (--version)
 monocf/0.0.2-alpha.0 win32-x64 node-v22.14.0
 $ monocf --help [COMMAND]
 USAGE
@@ -133,6 +143,105 @@ You can override these settings using command-line flags when running commands.
 ## Commands
 
 <!-- commands -->
+* [`monocf help [COMMAND]`](#monocf-help-command)
+* [`monocf whoami`](#monocf-whoami)
+* [`monocf worker [WORKERNAME]`](#monocf-worker-workername)
+* [`monocf worker create WORKERNAME`](#monocf-worker-create-workername)
+
+## `monocf help [COMMAND]`
+
+Display help for monocf.
+
+```
+USAGE
+  $ monocf help [COMMAND...] [-n]
+
+ARGUMENTS
+  COMMAND...  Command to show help for.
+
+FLAGS
+  -n, --nested-commands  Include all nested commands in the output.
+
+DESCRIPTION
+  Display help for monocf.
+```
+
+_See code: [@oclif/plugin-help](https://github.com/oclif/plugin-help/blob/v6.2.28/src/commands/help.ts)_
+
+## `monocf whoami`
+
+Show whoami from wrangler
+
+```
+USAGE
+  $ monocf whoami
+
+DESCRIPTION
+  Show whoami from wrangler
+
+EXAMPLES
+  $ monocf whoami
+```
+
+_See code: [src/commands/whoami/index.ts](https://github.com/omerfardemir/monocf/blob/v0.0.1/src/commands/whoami/index.ts)_
+
+## `monocf worker [WORKERNAME]`
+
+Workers command for running dev or deploy for a worker or all workers
+
+```
+USAGE
+  $ monocf worker [WORKERNAME] -c <value> [-a] [-b <value>] [-s] [-e <value>] [-r <value>] [-w <value>]
+
+ARGUMENTS
+  WORKERNAME  Worker name
+
+FLAGS
+  -a, --all                     Run command for all workers
+  -b, --baseConfig=<value>      Base wrangler config file
+  -c, --command=<value>         (required) Command to execute (dev or deploy)
+  -e, --env=<value>             Environment to use (dev, production etc.)
+  -r, --rootDir=<value>         Root directory of the project
+  -s, --deploySecrets           Deploy secrets for the worker
+  -w, --workersDirName=<value>  Workers directory name in monorepo
+
+DESCRIPTION
+  Workers command for running dev or deploy for a worker or all workers
+
+EXAMPLES
+  $ monocf worker my-worker -c dev
+
+  $ monocf worker my-worker -c deploy -e dev
+
+  $ monocf worker -c deploy -a -e production
+```
+
+_See code: [src/commands/worker/index.ts](https://github.com/omerfardemir/monocf/blob/v0.0.1/src/commands/worker/index.ts)_
+
+## `monocf worker create WORKERNAME`
+
+Create a new worker in the workers directory
+
+```
+USAGE
+  $ monocf worker create WORKERNAME [-r <value>] [-w <value>]
+
+ARGUMENTS
+  WORKERNAME  Worker name
+
+FLAGS
+  -r, --rootDir=<value>         Root directory of the project
+  -w, --workersDirName=<value>  Workers directory name in monorepo
+
+DESCRIPTION
+  Create a new worker in the workers directory
+
+EXAMPLES
+  $ monocf worker create my-worker
+```
+
+_See code: [src/commands/worker/create.ts](https://github.com/omerfardemir/monocf/blob/v0.0.1/src/commands/worker/create.ts)_
+<!-- commandsstop -->
 * [`monocf help [COMMAND]`](#monocf-help-command)
 * [`monocf whoami`](#monocf-whoami)
 * [`monocf worker [WORKERNAME]`](#monocf-worker-workername)

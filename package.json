@@ -1,7 +1,7 @@
 {
   "name": "monocf",
   "description": "MonoCF for manage Cloudflare Workers in monorepo",
-  "version": "0.0.2-alpha.0",
+  "version": "0.0.1",
   "author": "Omer Demir",
   "bin": {
     "monocf": "./bin/run.js"
@@ -9,13 +9,13 @@
   "bugs": "https://github.com/omerfardemir/monocf/issues",
   "dependencies": {
     "@bluwy/giget-core": "^0.1.2",
+    "@cloudflare/workers-types": "^4.20250430.0",
     "@oclif/core": "^4",
     "@oclif/plugin-help": "^6",
     "@oclif/plugin-plugins": "^5",
     "jsonc-parser": "^3.3.1",
     "nanospinner": "^1.2.2",
-    "wrangler": "^4.13.2",
-    "@cloudflare/workers-types": "^4.20250430.0"
+    "wrangler": "^4.13.2"
   },
   "devDependencies": {
     "@eslint/compat": "^1",
@@ -45,7 +45,8 @@
   "homepage": "https://github.com/omerfardemir/monocf",
   "keywords": [
     "cloudflare-workers",
-    "monorepo"
+    "monorepo",
+    "wrangler"
   ],
   "license": "MIT",
   "main": "dist/index.js",
@@ -67,7 +68,7 @@
     "posttest": "npm run lint",
     "prepack": "oclif manifest && oclif readme",
     "test": "mocha --forbid-only \"test/**/*.test.ts\"",
-    "version": "oclif readme && git add README.md"
+    "version": "oclif readme"
   },
   "types": "dist/index.d.ts"
 }
