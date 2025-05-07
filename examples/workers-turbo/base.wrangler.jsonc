@@ -17,10 +17,6 @@
   },
   "env": {
     "dev": {
-      "route": {
-        "pattern": "dev.mydomain.com/api/{version}/campaign-manager*",
-        "zone_name": "mydomain.com"
-      },
       "vars": {
         "ENV": "dev",
         "LOCAL": false,
@@ -28,10 +24,6 @@
       }
     },
     "production": {
-      "route": {
-        "pattern": "mydomain.com/api/{version}/campaign-manager*",
-        "zone_name": "mydomain.com"
-      },
       "vars": {
         "ENV": "production",
         "LOCAL": false,

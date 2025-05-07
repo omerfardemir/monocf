@@ -1,16 +1,28 @@
 {
 	"$schema": "../../node_modules/wrangler/config-schema.json",
 	"main": "src/index.ts",
-	"kv_namespaces": [
-		{
-			"binding": "<KV_BINDING>",
-			"id": "<KV_ID>"
-		}
-	],
 	"services": [
 		{
 			"binding": "SERVICE",
 			"service": "second-worker"
 		}
-	]
+	],
+	"env": {
+		"dev": {
+			"services": [
+				{
+					"binding": "SERVICE",
+					"service": "second-worker"
+				}
+			]
+		},
+		"production": {
+			"services": [
+				{
+					"binding": "SERVICE",
+					"service": "second-worker"
+				}
+			]
+		}
+	}
 }

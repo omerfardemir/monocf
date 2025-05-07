@@ -3,11 +3,13 @@ import { existsSync } from "node:fs";
 import { 
   ErrorService,
   FileService,
+  ServiceBindingService,
   WranglerService
 } from "../../services/index.js";
 import { DeployCommandParams, isDeployCommandParams } from "../../types/command-types.js";
 import { WRANGLER_FILE } from "../../types/wrangler-types.js";
 import { WorkerCommandExecutor } from "./worker-command-executor.js";
+import { experimental_patchConfig } from "wrangler";
 
 /**
  * Command executor for the deploy command
@@ -16,21 +18,25 @@ export class DeployCommand implements WorkerCommandExecutor {
   private errorService: ErrorService;
   private fileService: FileService;
   private wranglerService: WranglerService;
+  private serviceBindingService: ServiceBindingService;
 
   /**
    * Creates a new DeployCommand
    * @param errorService Error service
    * @param fileService File service
    * @param wranglerService Wrangler service
+   * @param serviceBindingService Service binding service
    */
   constructor(
     errorService: ErrorService,
     fileService: FileService,
-    wranglerService: WranglerService
+    wranglerService: WranglerService,
+    serviceBindingService: ServiceBindingService,
   ) {
     this.errorService = errorService;
     this.fileService = fileService;
     this.wranglerService = wranglerService;
+    this.serviceBindingService = serviceBindingService;
   }
 
   /**
@@ -63,11 +69,32 @@ export class DeployCommand implements WorkerCommandExecutor {
         replaceValues: params.variables
       });
 
+      // Handle service bindings
+      const services = this.serviceBindingService.handleServiceBinding({
+        configPath: tempWranglerConfigPath,
+        rootDir: params.rootDir,
+        workersDirName: params.workersDirName,
+        baseConfigPath: baseConfigPath,
+        variables: params.variables,
+        env: params.env
+      });
+
+      const patch = params.env ? {
+        env: {
+          [params.env]: {
+            services
+          }
+        }
+      } : {
+        services
+      };
+
+      experimental_patchConfig(tempWranglerConfigPath, patch, false);
+
       // Deploy secrets if needed
       if (params.deploySecrets && params.env) {
         await this.wranglerService.execWorkerCommand(
           "deploy",
-          workerName,
           [tempWranglerConfigPath],
           params.env
         );
@@ -79,7 +106,6 @@ export class DeployCommand implements WorkerCommandExecutor {
       // Run wrangler command
       return this.wranglerService.execWorkerCommand(
         "deploy",
-        workerName,
         [tempWranglerConfigPath],
         params.env
       );

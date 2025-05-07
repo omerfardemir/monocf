@@ -1,4 +1,28 @@
 {
-	"$schema": "node_modules/wrangler/config-schema.json",
-	"main": "src/index.ts"
+	"$schema": "../../node_modules/wrangler/config-schema.json",
+	"main": "src/index.ts",
+	"services": [
+		{
+			"binding": "SERVICE",
+			"service": "third-worker"
+		}
+	],
+	"env": {
+		"dev": {
+			"services": [
+				{
+					"binding": "SERVICE",
+					"service": "third-worker"
+				}
+			]
+		},
+		"production": {
+			"services": [
+				{
+					"binding": "SERVICE",
+					"service": "third-worker"
+				}
+			]
+		}
+	}
 }

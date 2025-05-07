@@ -81,7 +81,7 @@ $ npm install -g monocf
 $ monocf COMMAND
 running command...
 $ monocf (--version)
-monocf/0.0.1 win32-x64 node-v22.14.0
+monocf/0.0.2 win32-x64 node-v22.14.0
 $ monocf --help [COMMAND]
 USAGE
   $ monocf COMMAND
@@ -183,7 +183,7 @@ EXAMPLES
   $ monocf whoami
 ```
 
-_See code: [src/commands/whoami/index.ts](https://github.com/omerfardemir/monocf/blob/v0.0.1/src/commands/whoami/index.ts)_
+_See code: [src/commands/whoami/index.ts](https://github.com/omerfardemir/monocf/blob/v0.0.2/src/commands/whoami/index.ts)_
 
 ## `monocf worker [WORKERNAME]`
 
@@ -216,7 +216,7 @@ EXAMPLES
   $ monocf worker -c deploy -a -e production
 ```
 
-_See code: [src/commands/worker/index.ts](https://github.com/omerfardemir/monocf/blob/v0.0.1/src/commands/worker/index.ts)_
+_See code: [src/commands/worker/index.ts](https://github.com/omerfardemir/monocf/blob/v0.0.2/src/commands/worker/index.ts)_
 
 ## `monocf worker create WORKERNAME`
 
@@ -240,7 +240,7 @@ EXAMPLES
   $ monocf worker create my-worker
 ```
 
-_See code: [src/commands/worker/create.ts](https://github.com/omerfardemir/monocf/blob/v0.0.1/src/commands/worker/create.ts)_
+_See code: [src/commands/worker/create.ts](https://github.com/omerfardemir/monocf/blob/v0.0.2/src/commands/worker/create.ts)_
 <!-- commandsstop -->
 * [`monocf help [COMMAND]`](#monocf-help-command)
 * [`monocf whoami`](#monocf-whoami)

@@ -29,6 +29,12 @@ export class WorkerCreateCommand extends AbstractCommand<CreateWorkerArgs, Creat
     const config = this.loadConfiguration(flags);
     const { workerName } = args;
 
+    if (!workerName) {
+      this.errorService.throwConfigurationError(
+        'Worker name is required for create command'
+      );
+    }
+
     // Validate workers directory
     const workersPath = join(config.rootDir, config.workersDirName);
     if (!existsSync(workersPath)) {

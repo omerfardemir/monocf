@@ -64,6 +64,7 @@ export class WranglerCommand extends AbstractCommand<WorkerArgs, WorkerFlags> {
     if (config.all) {
       const workers = this.fileService.getWorkers(config.rootDir, config.workersDirName);
       for (const worker of workers) {
+        params.workerName = worker;
         await commandExecutor.execute(worker, params);
       }
     } else if (params.workerName) {

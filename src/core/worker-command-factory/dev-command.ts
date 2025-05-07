@@ -68,19 +68,19 @@ export class DevCommand implements WorkerCommandExecutor {
       });
 
       // Handle service bindings
-      const serviceBindingPaths = this.serviceBindingService.handleServiceBindings({
+      const serviceBindingPaths = this.serviceBindingService.createServiceBindings({
         configPath: tempWranglerConfigPath,
         rootDir: params.rootDir,
         workersDirName: params.workersDirName,
         baseConfigPath,
-        variables: params.variables
-      });
+        variables: params.variables,
+        env: params.env
+      }, true);
 
       // Run wrangler command
       return this.wranglerService.execWorkerCommand(
         "dev",
-        workerName,
-        [tempWranglerConfigPath, ...serviceBindingPaths],
+        [tempWranglerConfigPath, ...serviceBindingPaths.flatMap(serviceBindingPath => serviceBindingPath.path)],
         params.env
       );
     } catch (error) {

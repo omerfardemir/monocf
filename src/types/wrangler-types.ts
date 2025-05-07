@@ -16,3 +16,11 @@ export interface execEventListener {
 export const WRANGLER_FILE = 'wrangler.jsonc';
 export const TEMP_WRANGLER_FILE = '.temp.wrangler.jsonc';
 export const TEMP_BASE_WRANGLER_FILE = '.temp.base.wrangler.jsonc';
+
+export interface ServiceBindingOptions {
+  binding: string;
+  service: string;
+  environment?: string;
+  entrypoint?: string;
+  props?: Record<string, unknown>;
+}

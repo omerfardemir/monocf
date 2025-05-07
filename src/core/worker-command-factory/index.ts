@@ -45,7 +45,8 @@ export class WorkerCommandFactory {
         return new DeployCommand(
           services.errorService,
           services.fileService,
-          services.wranglerService
+          services.wranglerService,
+          services.serviceBindingService
         );
       }
 

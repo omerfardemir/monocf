@@ -57,9 +57,6 @@ export class WranglerService {
       const enhancedOptions: execEventListener = {
         ...this.eventListeners,
         onExitListener: (code: number) => {
-          // Call the original exit listener if provided
-          this.eventListeners?.onExitListener?.(code);
-
           // Handle Promise resolution/rejection
           if (code === 0) {
             resolve();
@@ -151,20 +148,17 @@ export class WranglerService {
   /**
    * Executes a wrangler worker command
    * @param command Command to execute (dev, deploy)
-   * @param workerName Worker name
    * @param configPaths Paths to the wrangler config files
    * @param env Environment to use
    * @returns Promise that resolves when the command completes successfully
    */
   async execWorkerCommand(
     command: WorkerCommand,
-    workerName: string,
     configPaths: string[],
     env?: string
   ): Promise<void> {
     const args = [
       command, 
-      "--name", workerName,
       ...configPaths.flatMap(c => ["-c", c])
     ];
 

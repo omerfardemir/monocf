@@ -1,0 +1,7 @@
+{
+  "name": "third-worker",
+  "version": "0.0.0",
+  "dependencies": {
+    "@workers-turbo/types": "*"
+  }
+}
