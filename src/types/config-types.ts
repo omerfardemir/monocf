@@ -1,25 +1,25 @@
-import { WorkerCommand } from "./command-types.js";
+import {WorkerCommand} from './command-types.js'
 
 /**
  * Constants for configuration files
  */
-export const DEFAULT_BASE_CONFIG = 'base.wrangler.jsonc';
-export const WORKER_CLI_CONFIG_FILE = 'worker.config.json';
+export const DEFAULT_BASE_CONFIG = 'base.wrangler.jsonc'
+export const WORKER_CLI_CONFIG_FILE = 'worker.config.json'
 
 /**
  * CLI configuration interface
  */
 export interface CliConfig {
   /** Root directory of the project */
-  rootDir: string;
+  rootDir: string
   /** Workers directory name in monorepo */
-  workersDirName: string;
+  workersDirName: string
   /** Base wrangler config file */
-  baseConfig?: string;
+  baseConfig?: string
   /** Whether to deploy secrets for the worker */
-  deploySecrets?: boolean;
+  deploySecrets?: boolean
   /** Variables to replace in the config file */
-  variables?: Record<string, string>;
+  variables?: Record<string, string>
 }
 
 /**
@@ -27,11 +27,11 @@ export interface CliConfig {
  */
 export interface CliFlags {
   /** Whether to run command for all workers */
-  all?: boolean;
+  all?: boolean
   /** Environment to use (dev, production etc.) */
-  env?: string;
+  env?: string
   /** Command to execute (dev or deploy) */
-  command?: WorkerCommand;
+  command?: WorkerCommand
 }
 
 /**
@@ -39,7 +39,7 @@ export interface CliFlags {
  */
 export interface CreateWorkerConfig {
   /** Root directory of the project */
-  rootDir: string;
+  rootDir: string
   /** Workers directory name in monorepo */
-  workersDirName: string;
+  workersDirName: string
 }

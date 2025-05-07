@@ -1,6 +1,6 @@
-import { Hono } from 'hono'
-import { CfEnv } from '@workers-turbo/types'
-import { ServerService } from '@workers-turbo/types'
+import {Hono} from 'hono'
+import {CfEnv} from '@workers-turbo/types'
+import {ServerService} from '@workers-turbo/types'
 
 interface Env extends CfEnv {
   SERVICE: ServerService

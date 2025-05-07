@@ -7,11 +7,11 @@ export class WorkerManagerError extends Error {
    * @param message Error message
    */
   constructor(message: string) {
-    super(message);
-    this.name = 'WorkerManagerError';
-    
+    super(message)
+    this.name = 'WorkerManagerError'
+
     // This is needed to make instanceof work correctly in TypeScript
-    Object.setPrototypeOf(this, WorkerManagerError.prototype);
+    Object.setPrototypeOf(this, WorkerManagerError.prototype)
   }
 }
 
@@ -24,11 +24,11 @@ export class ConfigurationError extends WorkerManagerError {
    * @param message Error message
    */
   constructor(message: string) {
-    super(message);
-    this.name = 'ConfigurationError';
-    
+    super(message)
+    this.name = 'ConfigurationError'
+
     // This is needed to make instanceof work correctly in TypeScript
-    Object.setPrototypeOf(this, ConfigurationError.prototype);
+    Object.setPrototypeOf(this, ConfigurationError.prototype)
   }
 }
 
@@ -41,11 +41,11 @@ export class WorkerCommandError extends WorkerManagerError {
    * @param message Error message
    */
   constructor(message: string) {
-    super(message);
-    this.name = 'WorkerCommandError';
-    
+    super(message)
+    this.name = 'WorkerCommandError'
+
     // This is needed to make instanceof work correctly in TypeScript
-    Object.setPrototypeOf(this, WorkerCommandError.prototype);
+    Object.setPrototypeOf(this, WorkerCommandError.prototype)
   }
 }
 
@@ -58,11 +58,11 @@ export class FileOperationError extends WorkerManagerError {
    * @param message Error message
    */
   constructor(message: string) {
-    super(message);
-    this.name = 'FileOperationError';
-    
+    super(message)
+    this.name = 'FileOperationError'
+
     // This is needed to make instanceof work correctly in TypeScript
-    Object.setPrototypeOf(this, FileOperationError.prototype);
+    Object.setPrototypeOf(this, FileOperationError.prototype)
   }
 }
 
@@ -75,11 +75,11 @@ export class ServiceBindingError extends WorkerManagerError {
    * @param message Error message
    */
   constructor(message: string) {
-    super(message);
-    this.name = 'ServiceBindingError';
-    
+    super(message)
+    this.name = 'ServiceBindingError'
+
     // This is needed to make instanceof work correctly in TypeScript
-    Object.setPrototypeOf(this, ServiceBindingError.prototype);
+    Object.setPrototypeOf(this, ServiceBindingError.prototype)
   }
 }
 
@@ -87,9 +87,9 @@ export class ServiceBindingError extends WorkerManagerError {
  * Error thrown when a spawned wrangler command fails
  */
 export class WranglerError extends Error {
-  args: string[];
-  code: number;
-  command: string;
+  args: string[]
+  code: number
+  command: string
 
   /**
    * Creates a new WranglerError
@@ -98,19 +98,14 @@ export class WranglerError extends Error {
    * @param command The wrangler command that was executed
    * @param args The arguments passed to the command
    */
-  constructor(
-    message: string,
-    code: number,
-    command: string,
-    args: string[]
-  ) {
-    super(message);
-    this.name = "WranglerError";
-    this.code = code;
-    this.command = command;
-    this.args = args;
+  constructor(message: string, code: number, command: string, args: string[]) {
+    super(message)
+    this.name = 'WranglerError'
+    this.code = code
+    this.command = command
+    this.args = args
 
     // This is needed to make instanceof work correctly in TypeScript
-    Object.setPrototypeOf(this, WranglerError.prototype);
+    Object.setPrototypeOf(this, WranglerError.prototype)
   }
 }

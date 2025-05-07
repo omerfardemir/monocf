@@ -1,35 +1,35 @@
-import { execEventListener } from "./wrangler-types.js";
+import {execEventListener} from './wrangler-types.js'
 
 /**
- * Interface for command handler 
+ * Interface for command handler
  */
 export interface Commander {
-  cmdEvents(): execEventListener;
-  error(error: Error | string, ...args: unknown[]): never;
-  warn(input: Error | string): Error | string;
+  cmdEvents(): execEventListener
+  error(error: Error | string, ...args: unknown[]): never
+  warn(input: Error | string): Error | string
 }
 
 /**
  * Available worker commands
  */
-export type WorkerCommand = 'deploy' | 'dev';
+export type WorkerCommand = 'deploy' | 'dev'
 
 /**
  * Base interface for all worker command parameters
  */
 export interface BaseCommandParams {
   /** Worker name */
-  workerName: string;
+  workerName: string
   /** Root directory of the project */
-  rootDir: string;
+  rootDir: string
   /** Workers directory name in monorepo */
-  workersDirName: string;
+  workersDirName: string
   /** Environment to use (dev, production etc.) */
-  env?: string;
+  env?: string
   /** Base wrangler config file */
-  baseConfig?: string;
+  baseConfig?: string
   /** Variables to replace in the config file */
-  variables?: Record<string, string>;
+  variables?: Record<string, string>
 }
 
 /**
@@ -37,7 +37,7 @@ export interface BaseCommandParams {
  */
 export interface DevCommandParams extends BaseCommandParams {
   /** Command type */
-  command: 'dev';
+  command: 'dev'
 }
 
 /**
@@ -45,15 +45,15 @@ export interface DevCommandParams extends BaseCommandParams {
  */
 export interface DeployCommandParams extends BaseCommandParams {
   /** Command type */
-  command: 'deploy';
+  command: 'deploy'
   /** Whether to deploy secrets for the worker */
-  deploySecrets?: boolean;
+  deploySecrets?: boolean
 }
 
 /**
  * Union type of all command parameters
  */
-export type WorkerCommandParams = DevCommandParams | DeployCommandParams;
+export type WorkerCommandParams = DevCommandParams | DeployCommandParams
 
 /**
  * Type guard to check if parameters are for dev command
@@ -61,7 +61,7 @@ export type WorkerCommandParams = DevCommandParams | DeployCommandParams;
  * @returns True if parameters are for dev command
  */
 export function isDevCommandParams(params: WorkerCommandParams): params is DevCommandParams {
-  return params.command === 'dev';
+  return params.command === 'dev'
 }
 
 /**
@@ -70,5 +70,5 @@ export function isDevCommandParams(params: WorkerCommandParams): params is DevCo
  * @returns True if parameters are for deploy command
  */
 export function isDeployCommandParams(params: WorkerCommandParams): params is DeployCommandParams {
-  return params.command === 'deploy';
+  return params.command === 'deploy'
 }

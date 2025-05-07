@@ -1,25 +1,25 @@
-import { 
-  ConfigurationError, 
-  FileOperationError, 
-  ServiceBindingError, 
-  WorkerCommandError, 
-  WorkerManagerError, 
-  WranglerError
-} from "../types/error-types.js";
-import { Commander } from "../types/command-types.js";
+import {
+  ConfigurationError,
+  FileOperationError,
+  ServiceBindingError,
+  WorkerCommandError,
+  WorkerManagerError,
+  WranglerError,
+} from '../types/error-types.js'
+import {Commander} from '../types/command-types.js'
 
 /**
  * Service for handling errors in the application
  */
 export class ErrorService {
-  private command: Commander;
+  private command: Commander
 
   /**
    * Creates a new ErrorService
    * @param command Command instance for error reporting
    */
   constructor(command: Commander) {
-    this.command = command;
+    this.command = command
   }
 
   /**
@@ -28,32 +28,32 @@ export class ErrorService {
    * @param exit Whether to exit the process
    */
   handleError(error: Error, exit: boolean = true): void {
-    let message: string;
-    let code = 1;
+    let message: string
+    let code = 1
 
     if (error instanceof WorkerManagerError) {
-      message = `${error.name}: ${error.message}`;
-      
+      message = `${error.name}: ${error.message}`
+
       if (error instanceof ConfigurationError) {
-        message = `Configuration Error: ${error.message}`;
+        message = `Configuration Error: ${error.message}`
       } else if (error instanceof WorkerCommandError) {
-        message = `Worker Command Error: ${error.message}`;
+        message = `Worker Command Error: ${error.message}`
       } else if (error instanceof FileOperationError) {
-        message = `File Operation Error: ${error.message}`;
+        message = `File Operation Error: ${error.message}`
       } else if (error instanceof ServiceBindingError) {
-        message = `Service Binding Error: ${error.message}`;
+        message = `Service Binding Error: ${error.message}`
       } else if (error instanceof WranglerError) {
-        message = `Wrangler Error: ${error.message}`;
-        code = error.code;
+        message = `Wrangler Error: ${error.message}`
+        code = error.code
       }
     } else {
-      message = error.message;
+      message = error.message
     }
 
     if (exit) {
-      this.command.error(message, { exit: code });
+      this.command.error(message, {exit: code})
     } else {
-      this.command.warn(message);
+      this.command.warn(message)
     }
   }
 
@@ -62,7 +62,7 @@ export class ErrorService {
    * @param message Error message
    */
   throwConfigurationError(message: string): never {
-    throw new ConfigurationError(message);
+    throw new ConfigurationError(message)
   }
 
   /**
@@ -70,7 +70,7 @@ export class ErrorService {
    * @param message Error message
    */
   throwWorkerCommandError(message: string): never {
-    throw new WorkerCommandError(message);
+    throw new WorkerCommandError(message)
   }
 
   /**
@@ -78,7 +78,7 @@ export class ErrorService {
    * @param message Error message
    */
   throwFileOperationError(message: string): never {
-    throw new FileOperationError(message);
+    throw new FileOperationError(message)
   }
 
   /**
@@ -86,15 +86,10 @@ export class ErrorService {
    * @param message Error message
    */
   throwServiceBindingError(message: string): never {
-    throw new ServiceBindingError(message);
+    throw new ServiceBindingError(message)
   }
 
-  throwWranglerError(
-    message: string,
-    code: number,
-    command: string,
-    args: string[]
-  ): never {
-    throw new WranglerError(message, code, command, args);
+  throwWranglerError(message: string, code: number, command: string, args: string[]): never {
+    throw new WranglerError(message, code, command, args)
   }
 }

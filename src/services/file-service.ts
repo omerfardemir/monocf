@@ -1,38 +1,26 @@
-import { 
-  existsSync, 
-  readFileSync, 
-  readdirSync, 
-  unlinkSync, 
-  writeFileSync 
-} from "node:fs";
-import { join } from "node:path";
+import {existsSync, readFileSync, readdirSync, unlinkSync, writeFileSync} from 'node:fs'
+import {join} from 'node:path'
 
-import { ErrorService } from "./error-service.js";
-import { 
-  TEMP_BASE_WRANGLER_FILE, 
-  TEMP_WRANGLER_FILE
-} from "../types/wrangler-types.js";
-import { appendLine, sanitizeWorkerName } from "../utils/index.js";
-import { FileOperationError } from "../types/error-types.js";
+import {ErrorService} from './error-service.js'
+import {TEMP_BASE_WRANGLER_FILE, TEMP_WRANGLER_FILE} from '../types/wrangler-types.js'
+import {appendLine, sanitizeWorkerName} from '../utils/index.js'
+import {FileOperationError} from '../types/error-types.js'
 
-import { 
-  experimental_patchConfig, 
-  experimental_readRawConfig 
-} from "wrangler";
+import {experimental_patchConfig, experimental_readRawConfig} from 'wrangler'
 
 /**
  * Service for handling file operations
  */
 export class FileService {
-  private errorService: ErrorService;
-  private tempFiles: string[] = [];
+  private errorService: ErrorService
+  private tempFiles: string[] = []
 
   /**
    * Creates a new FileService
    * @param errorService Error service for handling errors
    */
   constructor(errorService: ErrorService) {
-    this.errorService = errorService;
+    this.errorService = errorService
   }
 
   /**
@@ -46,30 +34,30 @@ export class FileService {
    * @returns Path to the temporary wrangler config file
    */
   createTempWranglerConfig(options: {
-    workerName: string,
-    configPath: string,
-    workerPath: string,
-    baseConfigPath?: string,
+    workerName: string
+    configPath: string
+    workerPath: string
+    baseConfigPath?: string
     replaceValues?: Record<string, string>
   }): string {
     try {
-      const tempWranglerPath = join(options.workerPath, TEMP_WRANGLER_FILE);
-      const tempBaseWranglerConfigPath = join(options.workerPath, TEMP_BASE_WRANGLER_FILE);
+      const tempWranglerPath = join(options.workerPath, TEMP_WRANGLER_FILE)
+      const tempBaseWranglerConfigPath = join(options.workerPath, TEMP_BASE_WRANGLER_FILE)
 
       if (existsSync(tempWranglerPath)) {
-        unlinkSync(tempWranglerPath);
+        unlinkSync(tempWranglerPath)
       }
 
-      const jsonContent = readFileSync(options.configPath, "utf8");
-      writeFileSync(tempWranglerPath, jsonContent);
+      const jsonContent = readFileSync(options.configPath, 'utf8')
+      writeFileSync(tempWranglerPath, jsonContent)
 
       if (options.baseConfigPath) {
         if (existsSync(tempBaseWranglerConfigPath)) {
-          unlinkSync(tempBaseWranglerConfigPath);
+          unlinkSync(tempBaseWranglerConfigPath)
         }
 
-        const baseContent = readFileSync(options.baseConfigPath, "utf8");
-        writeFileSync(tempBaseWranglerConfigPath, baseContent);
+        const baseContent = readFileSync(options.baseConfigPath, 'utf8')
+        writeFileSync(tempBaseWranglerConfigPath, baseContent)
       }
 
       if (options.baseConfigPath) {
@@ -79,33 +67,37 @@ export class FileService {
         })
       }
 
-      let config = readFileSync(tempWranglerPath, "utf8");
+      let config = readFileSync(tempWranglerPath, 'utf8')
       if (options.replaceValues) {
         for (const [key, value] of Object.entries(options.replaceValues)) {
-          config = config.replaceAll(`{${key}}`, value);
+          config = config.replaceAll(`{${key}}`, value)
         }
       }
 
       writeFileSync(tempWranglerPath, config, {
-        encoding: "utf8",
-        flag: "w",
-      });
+        encoding: 'utf8',
+        flag: 'w',
+      })
 
       // Sanitize worker name
-      const { rawConfig } = experimental_readRawConfig({
+      const {rawConfig} = experimental_readRawConfig({
         config: tempWranglerPath,
-      });
-      experimental_patchConfig(tempWranglerPath, {
-        name: sanitizeWorkerName(rawConfig.name!)
-      }, true);
+      })
+      experimental_patchConfig(
+        tempWranglerPath,
+        {
+          name: sanitizeWorkerName(rawConfig.name!),
+        },
+        true,
+      )
 
-      this.tempFiles.push(tempWranglerPath, tempBaseWranglerConfigPath);
+      this.tempFiles.push(tempWranglerPath, tempBaseWranglerConfigPath)
 
-      return tempWranglerPath;
+      return tempWranglerPath
     } catch (error) {
       this.errorService.throwFileOperationError(
-        `Failed to create temporary wrangler config for ${options.workerName}: ${(error as Error).message}`
-      );
+        `Failed to create temporary wrangler config for ${options.workerName}: ${(error as Error).message}`,
+      )
     }
   }
 
@@ -116,34 +108,26 @@ export class FileService {
    * @param options.workerPath Path to the worker directory
    * @returns Merged config content
    */
-  mergeConfigFiles({
-    workerName,
-    workerPath,
-  }: {
-    workerName: string;
-    workerPath: string;
-  }): string {
+  mergeConfigFiles({workerName, workerPath}: {workerName: string; workerPath: string}): string {
     try {
-      const configPath = join(workerPath, TEMP_WRANGLER_FILE);
-      const baseConfigPath = join(workerPath, TEMP_BASE_WRANGLER_FILE);
+      const configPath = join(workerPath, TEMP_WRANGLER_FILE)
+      const baseConfigPath = join(workerPath, TEMP_BASE_WRANGLER_FILE)
 
-      const { rawConfig: baseRawConfig } = experimental_readRawConfig({
+      const {rawConfig: baseRawConfig} = experimental_readRawConfig({
         config: baseConfigPath,
-      });
+      })
 
-      let config = experimental_patchConfig(configPath, baseRawConfig, true);
-      config = config.replaceAll("{workerName}", workerName);
+      let config = experimental_patchConfig(configPath, baseRawConfig, true)
+      config = config.replaceAll('{workerName}', workerName)
 
       writeFileSync(configPath, config, {
-        encoding: "utf8",
-        flag: "w",
-      });
+        encoding: 'utf8',
+        flag: 'w',
+      })
 
-      return config;
+      return config
     } catch (error) {
-      this.errorService.throwWorkerCommandError(
-        `Failed to merge config files: ${(error as Error).message}`
-      );
+      this.errorService.throwWorkerCommandError(`Failed to merge config files: ${(error as Error).message}`)
     }
   }
 
@@ -154,17 +138,14 @@ export class FileService {
     for (const file of this.tempFiles) {
       try {
         if (existsSync(file)) {
-          unlinkSync(file);
+          unlinkSync(file)
         }
       } catch {
-        this.errorService.handleError(
-          new Error(`Failed to delete temporary file: ${file}`),
-          false
-        );
+        this.errorService.handleError(new Error(`Failed to delete temporary file: ${file}`), false)
       }
     }
 
-    this.tempFiles = [];
+    this.tempFiles = []
   }
 
   /**
@@ -175,12 +156,10 @@ export class FileService {
    */
   getWorkers(rootDir: string, workersDirName: string): string[] {
     try {
-      const workersDirPath = join(rootDir, workersDirName);
-      return readdirSync(workersDirPath);
+      const workersDirPath = join(rootDir, workersDirName)
+      return readdirSync(workersDirPath)
     } catch (error) {
-      this.errorService.throwFileOperationError(
-        `Failed to get workers: ${(error as Error).message}`
-      );
+      this.errorService.throwFileOperationError(`Failed to get workers: ${(error as Error).message}`)
     }
   }
 
@@ -193,14 +172,12 @@ export class FileService {
    */
   validateWorker(rootDir: string, workersDirName: string, workerName: string): void {
     if (!workerName) {
-      this.errorService.throwConfigurationError("Worker name is required");
+      this.errorService.throwConfigurationError('Worker name is required')
     }
 
-    const workerPath = join(rootDir, workersDirName, workerName);
+    const workerPath = join(rootDir, workersDirName, workerName)
     if (!existsSync(workerPath)) {
-      this.errorService.throwFileOperationError(
-        `Worker not found at ${workerPath}. Please check the worker name.`
-      );
+      this.errorService.throwFileOperationError(`Worker not found at ${workerPath}. Please check the worker name.`)
     }
   }
 
@@ -211,11 +188,11 @@ export class FileService {
    * @throws {FileOperationError} If the workers directory does not exist
    */
   validateWorkersDirectory(rootDir: string, workersDirName: string): void {
-    const workersPath = join(rootDir, workersDirName);
+    const workersPath = join(rootDir, workersDirName)
     if (!existsSync(workersPath)) {
       this.errorService.throwFileOperationError(
-        `Workers directory not found at ${workersPath}. Please check the workers directory.`
-      );
+        `Workers directory not found at ${workersPath}. Please check the workers directory.`,
+      )
     }
   }
 
@@ -226,16 +203,16 @@ export class FileService {
    * @returns Path to the environment file
    */
   getEnvironmentFile(workerPath: string, env?: string): string {
-    if (!env || env === "dev") {
-      return join(workerPath, ".dev.vars");
-    }
-    
-    const envFile = join(workerPath, `.dev.vars.${env}`);
-    if (existsSync(envFile)) {
-      return envFile;
+    if (!env || env === 'dev') {
+      return join(workerPath, '.dev.vars')
     }
 
-    return join(workerPath, ".dev.vars");
+    const envFile = join(workerPath, `.dev.vars.${env}`)
+    if (existsSync(envFile)) {
+      return envFile
+    }
+
+    return join(workerPath, '.dev.vars')
   }
 
   /**
@@ -246,13 +223,10 @@ export class FileService {
   addGitignore(gitignorePath: string, lines: string[]): void {
     try {
       for (const line of lines) {
-        appendLine(gitignorePath, line, true);
+        appendLine(gitignorePath, line, true)
       }
     } catch (error) {
-      this.errorService.handleError(
-        new Error(`Failed to update gitignore: ${(error as Error).message}`),
-        false
-      );
+      this.errorService.handleError(new Error(`Failed to update gitignore: ${(error as Error).message}`), false)
     }
   }
 }

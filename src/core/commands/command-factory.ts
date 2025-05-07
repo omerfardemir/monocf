@@ -1,23 +1,20 @@
-import { Commander } from "../../types/command-types.js";
-import { AbstractCommand } from "./abstract-command.js";
+import {Commander} from '../../types/command-types.js'
+import {AbstractCommand} from './abstract-command.js'
 
 /**
  * Factory for creating and executing commands
  */
 export class CommandFactory {
   // Registry of command classes keyed by command name
-  private static commandRegistry: Record<string, new (command: Commander) => AbstractCommand> = {};
+  private static commandRegistry: Record<string, new (command: Commander) => AbstractCommand> = {}
 
   /**
    * Registers a command class with the factory
    * @param commandName The name of the command
    * @param commandClass The command class constructor
    */
-  public static registerCommand(
-    commandName: string, 
-    commandClass: new (command: Commander) => AbstractCommand
-  ): void {
-    this.commandRegistry[commandName] = commandClass;
+  public static registerCommand(commandName: string, commandClass: new (command: Commander) => AbstractCommand): void {
+    this.commandRegistry[commandName] = commandClass
   }
 
   /**
@@ -28,13 +25,13 @@ export class CommandFactory {
    * @throws Error if the command is not registered
    */
   public static createCommand(commandName: string, command: Commander): AbstractCommand {
-    const CommandClass = this.commandRegistry[commandName];
-    
+    const CommandClass = this.commandRegistry[commandName]
+
     if (!CommandClass) {
-      throw new Error(`Command '${commandName}' is not registered`);
+      throw new Error(`Command '${commandName}' is not registered`)
     }
-    
-    return new CommandClass(command);
+
+    return new CommandClass(command)
   }
 
   /**
@@ -46,12 +43,12 @@ export class CommandFactory {
    * @throws Error if the command is not registered
    */
   public static async executeCommand<TArgs = unknown, TFlags = unknown>(
-    commandName: string, 
-    command: Commander, 
-    args?: TArgs, 
-    flags?: TFlags
+    commandName: string,
+    command: Commander,
+    args?: TArgs,
+    flags?: TFlags,
   ): Promise<void> {
-    const commandInstance = this.createCommand(commandName, command);
-    return commandInstance.executeWithErrorHandling(args || {}, flags || {});
+    const commandInstance = this.createCommand(commandName, command)
+    return commandInstance.executeWithErrorHandling(args || {}, flags || {})
   }
 }

@@ -1,22 +1,22 @@
-import { Commander } from "../../types/command-types.js";
-import { ErrorService, FileService } from "../../services/index.js";
+import {Commander} from '../../types/command-types.js'
+import {ErrorService, FileService} from '../../services/index.js'
 
 /**
  * Abstract base class for all CLI commands
  */
 export abstract class AbstractCommand<TArgs = unknown, TFlags = unknown> {
-  protected errorService: ErrorService;
-  protected fileService: FileService;
-  protected command: Commander;
+  protected errorService: ErrorService
+  protected fileService: FileService
+  protected command: Commander
 
   /**
    * Creates a new instance of the command
    * @param command The oclif command instance
    */
   constructor(command: Commander) {
-    this.command = command;
-    this.errorService = new ErrorService(command);
-    this.fileService = new FileService(this.errorService);
+    this.command = command
+    this.errorService = new ErrorService(command)
+    this.fileService = new FileService(this.errorService)
   }
 
   /**
@@ -24,7 +24,7 @@ export abstract class AbstractCommand<TArgs = unknown, TFlags = unknown> {
    * @param args Command arguments
    * @param flags Command flags
    */
-  protected abstract execute(args: TArgs, flags: TFlags): Promise<void>;
+  protected abstract execute(args: TArgs, flags: TFlags): Promise<void>
 
   /**
    * Cleanup method that will be called after command execution
@@ -40,11 +40,11 @@ export abstract class AbstractCommand<TArgs = unknown, TFlags = unknown> {
    */
   public async executeWithErrorHandling(args: TArgs, flags: TFlags): Promise<void> {
     try {
-      await this.execute(args, flags);
+      await this.execute(args, flags)
     } catch (error) {
-      this.errorService.handleError(error instanceof Error ? error : new Error(String(error)));
+      this.errorService.handleError(error instanceof Error ? error : new Error(String(error)))
     } finally {
-      await this.finally();
+      await this.finally()
     }
   }
 }

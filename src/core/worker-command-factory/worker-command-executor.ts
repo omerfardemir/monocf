@@ -1,4 +1,4 @@
-import { WorkerCommandParams } from "../../types/command-types.js";
+import {WorkerCommandParams} from '../../types/command-types.js'
 
 /**
  * Interface for worker command executors
@@ -10,5 +10,5 @@ export interface WorkerCommandExecutor {
    * @param params Command parameters
    * @returns Promise that resolves when the command completes successfully
    */
-  execute(workerName: string, params: WorkerCommandParams): Promise<void>;
+  execute(workerName: string, params: WorkerCommandParams): Promise<void>
 }

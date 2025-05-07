@@ -1,13 +1,8 @@
-import { 
-  ErrorService,
-  FileService,
-  ServiceBindingService,
-  WranglerService
- } from "../../services/index.js";
-import { WorkerCommand } from "../../types/command-types.js";
-import { DeployCommand } from "./deploy-command.js";
-import { DevCommand } from "./dev-command.js";
-import { WorkerCommandExecutor } from "./worker-command-executor.js";
+import {ErrorService, FileService, ServiceBindingService, WranglerService} from '../../services/index.js'
+import {WorkerCommand} from '../../types/command-types.js'
+import {DeployCommand} from './deploy-command.js'
+import {DevCommand} from './dev-command.js'
+import {WorkerCommandExecutor} from './worker-command-executor.js'
 
 /**
  * Factory for creating command executors
@@ -24,34 +19,37 @@ export class WorkerCommandFactory {
    * @param {WranglerService} services.wranglerService Wrangler service
    * @returns Command executor
    */
-  static createCommand(command: WorkerCommand, services: {
-    errorService: ErrorService;
-    fileService: FileService;
-    serviceBindingService: ServiceBindingService;
-    wranglerService: WranglerService;
-  }): WorkerCommandExecutor {
+  static createCommand(
+    command: WorkerCommand,
+    services: {
+      errorService: ErrorService
+      fileService: FileService
+      serviceBindingService: ServiceBindingService
+      wranglerService: WranglerService
+    },
+  ): WorkerCommandExecutor {
     // Create command executor
     switch (command) {
-      case "dev": {
+      case 'dev': {
         return new DevCommand(
           services.serviceBindingService,
           services.errorService,
           services.fileService,
-          services.wranglerService
-        );
+          services.wranglerService,
+        )
       }
 
-      case "deploy": {
+      case 'deploy': {
         return new DeployCommand(
           services.errorService,
           services.fileService,
           services.wranglerService,
-          services.serviceBindingService
-        );
+          services.serviceBindingService,
+        )
       }
 
       default: {
-        throw new Error(`Unknown command: ${command}`);
+        throw new Error(`Unknown command: ${command}`)
       }
     }
   }

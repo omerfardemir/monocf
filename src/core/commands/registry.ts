@@ -1,18 +1,18 @@
-import { Commander } from "../../types/command-types.js";
-import { CommandFactory } from "./command-factory.js";
-import { AbstractCommand } from "./abstract-command.js";
+import {Commander} from '../../types/command-types.js'
+import {CommandFactory} from './command-factory.js'
+import {AbstractCommand} from './abstract-command.js'
 
 // Import command implementations
-import { WhoamiCommand } from "./whoami/index.js";
-import { WorkerCreateCommand } from "./worker/create-command.js";
-import { WranglerCommand } from "./worker/wrangler-command.js";
+import {WhoamiCommand} from './whoami/index.js'
+import {WorkerCreateCommand} from './worker/create-command.js'
+import {WranglerCommand} from './worker/wrangler-command.js'
 
 /**
  * Command registration interface
  */
 interface CommandRegistration {
-  name: string;
-  commandClass: new (command: Commander) => AbstractCommand;
+  name: string
+  commandClass: new (command: Commander) => AbstractCommand
 }
 
 /**
@@ -21,19 +21,19 @@ interface CommandRegistration {
  * independent of the CLI framework
  */
 export class CommandRegistry {
-  private static _instance: CommandRegistry;
-  private _initialized = false;
-  private _commandRegistrations: CommandRegistration[] = [];
+  private static _instance: CommandRegistry
+  private _initialized = false
+  private _commandRegistrations: CommandRegistration[] = []
 
   /**
    * Get the singleton instance of the command registry
    */
   public static getInstance(): CommandRegistry {
     if (!CommandRegistry._instance) {
-      CommandRegistry._instance = new CommandRegistry();
+      CommandRegistry._instance = new CommandRegistry()
     }
 
-    return CommandRegistry._instance;
+    return CommandRegistry._instance
   }
 
   /**
@@ -41,7 +41,7 @@ export class CommandRegistry {
    */
   private constructor() {
     // Register all known commands
-    this.registerBuiltInCommands();
+    this.registerBuiltInCommands()
   }
 
   /**
@@ -50,7 +50,7 @@ export class CommandRegistry {
    * @param commandClass The command class constructor
    */
   public registerCommand(name: string, commandClass: new (command: Commander) => AbstractCommand): void {
-    this._commandRegistrations.push({ name, commandClass });
+    this._commandRegistrations.push({name, commandClass})
   }
 
   /**
@@ -60,12 +60,12 @@ export class CommandRegistry {
    */
   private registerBuiltInCommands(): void {
     // Register whoami command
-    this.registerCommand('whoami', WhoamiCommand);
-    
+    this.registerCommand('whoami', WhoamiCommand)
+
     // Register worker commands
-    this.registerCommand('worker', WranglerCommand);
-    this.registerCommand('worker:create', WorkerCreateCommand);
-    
+    this.registerCommand('worker', WranglerCommand)
+    this.registerCommand('worker:create', WorkerCreateCommand)
+
     // Add new commands here...
     // this.registerCommand('new-command', NewCommandClass);
   }
@@ -76,15 +76,15 @@ export class CommandRegistry {
    */
   public initialize(): void {
     if (this._initialized) {
-      return;
-    }
-    
-    // Register all commands with the CommandFactory
-    for (const registration of this._commandRegistrations) {
-      CommandFactory.registerCommand(registration.name, registration.commandClass);
+      return
     }
 
-    this._initialized = true;
+    // Register all commands with the CommandFactory
+    for (const registration of this._commandRegistrations) {
+      CommandFactory.registerCommand(registration.name, registration.commandClass)
+    }
+
+    this._initialized = true
   }
 
   /**
@@ -98,20 +98,20 @@ export class CommandRegistry {
     commandName: string,
     command: Commander,
     args?: TArgs,
-    flags?: TFlags
+    flags?: TFlags,
   ): Promise<void> {
     // Ensure registry is initialized
-    this.getInstance().initialize();
-    
+    this.getInstance().initialize()
+
     // Execute the command
-    return CommandFactory.executeCommand(commandName, command, args, flags);
+    return CommandFactory.executeCommand(commandName, command, args, flags)
   }
-  
+
   /**
    * Get all registered commands
    * @returns An array of command registrations
    */
   public getCommands(): CommandRegistration[] {
-    return [...this._commandRegistrations];
+    return [...this._commandRegistrations]
   }
 }

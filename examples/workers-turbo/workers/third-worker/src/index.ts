@@ -1,8 +1,10 @@
-import { WorkerEntrypoint } from "cloudflare:workers";
+import {WorkerEntrypoint} from 'cloudflare:workers'
 
 export default class ServerService extends WorkerEntrypoint {
-  async fetch() { return new Response(null, { status: 404 }); }
+  async fetch() {
+    return new Response(null, {status: 404})
+  }
   sum(a: number, b: number) {
-    return a + b;
+    return a + b
   }
 }

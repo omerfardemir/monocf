@@ -1,6 +1,6 @@
-import { Command } from "@oclif/core";
-import { execEventListener } from "./wrangler-types.js";
-import { Commander } from "./command-types.js";
+import {Command} from '@oclif/core'
+import {execEventListener} from './wrangler-types.js'
+import {Commander} from './command-types.js'
 
 /**
  * Base class for all commands
@@ -16,18 +16,18 @@ export abstract class CommandBase extends Command implements Commander {
         if (code && code !== 0) {
           this.error(`Command failed with code ${code}`, {
             code: code.toString(),
-            exit: code
-          });
+            exit: code,
+          })
         }
       },
       onStderrListener: (data: string) => {
         this.error(`${data}`, {
-          exit: false
-        });
+          exit: false,
+        })
       },
       onStdoutListener: (data: string) => {
-        this.log(`${data}`);
-      }
-    };
+        this.log(`${data}`)
+      },
+    }
   }
 }

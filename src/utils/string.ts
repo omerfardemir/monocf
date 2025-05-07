@@ -5,8 +5,8 @@
  */
 export function sanitizeWorkerName(workerName: string): string {
   if (!/^[a-z0-9-]+$/.test(workerName)) {
-    return workerName.replaceAll(/[^a-z0-9-]/g, "-");
+    return workerName.replaceAll(/[^a-z0-9-]/g, '-')
   }
 
-  return workerName;
+  return workerName
 }

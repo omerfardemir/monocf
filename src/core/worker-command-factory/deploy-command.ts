@@ -1,24 +1,19 @@
-import { join } from "node:path";
-import { existsSync } from "node:fs";
-import { 
-  ErrorService,
-  FileService,
-  ServiceBindingService,
-  WranglerService
-} from "../../services/index.js";
-import { DeployCommandParams, isDeployCommandParams } from "../../types/command-types.js";
-import { WRANGLER_FILE } from "../../types/wrangler-types.js";
-import { WorkerCommandExecutor } from "./worker-command-executor.js";
-import { experimental_patchConfig } from "wrangler";
+import {join} from 'node:path'
+import {existsSync} from 'node:fs'
+import {ErrorService, FileService, ServiceBindingService, WranglerService} from '../../services/index.js'
+import {DeployCommandParams, isDeployCommandParams} from '../../types/command-types.js'
+import {WRANGLER_FILE} from '../../types/wrangler-types.js'
+import {WorkerCommandExecutor} from './worker-command-executor.js'
+import {experimental_patchConfig} from 'wrangler'
 
 /**
  * Command executor for the deploy command
  */
 export class DeployCommand implements WorkerCommandExecutor {
-  private errorService: ErrorService;
-  private fileService: FileService;
-  private wranglerService: WranglerService;
-  private serviceBindingService: ServiceBindingService;
+  private errorService: ErrorService
+  private fileService: FileService
+  private wranglerService: WranglerService
+  private serviceBindingService: ServiceBindingService
 
   /**
    * Creates a new DeployCommand
@@ -33,10 +28,10 @@ export class DeployCommand implements WorkerCommandExecutor {
     wranglerService: WranglerService,
     serviceBindingService: ServiceBindingService,
   ) {
-    this.errorService = errorService;
-    this.fileService = fileService;
-    this.wranglerService = wranglerService;
-    this.serviceBindingService = serviceBindingService;
+    this.errorService = errorService
+    this.fileService = fileService
+    this.wranglerService = wranglerService
+    this.serviceBindingService = serviceBindingService
   }
 
   /**
@@ -47,70 +42,62 @@ export class DeployCommand implements WorkerCommandExecutor {
    */
   async execute(workerName: string, params: DeployCommandParams): Promise<void> {
     if (!isDeployCommandParams(params)) {
-      this.errorService.throwConfigurationError("Invalid command parameters for deploy command");
+      this.errorService.throwConfigurationError('Invalid command parameters for deploy command')
     }
 
     try {
       // Validate worker
-      this.fileService.validateWorker(params.rootDir, params.workersDirName, workerName);
+      this.fileService.validateWorker(params.rootDir, params.workersDirName, workerName)
 
       // Create temp config
-      const workerPath = join(params.rootDir, params.workersDirName, workerName);
-      const wranglerConfigPath = join(workerPath, WRANGLER_FILE);
-      const baseConfigPath = params.baseConfig 
-        ? join(params.rootDir, params.baseConfig) 
-        : undefined;
+      const workerPath = join(params.rootDir, params.workersDirName, workerName)
+      const wranglerConfigPath = join(workerPath, WRANGLER_FILE)
+      const baseConfigPath = params.baseConfig ? join(params.rootDir, params.baseConfig) : undefined
 
       const tempWranglerConfigPath = this.fileService.createTempWranglerConfig({
         workerName,
         configPath: wranglerConfigPath,
         workerPath,
         baseConfigPath,
-        replaceValues: params.variables
-      });
+        replaceValues: params.variables,
+      })
 
       // Handle service bindings
       const services = this.serviceBindingService.handleServiceBinding({
         configPath: tempWranglerConfigPath,
         rootDir: params.rootDir,
         workersDirName: params.workersDirName,
-        baseConfigPath: baseConfigPath,
+        baseConfigPath,
         variables: params.variables,
-        env: params.env
-      });
+        env: params.env,
+      })
 
-      const patch = params.env ? {
-        env: {
-          [params.env]: {
-            services
+      const patch = params.env
+        ? {
+            env: {
+              [params.env]: {
+                services,
+              },
+            },
           }
-        }
-      } : {
-        services
-      };
+        : {
+            services,
+          }
 
-      experimental_patchConfig(tempWranglerConfigPath, patch, false);
+      experimental_patchConfig(tempWranglerConfigPath, patch, false)
 
       // Deploy secrets if needed
       if (params.deploySecrets && params.env) {
-        await this.wranglerService.execWorkerCommand(
-          "deploy",
-          [tempWranglerConfigPath],
-          params.env
-        );
-        
-        await this.deploySecrets(workerName, workerPath, params.env, tempWranglerConfigPath);
-        return;
+        await this.wranglerService.execWorkerCommand('deploy', [tempWranglerConfigPath], params.env)
+
+        await this.deploySecrets(workerName, workerPath, params.env, tempWranglerConfigPath)
+        return
       }
 
       // Run wrangler command
-      return this.wranglerService.execWorkerCommand(
-        "deploy",
-        [tempWranglerConfigPath],
-        params.env
-      );
+      return this.wranglerService.execWorkerCommand('deploy', [tempWranglerConfigPath], params.env)
     } catch (error) {
-      this.errorService.handleError(error instanceof Error ? error : new Error(String(error)));
+      this.errorService.handleError(error instanceof Error ? error : new Error(String(error)))
     }
   }
 
@@ -122,24 +109,15 @@ export class DeployCommand implements WorkerCommandExecutor {
    * @param configPath Path to the wrangler config file
    * @returns Promise that resolves when the secrets are deployed successfully
    */
-  private async deploySecrets(
-    workerName: string,
-    workerPath: string,
-    env: string,
-    configPath: string
-  ): Promise<void> {
-    const varsPath = this.fileService.getEnvironmentFile(workerPath, env);
+  private async deploySecrets(workerName: string, workerPath: string, env: string, configPath: string): Promise<void> {
+    const varsPath = this.fileService.getEnvironmentFile(workerPath, env)
     if (existsSync(varsPath)) {
       try {
-        return await this.wranglerService.execSecretBulkUpload(
-          varsPath,
-          configPath,
-          env
-        );
+        return await this.wranglerService.execSecretBulkUpload(varsPath, configPath, env)
       } catch (error) {
         this.errorService.throwWorkerCommandError(
-          `Failed to deploy secrets for ${workerName}: ${(error as Error).message}`
-        );
+          `Failed to deploy secrets for ${workerName}: ${(error as Error).message}`,
+        )
       }
     }
   }
