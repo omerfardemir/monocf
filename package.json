@@ -1,7 +1,7 @@
 {
   "name": "monocf",
   "description": "MonoCF for manage Cloudflare Workers in monorepo",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "author": "Omer Demir",
   "bin": {
     "monocf": "./bin/run.js"
