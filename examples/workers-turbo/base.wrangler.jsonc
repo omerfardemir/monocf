@@ -11,22 +11,16 @@
     "enabled": true
   },
   "vars": {
-    "ENV": "dev",
-    "LOCAL": true,
     "API_BASE_URL": "http://localhost:8787/api/{version}"
   },
   "env": {
     "dev": {
       "vars": {
-        "ENV": "dev",
-        "LOCAL": false,
         "API_BASE_URL": "https://mydomain.com/api/{version}"
       }
     },
     "production": {
       "vars": {
-        "ENV": "production",
-        "LOCAL": false,
         "API_BASE_URL": "https://mydomain.com/api/{version}"
       }
     }

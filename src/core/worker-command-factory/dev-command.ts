@@ -58,6 +58,7 @@ export class DevCommand implements WorkerCommandExecutor {
         workerPath,
         baseConfigPath,
         replaceValues: params.variables,
+        env: params.env,
       })
 
       // Handle service bindings

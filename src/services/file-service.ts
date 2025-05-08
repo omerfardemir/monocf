@@ -7,6 +7,7 @@ import {appendLine, sanitizeWorkerName} from '../utils/index.js'
 import {FileOperationError} from '../types/error-types.js'
 
 import {experimental_patchConfig, experimental_readRawConfig} from 'wrangler'
+import {getPackageVersion} from '../utils/version.js'
 
 /**
  * Service for handling file operations
@@ -31,6 +32,7 @@ export class FileService {
    * @param {string} options.workerPath Path to the worker directory
    * @param {string} options.baseConfigPath Path to the base wrangler config file
    * @param {Record<string, string>} options.replaceValues Variables to replace in the config file
+   * @param {string} options.env Environment to use
    * @returns Path to the temporary wrangler config file
    */
   createTempWranglerConfig(options: {
@@ -39,8 +41,10 @@ export class FileService {
     workerPath: string
     baseConfigPath?: string
     replaceValues?: Record<string, string>
+    env?: string
   }): string {
     try {
+      const packagePath = join(options.workerPath, 'package.json')
       const tempWranglerPath = join(options.workerPath, TEMP_WRANGLER_FILE)
       const tempBaseWranglerConfigPath = join(options.workerPath, TEMP_BASE_WRANGLER_FILE)
 
@@ -83,13 +87,41 @@ export class FileService {
       const {rawConfig} = experimental_readRawConfig({
         config: tempWranglerPath,
       })
+      const sanitizedWorkerName = sanitizeWorkerName(rawConfig.name!)
+
       experimental_patchConfig(
         tempWranglerPath,
         {
-          name: sanitizeWorkerName(rawConfig.name!),
+          name: sanitizedWorkerName,
         },
         true,
       )
+
+      // Add default variables
+      const version = getPackageVersion(packagePath)
+      const envPatch = options.env
+        ? {
+            env: {
+              [options.env]: {
+                vars: {
+                  NAME: sanitizedWorkerName,
+                  ENVIRONMENT: options.env ?? 'dev',
+                  VERSION: version.version,
+                  RELEASE: version.release,
+                },
+              },
+            },
+          }
+        : {
+            vars: {
+              NAME: sanitizedWorkerName,
+              ENVIRONMENT: options.env ?? 'dev',
+              VERSION: version.version,
+              RELEASE: version.release,
+            },
+          }
+
+      experimental_patchConfig(tempWranglerPath, envPatch, true)
 
       this.tempFiles.push(tempWranglerPath, tempBaseWranglerConfigPath)
 

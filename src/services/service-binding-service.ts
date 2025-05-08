@@ -74,6 +74,7 @@ export class ServiceBindingService {
           workerPath: servicePath,
           baseConfigPath: options.baseConfigPath,
           replaceValues: options.variables,
+          env: options.env,
         })
 
         // Update the main config with the service binding
