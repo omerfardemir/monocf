@@ -6,7 +6,7 @@ import {join} from 'node:path'
 import {ErrorService} from './error-service.js'
 import {FileService} from './file-service.js'
 
-import { TEMP_ENV_FILE } from '../types/wrangler-types.js'
+import {TEMP_ENV_FILE} from '../types/wrangler-types.js'
 
 /**
  * Service for handling environment operations
@@ -26,10 +26,7 @@ export class EnvironmentService {
    * @param errorService Error service for handling errors
    * @param fileService File service for handling file operations
    */
-  constructor(
-    errorService: ErrorService, 
-    fileService: FileService,
-  ) {
+  constructor(errorService: ErrorService, fileService: FileService) {
     this.errorService = errorService
     this.fileService = fileService
   }
@@ -42,7 +39,6 @@ export class EnvironmentService {
    * Overrides the environment variables for the worker
    * @param workerPath Path to the worker directory
    * @param env Environment to override
-   * @returns void
    */
   patchEnvironmentFile(workerPath: string, env?: string): void {
     const workerEnvPath = this.getWorkerEnvFile(workerPath, env)
@@ -59,10 +55,7 @@ export class EnvironmentService {
       env: workerEnvVars,
     })
 
-    this.writeEnvironmentVariables(
-      workerEnvPath,
-      {...rootEnvVars, ...workerEnvVars},
-    )
+    this.writeEnvironmentVariables(workerEnvPath, {...rootEnvVars, ...workerEnvVars})
   }
 
   /**
@@ -75,30 +68,28 @@ export class EnvironmentService {
     const workerEnvVars = this.parseEnvironmentVariables(this.getWorkerEnvFile(workerPath, env))
     const rootEnvVars = this.parseEnvironmentVariables(this.getRootEnvFile(env))
     const tempEnvPath = join(workerPath, TEMP_ENV_FILE)
-    
+
     try {
       if (existsSync(tempEnvPath)) {
         unlinkSync(tempEnvPath)
       }
     } catch (error) {
-      this.errorService.throwFileOperationError(`Failed to delete temporary environment variables file: ${(error as Error).message}`)
+      this.errorService.throwFileOperationError(
+        `Failed to delete temporary environment variables file: ${(error as Error).message}`,
+      )
     }
 
     if (!workerEnvVars && !rootEnvVars) {
       return tempEnvPath
     }
-    
-    this.writeEnvironmentVariables(
-      tempEnvPath,
-      {...rootEnvVars, ...workerEnvVars},
-    )
+
+    this.writeEnvironmentVariables(tempEnvPath, {...rootEnvVars, ...workerEnvVars})
     this.tempEnvPath = tempEnvPath
     return tempEnvPath
   }
 
   /**
    * Rolls back the environment variables for the worker
-   * @returns void
    */
   rollbackEnvironmentVariables(): void {
     const len = this.backupList.length
@@ -117,8 +108,11 @@ export class EnvironmentService {
           unlinkSync(this.tempEnvPath)
         }
       } catch (error) {
-        this.errorService.throwFileOperationError(`Failed to delete temporary environment variables file: ${(error as Error).message}`)
+        this.errorService.throwFileOperationError(
+          `Failed to delete temporary environment variables file: ${(error as Error).message}`,
+        )
       }
+
       this.tempEnvPath = undefined
     }
   }
@@ -153,7 +147,9 @@ export class EnvironmentService {
         const envContent = readFileSync(filePath, 'utf8')
         return dotenv.parse(envContent)
       } catch (error) {
-        this.errorService.throwFileOperationError(`Failed to read environment variables from ${filePath}: ${(error as Error).message}`)
+        this.errorService.throwFileOperationError(
+          `Failed to read environment variables from ${filePath}: ${(error as Error).message}`,
+        )
       }
     }
 
@@ -164,17 +160,23 @@ export class EnvironmentService {
    * Writes environment variables to the environment file
    * @param filePath Path to the environment file
    * @param vars Environment variables to write
-   * @returns void
    */
   private writeEnvironmentVariables(filePath: string, vars: Record<string, string>): void {
-    if (!filePath || !existsSync(filePath)) {
+    if (!filePath) {
       return
     }
 
     try {
-      writeFileSync(filePath, Object.entries(vars).map(([key, value]) => `${key}=${value}`).join('\n'))
+      writeFileSync(
+        filePath,
+        Object.entries(vars)
+          .map(([key, value]) => `${key}=${value}`)
+          .join('\n'),
+      )
     } catch (error) {
-      this.errorService.throwFileOperationError(`Failed to write environment variables to ${filePath}: ${(error as Error).message}`)
+      this.errorService.throwFileOperationError(
+        `Failed to write environment variables to ${filePath}: ${(error as Error).message}`,
+      )
     }
   }
 }

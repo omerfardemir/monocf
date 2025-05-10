@@ -4,9 +4,15 @@ import {execEventListener} from './wrangler-types.js'
  * Interface for command handler
  */
 export interface Commander {
+  /** Gets the command events */
   cmdEvents(): execEventListener
-  error(error: Error | string, ...args: unknown[]): never
+  /** Logs an error */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  error(input: Error | string, options?: any): void | never
+  /** Logs a warning */
   warn(input: Error | string): Error | string
+  /** Logs a message */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   log(message?: string, ...args: any[]): void
 }
 

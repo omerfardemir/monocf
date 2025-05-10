@@ -1,5 +1,10 @@
 import {Commander, WorkerCommandParams} from '../../../types/command-types.js'
-import {WranglerService, ConfigurationService, ServiceBindingService, EnvironmentService} from '../../../services/index.js'
+import {
+  WranglerService,
+  ConfigurationService,
+  ServiceBindingService,
+  EnvironmentService,
+} from '../../../services/index.js'
 import {WorkerArgs, WorkerFlags} from '../../../flags/index.js'
 import {AbstractCommand} from '../abstract-command.js'
 import {WorkerCommandFactory} from '../../worker-command-factory/index.js'
@@ -46,6 +51,7 @@ export class WranglerCommand extends AbstractCommand<WorkerArgs, WorkerFlags> {
       serviceBindingService: this.serviceBindingService,
       wranglerService: this.wranglerService,
       environmentService: this.environmentService,
+      logService: this.logService,
     })
 
     // Execute command

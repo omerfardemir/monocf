@@ -1,9 +1,15 @@
 import {join} from 'node:path'
-import {EnvironmentService, ErrorService, FileService, ServiceBindingService, WranglerService} from '../../services/index.js'
+import {
+  EnvironmentService,
+  ErrorService,
+  FileService,
+  LogService,
+  ServiceBindingService,
+  WranglerService,
+} from '../../services/index.js'
 import {DevCommandParams, isDevCommandParams} from '../../types/command-types.js'
 import {WRANGLER_FILE} from '../../types/wrangler-types.js'
 import {WorkerCommandExecutor} from './worker-command-executor.js'
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 
 /**
  * Command executor for the dev command
@@ -14,6 +20,7 @@ export class DevCommand implements WorkerCommandExecutor {
   private fileService: FileService
   private wranglerService: WranglerService
   private environmentService: EnvironmentService
+  private logService: LogService
 
   /**
    * Creates a new DevCommand
@@ -22,19 +29,23 @@ export class DevCommand implements WorkerCommandExecutor {
    * @param fileService File service
    * @param wranglerService Wrangler service
    * @param environmentService Environment service
+   * @param logService Log service
    */
+  // eslint-disable-next-line max-params
   constructor(
     serviceBindingService: ServiceBindingService,
     errorService: ErrorService,
     fileService: FileService,
     wranglerService: WranglerService,
     environmentService: EnvironmentService,
+    logService: LogService,
   ) {
     this.serviceBindingService = serviceBindingService
     this.errorService = errorService
     this.fileService = fileService
     this.wranglerService = wranglerService
     this.environmentService = environmentService
+    this.logService = logService
   }
 
   /**
@@ -44,6 +55,8 @@ export class DevCommand implements WorkerCommandExecutor {
    * @returns Promise that resolves when the command completes successfully
    */
   async execute(workerName: string, params: DevCommandParams): Promise<void> {
+    this.logService.log('MonoCF dev command starting...')
+
     if (!isDevCommandParams(params)) {
       this.errorService.throwConfigurationError('Invalid command parameters for dev command')
     }

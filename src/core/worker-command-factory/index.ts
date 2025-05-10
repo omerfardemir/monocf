@@ -1,4 +1,11 @@
-import {EnvironmentService, ErrorService, FileService, ServiceBindingService, WranglerService} from '../../services/index.js'
+import {
+  LogService,
+  EnvironmentService,
+  ErrorService,
+  FileService,
+  ServiceBindingService,
+  WranglerService,
+} from '../../services/index.js'
 import {WorkerCommand} from '../../types/command-types.js'
 import {DeployCommand} from './deploy-command.js'
 import {DevCommand} from './dev-command.js'
@@ -18,6 +25,7 @@ export class WorkerCommandFactory {
    * @param {ServiceBindingService} services.serviceBindingService Service binding service
    * @param {WranglerService} services.wranglerService Wrangler service
    * @param {EnvironmentService} services.environmentService Environment service
+   * @param {LogService} services.logService Log service
    * @returns Command executor
    */
   static createCommand(
@@ -28,6 +36,7 @@ export class WorkerCommandFactory {
       serviceBindingService: ServiceBindingService
       wranglerService: WranglerService
       environmentService: EnvironmentService
+      logService: LogService
     },
   ): WorkerCommandExecutor {
     // Create command executor
@@ -39,6 +48,7 @@ export class WorkerCommandFactory {
           services.fileService,
           services.wranglerService,
           services.environmentService,
+          services.logService,
         )
       }
 
@@ -49,11 +59,12 @@ export class WorkerCommandFactory {
           services.wranglerService,
           services.serviceBindingService,
           services.environmentService,
+          services.logService,
         )
       }
 
       default: {
-        throw new Error(`Unknown command: ${command}`)
+        services.errorService.throwConfigurationError(`Invalid command: ${command}`)
       }
     }
   }
