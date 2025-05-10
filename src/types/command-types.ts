@@ -7,6 +7,7 @@ export interface Commander {
   cmdEvents(): execEventListener
   error(error: Error | string, ...args: unknown[]): never
   warn(input: Error | string): Error | string
+  log(message?: string, ...args: any[]): void
 }
 
 /**

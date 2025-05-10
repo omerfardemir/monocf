@@ -147,6 +147,48 @@ With this configuration:
 
 You can override these settings using command-line flags when running commands.
 
+### Environment Variables Management
+
+MonoCF provides a powerful way to manage environment variables across your monorepo using `.dev.vars` files. This approach allows you to define both global and worker-specific environment variables. To set different secrets for each environment, create files named `.dev.vars.<environment-name>`. When you use MonoCF with `--env <environment-name>`, the corresponding environment-specific file will be loaded instead of the .`dev.vars` file.
+
+#### Root-level Environment Variables
+
+You can define global environment variables that apply to all workers by creating a `.dev.vars` file in the root directory of your project:
+
+```
+# Root .dev.vars file
+API_KEY=global-api-key
+DATABASE_URL=https://example.com/db
+```
+
+#### Worker-specific Environment Variables
+
+Each worker can have its own `.dev.vars` file with worker-specific environment variables:
+
+```
+# Worker-specific .dev.vars file
+API_KEY=worker-specific-api-key
+WORKER_SETTING=some-value
+```
+
+#### Environment-specific Variables
+
+You can also create environment-specific `.dev.vars` files for both root and worker levels:
+
+- Root level: `.dev.vars.production`, `.dev.vars.staging`, etc.
+- Worker level: `workers/my-worker/.dev.vars.production`, etc.
+
+#### Variable Precedence
+
+When deploying a worker with `deploySecrets: true`, MonoCF automatically combines the environment variables from both the root and worker-specific `.dev.vars` files, with worker-specific variables taking precedence over root variables.
+
+For example, if both files contain an `API_KEY` variable:
+
+1. The worker-specific value will be used for that worker
+2. Other workers without their own `API_KEY` will use the root value
+
+This allows you to define common variables at the root level and override them as needed for specific workers.
+
 ## Commands
 
 <!-- commands -->

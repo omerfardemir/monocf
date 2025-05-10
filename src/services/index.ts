@@ -1,4 +1,5 @@
 export * from './configuration-service.js'
+export * from './environment-service.js'
 export * from './error-service.js'
 export * from './file-service.js'
 export * from './service-binding-service.js'

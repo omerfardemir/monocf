@@ -2,7 +2,7 @@ import {existsSync, readFileSync, readdirSync, unlinkSync, writeFileSync} from '
 import {join} from 'node:path'
 
 import {ErrorService} from './error-service.js'
-import {TEMP_BASE_WRANGLER_FILE, TEMP_WRANGLER_FILE} from '../types/wrangler-types.js'
+import {TEMP_BASE_WRANGLER_FILE, TEMP_WRANGLER_FILE, TEMP_ENV_FILE} from '../types/wrangler-types.js'
 import {appendLine, sanitizeWorkerName} from '../utils/index.js'
 import {FileOperationError} from '../types/error-types.js'
 
@@ -47,6 +47,7 @@ export class FileService {
       const packagePath = join(options.workerPath, 'package.json')
       const tempWranglerPath = join(options.workerPath, TEMP_WRANGLER_FILE)
       const tempBaseWranglerConfigPath = join(options.workerPath, TEMP_BASE_WRANGLER_FILE)
+      const tempDevVarsPath = join(options.workerPath, TEMP_ENV_FILE)
 
       if (existsSync(tempWranglerPath)) {
         unlinkSync(tempWranglerPath)
@@ -123,7 +124,7 @@ export class FileService {
 
       experimental_patchConfig(tempWranglerPath, envPatch, true)
 
-      this.tempFiles.push(tempWranglerPath, tempBaseWranglerConfigPath)
+      this.tempFiles.push(tempWranglerPath, tempBaseWranglerConfigPath, tempDevVarsPath)
 
       return tempWranglerPath
     } catch (error) {
@@ -230,21 +231,21 @@ export class FileService {
 
   /**
    * Gets the environment file path based on the environment
-   * @param workerPath Path to the worker directory
+   * @param dir Path to the directory
    * @param env Environment to use
    * @returns Path to the environment file
    */
-  getEnvironmentFile(workerPath: string, env?: string): string {
+  getEnvironmentFile(dir: string, env?: string): string {
     if (!env || env === 'dev') {
-      return join(workerPath, '.dev.vars')
+      return join(dir, '.dev.vars')
     }
 
-    const envFile = join(workerPath, `.dev.vars.${env}`)
+    const envFile = join(dir, `.dev.vars.${env}`)
     if (existsSync(envFile)) {
       return envFile
     }
 
-    return join(workerPath, '.dev.vars')
+    return join(dir, '.dev.vars')
   }
 
   /**

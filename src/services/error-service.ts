@@ -89,6 +89,13 @@ export class ErrorService {
     throw new ServiceBindingError(message)
   }
 
+  /**
+   * Throws a wrangler error
+   * @param message Error message
+   * @param code Error code
+   * @param command Command that failed
+   * @param args Command arguments
+   */
   throwWranglerError(message: string, code: number, command: string, args: string[]): never {
     throw new WranglerError(message, code, command, args)
   }

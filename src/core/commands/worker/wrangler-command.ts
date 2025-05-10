@@ -1,5 +1,5 @@
 import {Commander, WorkerCommandParams} from '../../../types/command-types.js'
-import {WranglerService, ConfigurationService, ServiceBindingService} from '../../../services/index.js'
+import {WranglerService, ConfigurationService, ServiceBindingService, EnvironmentService} from '../../../services/index.js'
 import {WorkerArgs, WorkerFlags} from '../../../flags/index.js'
 import {AbstractCommand} from '../abstract-command.js'
 import {WorkerCommandFactory} from '../../worker-command-factory/index.js'
@@ -8,12 +8,14 @@ export class WranglerCommand extends AbstractCommand<WorkerArgs, WorkerFlags> {
   private serviceBindingService: ServiceBindingService
   private wranglerService: WranglerService
   private configService: ConfigurationService
+  private environmentService: EnvironmentService
 
   constructor(command: Commander) {
     super(command)
     this.configService = new ConfigurationService(this.errorService)
     this.serviceBindingService = new ServiceBindingService(this.errorService, this.fileService)
     this.wranglerService = new WranglerService(this.errorService, this.fileService, command.cmdEvents())
+    this.environmentService = new EnvironmentService(this.errorService, this.fileService)
   }
 
   public async execute(args: WorkerArgs, flags: WorkerFlags): Promise<void> {
@@ -22,6 +24,8 @@ export class WranglerCommand extends AbstractCommand<WorkerArgs, WorkerFlags> {
 
     // Validate directories
     this.fileService.validateWorkersDirectory(config.rootDir, config.workersDirName)
+
+    this.environmentService.setRootDir(config.rootDir)
 
     // Create command parameters
     const params: WorkerCommandParams = {
@@ -41,6 +45,7 @@ export class WranglerCommand extends AbstractCommand<WorkerArgs, WorkerFlags> {
       fileService: this.fileService,
       serviceBindingService: this.serviceBindingService,
       wranglerService: this.wranglerService,
+      environmentService: this.environmentService,
     })
 
     // Execute command
@@ -63,6 +68,7 @@ export class WranglerCommand extends AbstractCommand<WorkerArgs, WorkerFlags> {
   protected async finally(): Promise<void> {
     return new Promise((resolve) => {
       this.fileService.cleanupTempFiles()
+      this.environmentService.rollbackEnvironmentVariables()
       resolve()
     })
   }

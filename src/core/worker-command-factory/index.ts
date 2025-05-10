@@ -1,4 +1,4 @@
-import {ErrorService, FileService, ServiceBindingService, WranglerService} from '../../services/index.js'
+import {EnvironmentService, ErrorService, FileService, ServiceBindingService, WranglerService} from '../../services/index.js'
 import {WorkerCommand} from '../../types/command-types.js'
 import {DeployCommand} from './deploy-command.js'
 import {DevCommand} from './dev-command.js'
@@ -17,6 +17,7 @@ export class WorkerCommandFactory {
    * @param {FileService} services.fileService File service
    * @param {ServiceBindingService} services.serviceBindingService Service binding service
    * @param {WranglerService} services.wranglerService Wrangler service
+   * @param {EnvironmentService} services.environmentService Environment service
    * @returns Command executor
    */
   static createCommand(
@@ -26,6 +27,7 @@ export class WorkerCommandFactory {
       fileService: FileService
       serviceBindingService: ServiceBindingService
       wranglerService: WranglerService
+      environmentService: EnvironmentService
     },
   ): WorkerCommandExecutor {
     // Create command executor
@@ -36,6 +38,7 @@ export class WorkerCommandFactory {
           services.errorService,
           services.fileService,
           services.wranglerService,
+          services.environmentService,
         )
       }
 
@@ -45,6 +48,7 @@ export class WorkerCommandFactory {
           services.fileService,
           services.wranglerService,
           services.serviceBindingService,
+          services.environmentService,
         )
       }
 

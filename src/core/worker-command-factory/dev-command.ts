@@ -1,8 +1,9 @@
 import {join} from 'node:path'
-import {ErrorService, FileService, ServiceBindingService, WranglerService} from '../../services/index.js'
+import {EnvironmentService, ErrorService, FileService, ServiceBindingService, WranglerService} from '../../services/index.js'
 import {DevCommandParams, isDevCommandParams} from '../../types/command-types.js'
 import {WRANGLER_FILE} from '../../types/wrangler-types.js'
 import {WorkerCommandExecutor} from './worker-command-executor.js'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 
 /**
  * Command executor for the dev command
@@ -12,6 +13,7 @@ export class DevCommand implements WorkerCommandExecutor {
   private errorService: ErrorService
   private fileService: FileService
   private wranglerService: WranglerService
+  private environmentService: EnvironmentService
 
   /**
    * Creates a new DevCommand
@@ -19,17 +21,20 @@ export class DevCommand implements WorkerCommandExecutor {
    * @param errorService Error service
    * @param fileService File service
    * @param wranglerService Wrangler service
+   * @param environmentService Environment service
    */
   constructor(
     serviceBindingService: ServiceBindingService,
     errorService: ErrorService,
     fileService: FileService,
     wranglerService: WranglerService,
+    environmentService: EnvironmentService,
   ) {
     this.serviceBindingService = serviceBindingService
     this.errorService = errorService
     this.fileService = fileService
     this.wranglerService = wranglerService
+    this.environmentService = environmentService
   }
 
   /**
@@ -73,6 +78,9 @@ export class DevCommand implements WorkerCommandExecutor {
         },
         true,
       )
+
+      // Handle environment variables
+      this.environmentService.patchEnvironmentFile(workerPath, params.env)
 
       // Run wrangler command
       return this.wranglerService.execWorkerCommand(
