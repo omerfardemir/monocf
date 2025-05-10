@@ -40,3 +40,7 @@ yarn-error.log*
 .wrangler
 .temp.base.wrangler.jsonc
 .temp.wrangler.jsonc
+.monocf
+
+.dev.vars
+.dev.vars.*

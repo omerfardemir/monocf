@@ -1,4 +1,12 @@
 /**
+ * Constants for wrangler files
+ */
+export const WRANGLER_FILE = 'wrangler.jsonc'
+export const TEMP_WRANGLER_FILE = '.temp.wrangler.jsonc'
+export const TEMP_BASE_WRANGLER_FILE = '.temp.base.wrangler.jsonc'
+export const TEMP_ENV_FILE = '.temp.dev.vars'
+
+/**
  * Event listener interface for wrangler command execution
  */
 export interface execEventListener {
@@ -9,13 +17,6 @@ export interface execEventListener {
   /** Called when the command outputs to stdout */
   onStdoutListener?: (data: string) => void
 }
-
-/**
- * Constants for wrangler files
- */
-export const WRANGLER_FILE = 'wrangler.jsonc'
-export const TEMP_WRANGLER_FILE = '.temp.wrangler.jsonc'
-export const TEMP_BASE_WRANGLER_FILE = '.temp.base.wrangler.jsonc'
 
 export interface ServiceBindingOptions {
   binding: string

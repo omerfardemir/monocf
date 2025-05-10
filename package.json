@@ -1,7 +1,7 @@
 {
   "name": "monocf",
   "description": "MonoCF for manage Cloudflare Workers in monorepo",
-  "version": "0.0.3",
+  "version": "0.0.5",
   "author": "Omer Demir",
   "bin": {
     "monocf": "./bin/run.js"
@@ -13,6 +13,7 @@
     "@oclif/core": "^4",
     "@oclif/plugin-help": "^6",
     "@oclif/plugin-plugins": "^5",
+    "dotenv": "^16.5.0",
     "jsonc-parser": "^3.3.1",
     "nanospinner": "^1.2.2",
     "wrangler": "^4.14.3"

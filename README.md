@@ -23,13 +23,12 @@ MonoCF streamlines the development workflow by wrapping Wrangler commands with a
 ## Features
 
 - **Monorepo Support**: Easily manage multiple workers in a monorepo structure
-- **Environment Management**: Deploy to different environments (dev, production, etc.)
+- **Environment Management**: Deploy to different environment secrets (dev, production, etc.)
 - **Bulk Operations**: Run commands on all workers at once
-- **Service Bindings**: Simplified management of service bindings between workers
+- **Service Bindings**: Simplified management of service bindings between workers for development
 - **Configuration Management**: Centralized configuration with environment-specific overrides
 - **Worker Creation**: Quickly scaffold new worker projects with best practices
 - **Command Pattern**: Implementation of command pattern for extensibility
-- **Service Binding Management**: Simplified management of service bindings between workers
 
 ## Architecture
 
@@ -100,7 +99,7 @@ $ npm install -g monocf
 $ monocf COMMAND
 running command...
 $ monocf (--version)
-monocf/0.0.3 win32-x64 node-v22.14.0
+monocf/0.0.5 win32-x64 node-v22.14.0
 $ monocf --help [COMMAND]
 USAGE
   $ monocf COMMAND
@@ -147,6 +146,49 @@ With this configuration:
 
 You can override these settings using command-line flags when running commands.
 
+### Environment Variables Management
+
+MonoCF provides a powerful way to manage environment variables across your monorepo using `.dev.vars` files. This approach allows you to define both global and worker-specific environment variables. To set different secrets for each environment, create files named `.dev.vars.<environment-name>`. When you use MonoCF with `--env <environment-name>`, the corresponding environment-specific file will be loaded instead of the .`dev.vars` file. If you enabled `deploySecrets` in the configuration, the environment variables will be deployed to the worker secrets. 
+**This is important:** If you enabled `deploySecrets` in the configuration, the environment variables will be deployed to the worker secrets. So `.dev.vars` file for only secret variables. For other variables, you can use `wrangler.jsonc` vars property.
+
+#### Root-level Environment Variables
+
+You can define global environment variables that apply to all workers by creating a `.dev.vars` file in the root directory of your project:
+
+```
+# Root .dev.vars file
+API_KEY=global-api-key
+DATABASE_URL=https://example.com/db
+```
+
+#### Worker-specific Environment Variables
+
+Each worker can have its own `.dev.vars` file with worker-specific environment variables:
+
+```
+# Worker-specific .dev.vars file
+API_KEY=worker-specific-api-key
+WORKER_SETTING=some-value
+```
+
+#### Environment-specific Variables
+
+You can also create environment-specific `.dev.vars` files for both root and worker levels:
+
+- Root level: `.dev.vars.production`, `.dev.vars.staging`, etc.
+- Worker level: `workers/my-worker/.dev.vars.production`, etc.
+
+#### Variable Precedence
+
+When deploying a worker with `deploySecrets: true`, MonoCF automatically combines the environment variables from both the root and worker-specific `.dev.vars` files, with worker-specific variables taking precedence over root variables.
+
+For example, if both files contain an `API_KEY` variable:
+
+1. The worker-specific value will be used for that worker
+2. Other workers without their own `API_KEY` will use the root value
+
+This allows you to define common variables at the root level and override them as needed for specific workers.
+
 ## Commands
 
 <!-- commands -->
@@ -190,7 +232,7 @@ EXAMPLES
   $ monocf whoami
 ```
 
-_See code: [src/commands/whoami/index.ts](https://github.com/omerfardemir/monocf/blob/v0.0.3/src/commands/whoami/index.ts)_
+_See code: [src/commands/whoami/index.ts](https://github.com/omerfardemir/monocf/blob/v0.0.5/src/commands/whoami/index.ts)_
 
 ## `monocf worker [WORKERNAME]`
 
@@ -223,7 +265,7 @@ EXAMPLES
   $ monocf worker -c deploy -a -e production
 ```
 
-_See code: [src/commands/worker/index.ts](https://github.com/omerfardemir/monocf/blob/v0.0.3/src/commands/worker/index.ts)_
+_See code: [src/commands/worker/index.ts](https://github.com/omerfardemir/monocf/blob/v0.0.5/src/commands/worker/index.ts)_
 
 ## `monocf worker create WORKERNAME`
 
@@ -247,7 +289,7 @@ EXAMPLES
   $ monocf worker create my-worker
 ```
 
-_See code: [src/commands/worker/create.ts](https://github.com/omerfardemir/monocf/blob/v0.0.3/src/commands/worker/create.ts)_
+_See code: [src/commands/worker/create.ts](https://github.com/omerfardemir/monocf/blob/v0.0.5/src/commands/worker/create.ts)_
 <!-- commandsstop -->
 
 ## Contributing

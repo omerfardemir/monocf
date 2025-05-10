@@ -6,6 +6,7 @@ import {ServiceBindingError} from '../types/error-types.js'
 import {FileService} from './file-service.js'
 import {ServiceBindingOptions, WRANGLER_FILE} from '../types/wrangler-types.js'
 import {sanitizeWorkerName} from '../utils/string.js'
+import { EnvironmentService } from './environment-service.js'
 
 /**
  * Service for handling service bindings
@@ -13,15 +14,18 @@ import {sanitizeWorkerName} from '../utils/string.js'
 export class ServiceBindingService {
   private errorService: ErrorService
   private fileService: FileService
+  private environmentService: EnvironmentService
 
   /**
    * Creates a new ServiceBindingService
    * @param errorService Error service for handling errors
    * @param fileService File service for handling files
+   * @param environmentService Environment service for handling environment variables
    */
-  constructor(errorService: ErrorService, fileService: FileService) {
+  constructor(errorService: ErrorService, fileService: FileService, environmentService: EnvironmentService) {
     this.errorService = errorService
     this.fileService = fileService
+    this.environmentService = environmentService
   }
 
   /**
@@ -68,6 +72,10 @@ export class ServiceBindingService {
 
         // Create temp config for the service
         const serviceConfigPath = join(servicePath, WRANGLER_FILE)
+
+        // Validate service worker
+        this.fileService.validateWorker(options.rootDir, options.workersDirName, service)
+
         const tempWranglerConfigPath = this.fileService.createTempWranglerConfig({
           workerName: service,
           configPath: serviceConfigPath,
@@ -105,6 +113,9 @@ export class ServiceBindingService {
             }
 
         experimental_patchConfig(options.configPath, patchData, false)
+
+        // Handle environment variables
+        this.environmentService.patchEnvironmentFile(servicePath, options.env)
 
         // Handle service bindings
         if (recursive) {

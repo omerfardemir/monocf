@@ -1,5 +1,5 @@
 import {Commander} from '../../types/command-types.js'
-import {ErrorService, FileService} from '../../services/index.js'
+import {ErrorService, FileService, LogService} from '../../services/index.js'
 
 /**
  * Abstract base class for all CLI commands
@@ -7,6 +7,7 @@ import {ErrorService, FileService} from '../../services/index.js'
 export abstract class AbstractCommand<TArgs = unknown, TFlags = unknown> {
   protected errorService: ErrorService
   protected fileService: FileService
+  protected logService: LogService
   protected command: Commander
 
   /**
@@ -17,6 +18,7 @@ export abstract class AbstractCommand<TArgs = unknown, TFlags = unknown> {
     this.command = command
     this.errorService = new ErrorService(command)
     this.fileService = new FileService(this.errorService)
+    this.logService = new LogService(command)
   }
 
   /**

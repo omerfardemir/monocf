@@ -16,6 +16,8 @@ export class WorkerCreateCommand extends AbstractCommand<CreateWorkerArgs, Creat
   }
 
   protected async execute(args: CreateWorkerArgs, flags: CreateWorkerFlags) {
+    this.logService.log('MonoCF starting to create worker...')
+
     // Get configuration from flags or config file
     const config = this.loadConfiguration(flags)
     const {workerName} = args
@@ -38,6 +40,8 @@ export class WorkerCreateCommand extends AbstractCommand<CreateWorkerArgs, Creat
       rootDir: config.rootDir,
       workersDirName: config.workersDirName,
     })
+
+    this.logService.log('New worker created successfully')
   }
 
   /**
