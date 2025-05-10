@@ -7,6 +7,7 @@
 * [Features](#features)
 * [Architecture](#architecture)
 * [Directory Structure](#directory-structure)
+* [Creating a New Project](#creating-a-new-project)
 * [Usage](#usage)
 * [Configuration](#configuration)
 * [Commands](#commands)
@@ -72,6 +73,24 @@ src/
   flags/          -- Command flags definitions
   utils/          -- Utility functions
 ```
+
+## Getting Started
+
+### Creating a New Project
+
+You can quickly create a new monorepo project with MonoCF using our dedicated CLI tool:
+
+```sh-session
+$ npm create monocf@latest
+# or
+$ npx create-monocf@latest
+# or
+$ yarn create monocf
+# or
+$ pnpm create monocf
+```
+
+This will set up a new monorepo with Turbo Repo configured and ready to use with MonoCF.
 
 ## Usage
 
