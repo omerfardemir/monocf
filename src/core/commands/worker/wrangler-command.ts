@@ -18,9 +18,9 @@ export class WranglerCommand extends AbstractCommand<WorkerArgs, WorkerFlags> {
   constructor(command: Commander) {
     super(command)
     this.configService = new ConfigurationService(this.errorService)
-    this.serviceBindingService = new ServiceBindingService(this.errorService, this.fileService)
-    this.wranglerService = new WranglerService(this.errorService, this.fileService, command.cmdEvents())
     this.environmentService = new EnvironmentService(this.errorService, this.fileService)
+    this.serviceBindingService = new ServiceBindingService(this.errorService, this.fileService, this.environmentService)
+    this.wranglerService = new WranglerService(this.errorService, this.fileService, command.cmdEvents())
   }
 
   public async execute(args: WorkerArgs, flags: WorkerFlags): Promise<void> {
