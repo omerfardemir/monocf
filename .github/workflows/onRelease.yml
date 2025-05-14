@@ -18,4 +18,39 @@ jobs:
       - uses: JS-DevTools/npm-publish@v3.1.1
         with:
           token: ${{ secrets.NPM_TOKEN }}
-      - run: npm run postpack
+
+      # Pack as .tgz tarball for distribution
+      - name: Generate .tgz package
+        run: npm pack --pack-destination ./dist
+
+      # Extract and zip npm package
+      - name: Extract and zip npm package
+        run: |
+          tarball=$(ls ./dist/*.tgz)
+          filename=$(basename "$tarball" .tgz)
+          mkdir -p ./dist/unpacked
+          tar -xzf "$tarball" -C ./dist/unpacked
+
+          cd ./dist/unpacked/package
+          zip -r ../../$filename.zip .
+
+      # Upload .tgz and .zip to GitHub Actions artifacts
+      - name: Upload npm artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-packages
+          path: |
+            ./dist/*.tgz
+            ./dist/*.zip
+  
+      # Upload to GitHub Release page
+      - name: Upload assets to GitHub Release
+        uses: ncipollo/release-action@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          tag: ${{ github.ref_name }}
+          name: Release ${{ github.ref_name }}
+          allowUpdates: true
+          artifacts: |
+            ./dist/*.tgz
+            ./dist/*.zip

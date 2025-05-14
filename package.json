@@ -61,7 +61,10 @@
       "@oclif/plugin-help"
     ]
   },
-  "repository": "https://github.com/omerfardemir/monocf",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/omerfardemir/monocf.git"
+  },
   "scripts": {
     "build": "shx rm -f tsconfig.tsbuildinfo && shx rm -rf dist && tsc -b",
     "lint": "eslint",
