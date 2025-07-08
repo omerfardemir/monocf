@@ -3,6 +3,7 @@
   "workersDirName": "workers",
   "baseConfig": "base.wrangler.jsonc",
   "deploySecrets": true,
+  "deployBindings": true,
   "variables": {
     "version": "1.0.0"
   }

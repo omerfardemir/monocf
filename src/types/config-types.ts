@@ -20,6 +20,8 @@ export interface CliConfig {
   deploySecrets?: boolean
   /** Variables to replace in the config file */
   variables?: Record<string, string>
+  /** Whether to deploy service bindings for the worker */
+  deployBindings?: boolean
 }
 
 /**

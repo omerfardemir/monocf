@@ -99,7 +99,7 @@ $ npm install -g monocf
 $ monocf COMMAND
 running command...
 $ monocf (--version)
-monocf/0.0.5 win32-x64 node-v22.14.0
+monocf/0.0.6 win32-x64 node-v22.14.0
 $ monocf --help [COMMAND]
 USAGE
   $ monocf COMMAND
@@ -122,6 +122,7 @@ The `worker.config.json` file is a central configuration file for the MonoCF tha
 | `baseConfig` | The base Wrangler configuration file to extend (default: `base.wrangler.jsonc`) |
 | `deploySecrets` | Whether to deploy secrets when deploying workers (default: `false`) |
 | `variables` | Custom variables that can be replace(like {version}) in your worker configurations |
+| `deployBindings` | Whether to deploy service bindings for the worker before deploy main worker (default: `false`) |
 
 #### Example Configuration
 
@@ -131,6 +132,7 @@ The `worker.config.json` file is a central configuration file for the MonoCF tha
   "workersDirName": "workers",
   "baseConfig": "base.wrangler.jsonc",
   "deploySecrets": true,
+  "deployBindings": true,
   "variables": {
     "version": "1.0.0"
   }
@@ -143,6 +145,7 @@ With this configuration:
 2. Each worker will extend the `base.wrangler.jsonc` configuration
 3. Secrets will be deployed automatically during deployment
 4. The `version` variable (1.0.0) will be replaced in your worker configurations where {version} is used
+5. Service bindings will be deployed automatically during deployment
 
 You can override these settings using command-line flags when running commands.
 
@@ -192,30 +195,9 @@ This allows you to define common variables at the root level and override them a
 ## Commands
 
 <!-- commands -->
-* [`monocf help [COMMAND]`](#monocf-help-command)
 * [`monocf whoami`](#monocf-whoami)
 * [`monocf worker [WORKERNAME]`](#monocf-worker-workername)
 * [`monocf worker create WORKERNAME`](#monocf-worker-create-workername)
-
-## `monocf help [COMMAND]`
-
-Display help for monocf.
-
-```
-USAGE
-  $ monocf help [COMMAND...] [-n]
-
-ARGUMENTS
-  COMMAND...  Command to show help for.
-
-FLAGS
-  -n, --nested-commands  Include all nested commands in the output.
-
-DESCRIPTION
-  Display help for monocf.
-```
-
-_See code: [@oclif/plugin-help](https://github.com/oclif/plugin-help/blob/v6.2.28/src/commands/help.ts)_
 
 ## `monocf whoami`
 
@@ -232,7 +214,7 @@ EXAMPLES
   $ monocf whoami
 ```
 
-_See code: [src/commands/whoami/index.ts](https://github.com/omerfardemir/monocf/blob/v0.0.5/src/commands/whoami/index.ts)_
+_See code: [src/commands/whoami/index.ts](https://github.com/omerfardemir/monocf/blob/v0.0.6/src/commands/whoami/index.ts)_
 
 ## `monocf worker [WORKERNAME]`
 
@@ -240,19 +222,20 @@ Workers command for running dev or deploy for a worker or all workers
 
 ```
 USAGE
-  $ monocf worker [WORKERNAME] -c <value> [-a] [-b <value>] [-s] [-e <value>] [-r <value>] [-w <value>]
+  $ monocf worker [WORKERNAME] -c <value> [-a] [-b <value>] [-s] [-e <value>] [-r <value>] [-w <value>] [-d]
 
 ARGUMENTS
   WORKERNAME  Worker name
 
 FLAGS
-  -a, --all                     Run command for all workers
-  -b, --baseConfig=<value>      Base wrangler config file
-  -c, --command=<value>         (required) Command to execute (dev or deploy)
-  -e, --env=<value>             Environment to use (dev, production etc.)
-  -r, --rootDir=<value>         Root directory of the project
-  -s, --deploySecrets           Deploy secrets for the worker
-  -w, --workersDirName=<value>  Workers directory name in monorepo
+  -a, --all                       Run command for all workers
+  -b, --base-config=<value>       Base wrangler config file
+  -c, --command=<value>           (required) Command to execute (dev or deploy)
+  -d, --deploy-bindings           Deploy service bindings for the worker before deploy main worker
+  -e, --env=<value>               Environment to use (dev, production etc.)
+  -r, --root-dir=<value>          Root directory of the project
+  -s, --deploy-secrets            Deploy secrets for the worker
+  -w, --workers-dir-name=<value>  Workers directory name in monorepo
 
 DESCRIPTION
   Workers command for running dev or deploy for a worker or all workers
@@ -265,7 +248,7 @@ EXAMPLES
   $ monocf worker -c deploy -a -e production
 ```
 
-_See code: [src/commands/worker/index.ts](https://github.com/omerfardemir/monocf/blob/v0.0.5/src/commands/worker/index.ts)_
+_See code: [src/commands/worker/index.ts](https://github.com/omerfardemir/monocf/blob/v0.0.6/src/commands/worker/index.ts)_
 
 ## `monocf worker create WORKERNAME`
 
@@ -289,7 +272,7 @@ EXAMPLES
   $ monocf worker create my-worker
 ```
 
-_See code: [src/commands/worker/create.ts](https://github.com/omerfardemir/monocf/blob/v0.0.5/src/commands/worker/create.ts)_
+_See code: [src/commands/worker/create.ts](https://github.com/omerfardemir/monocf/blob/v0.0.6/src/commands/worker/create.ts)_
 <!-- commandsstop -->
 
 ## Contributing

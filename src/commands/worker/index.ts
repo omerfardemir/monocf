@@ -3,6 +3,7 @@ import {Args, Flags} from '@oclif/core'
 import {CommandBase, WorkerCommand} from '../../types/index.js'
 import {VerifiedFields, WorkerFlags, WorkerArgs} from '../../flags/index.js'
 import {CommandRegistry} from '../../core/commands/registry.js'
+import {normalizeFlags} from '../../utils/flag.js'
 
 /**
  * Worker command flags & args
@@ -21,7 +22,7 @@ const workerFlags = {
     description: 'Run command for all workers',
     required: false,
   }),
-  baseConfig: Flags.string({
+  'base-config': Flags.string({
     char: 'b',
     description: 'Base wrangler config file',
     required: false,
@@ -31,7 +32,7 @@ const workerFlags = {
     description: 'Command to execute (dev or deploy)',
     required: true,
   }),
-  deploySecrets: Flags.boolean({
+  'deploy-secrets': Flags.boolean({
     char: 's',
     description: 'Deploy secrets for the worker',
     required: false,
@@ -41,14 +42,19 @@ const workerFlags = {
     description: 'Environment to use (dev, production etc.)',
     required: false,
   }),
-  rootDir: Flags.string({
+  'root-dir': Flags.string({
     char: 'r',
     description: 'Root directory of the project',
     required: false,
   }),
-  workersDirName: Flags.string({
+  'workers-dir-name': Flags.string({
     char: 'w',
     description: 'Workers directory name in monorepo',
+    required: false,
+  }),
+  'deploy-bindings': Flags.boolean({
+    char: 'd',
+    description: 'Deploy service bindings for the worker before deploy main worker',
     required: false,
   }),
 }
@@ -71,7 +77,7 @@ export default class Worker extends CommandBase {
     '<%= config.bin %> worker -c deploy -a -e production',
   ]
   static args: VerifiedFields<WorkerArgs, typeof workerArgs> = workerArgs
-  static flags: VerifiedFields<WorkerFlags, typeof workerFlags> = workerFlags
+  static flags = workerFlags
 
   /**
    * Run the worker command
@@ -80,7 +86,10 @@ export default class Worker extends CommandBase {
     // Parse command line arguments
     const {args, flags} = await this.parse(Worker)
 
+    // Normalize flags to convert kebab-case to camelCase
+    const normalizedFlags: WorkerFlags = normalizeFlags<WorkerFlags>(flags)
+
     // Run command
-    await CommandRegistry.executeCommand<WorkerArgs, WorkerFlags>('worker', this, args, flags)
+    await CommandRegistry.executeCommand<WorkerArgs, WorkerFlags>('worker', this, args, normalizedFlags)
   }
 }

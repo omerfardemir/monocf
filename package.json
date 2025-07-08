@@ -1,7 +1,7 @@
 {
   "name": "monocf",
   "description": "MonoCF for manage Cloudflare Workers in monorepo",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "author": "Omer Demir",
   "bin": {
     "monocf": "./bin/run.js"
@@ -10,9 +10,7 @@
   "dependencies": {
     "@bluwy/giget-core": "^0.1.2",
     "@cloudflare/workers-types": "^4.20250507.0",
-    "@oclif/core": "^4",
-    "@oclif/plugin-help": "^6",
-    "@oclif/plugin-plugins": "^5",
+    "@oclif/core": "^4.5.0",
     "dotenv": "^16.5.0",
     "jsonc-parser": "^3.3.1",
     "nanospinner": "^1.2.2",
@@ -56,10 +54,7 @@
     "bin": "monocf",
     "commands": "./dist/commands",
     "dirname": "monocf",
-    "topicSeparator": " ",
-    "plugins": [
-      "@oclif/plugin-help"
-    ]
+    "topicSeparator": " "
   },
   "repository": {
     "type": "git",

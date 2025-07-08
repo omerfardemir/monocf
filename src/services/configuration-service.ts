@@ -47,6 +47,7 @@ export class ConfigurationService {
           workersDirName: parsed.workersDirName || '',
           baseConfig: parsed.baseConfig,
           deploySecrets: parsed.deploySecrets,
+          deployBindings: parsed.deployBindings,
           variables: parsed.variables,
           all: flags.all ?? false,
           env: flags.env,
