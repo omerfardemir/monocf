@@ -54,7 +54,9 @@ export interface DeployCommandParams extends BaseCommandParams {
   /** Command type */
   command: 'deploy'
   /** Whether to deploy secrets for the worker */
-  deploySecrets?: boolean
+  deploySecrets?: boolean,
+  /** Whether to deploy service bindings for the worker */
+  deployBindings?: boolean
 }
 
 /**

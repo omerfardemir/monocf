@@ -9,6 +9,7 @@ export interface WorkerFlags {
   baseConfig?: string
   command: WorkerCommand
   deploySecrets?: boolean
+  deployBindings?: boolean
   env?: string
   rootDir?: string
   workersDirName?: string

@@ -98,7 +98,7 @@ export class DeployCommand implements WorkerCommandExecutor {
       const serviceBindings = this.serviceBindingService.getServiceBindings(tempWranglerConfigPath, params.env)
 
       // Deploy dependencies first (recursive)
-      if (serviceBindings.length > 0) {
+      if (serviceBindings.length > 0 && params.deployBindings) {
         this.logService.log(`Deploying dependencies for worker ${workerName}`)
 
         for (const binding of serviceBindings) {

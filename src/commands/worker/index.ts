@@ -52,6 +52,11 @@ const workerFlags = {
     description: 'Workers directory name in monorepo',
     required: false,
   }),
+  'deploy-bindings': Flags.boolean({
+    char: 'd',
+    description: 'Deploy service bindings for the worker before deploy main worker',
+    required: false,
+  }),
 }
 
 const workerArgs = {

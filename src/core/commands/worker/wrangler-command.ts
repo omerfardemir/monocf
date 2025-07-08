@@ -42,6 +42,7 @@ export class WranglerCommand extends AbstractCommand<WorkerArgs, WorkerFlags> {
       baseConfig: config.baseConfig,
       variables: config.variables,
       ...(config.command === 'deploy' && {deploySecrets: config.deploySecrets}),
+      ...(config.command === 'deploy' && {deployBindings: config.deployBindings}),
     }
 
     // Create command executor
