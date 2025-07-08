@@ -6,7 +6,7 @@ import {ServiceBindingError} from '../types/error-types.js'
 import {FileService} from './file-service.js'
 import {ServiceBindingOptions, WRANGLER_FILE} from '../types/wrangler-types.js'
 import {sanitizeWorkerName} from '../utils/string.js'
-import { EnvironmentService } from './environment-service.js'
+import {EnvironmentService} from './environment-service.js'
 
 /**
  * Service for handling service bindings

@@ -9,9 +9,9 @@ import {
   WranglerService,
 } from '../../services/index.js'
 import {DeployCommandParams, isDeployCommandParams} from '../../types/command-types.js'
-import {WRANGLER_FILE} from '../../types/wrangler-types.js'
+import {WRANGLER_FILE, ServiceBindingOptions} from '../../types/wrangler-types.js'
 import {WorkerCommandExecutor} from './worker-command-executor.js'
-import {experimental_patchConfig} from 'wrangler'
+import {experimental_patchConfig, experimental_readRawConfig} from 'wrangler'
 
 /**
  * Command executor for the deploy command
@@ -54,16 +54,33 @@ export class DeployCommand implements WorkerCommandExecutor {
    * Executes the deploy command
    * @param workerName Worker name
    * @param params Command parameters
+   * @param deployedServices Set of already deployed services to prevent circular dependencies
    * @returns Promise that resolves when the command completes successfully
    */
-  async execute(workerName: string, params: DeployCommandParams): Promise<void> {
-    this.logService.log('MonoCF deploy command starting')
+  async execute(
+    workerName: string, 
+    params: DeployCommandParams, 
+    deployedServices = new Set<string>()
+  ): Promise<void> {
+    // Only log the start message for the initial worker
+    if (deployedServices.size === 0) {
+      this.logService.log('MonoCF deploy command starting')
+    }
 
     if (!isDeployCommandParams(params)) {
       this.errorService.throwConfigurationError('Invalid command parameters for deploy command')
     }
 
+    // Skip if already deployed to prevent circular dependencies
+    if (deployedServices.has(workerName)) {
+      this.logService.log(`Worker ${workerName} already deployed, skipping`)
+      return
+    }
+
     try {
+      // Add to deployed services to prevent circular dependencies
+      deployedServices.add(workerName)
+
       // Validate worker
       this.fileService.validateWorker(params.rootDir, params.workersDirName, workerName)
 
@@ -81,7 +98,20 @@ export class DeployCommand implements WorkerCommandExecutor {
         env: params.env,
       })
 
-      // Handle service bindings
+      // Get service bindings from the config file
+      const serviceBindings = this.serviceBindingService.getServiceBindings(tempWranglerConfigPath, params.env)
+      
+      // Deploy dependencies first (recursive)
+      if (serviceBindings.length > 0) {
+        this.logService.log(`Deploying dependencies for worker ${workerName}`)
+        
+        for (const binding of serviceBindings) {
+          // Recursively deploy each dependency
+          await this.execute(binding.service, params, deployedServices)
+        }
+      }
+
+      // Handle service bindings for this worker's config
       const services = this.serviceBindingService.handleServiceBinding({
         configPath: tempWranglerConfigPath,
         rootDir: params.rootDir,
@@ -91,6 +121,7 @@ export class DeployCommand implements WorkerCommandExecutor {
         env: params.env,
       })
 
+      // Patch the config with service bindings
       const patch = params.env
         ? {
             env: {
@@ -105,11 +136,12 @@ export class DeployCommand implements WorkerCommandExecutor {
 
       experimental_patchConfig(tempWranglerConfigPath, patch, false)
 
+      // Deploy this worker
+      this.logService.log(`Deploying worker ${workerName}`)
+      await this.wranglerService.execWorkerCommand('deploy', [tempWranglerConfigPath], params.env)
+
       // Deploy secrets if needed
       if (params.deploySecrets) {
-        this.logService.log(`Deploying worker ${workerName}`)
-        await this.wranglerService.execWorkerCommand('deploy', [tempWranglerConfigPath], params.env)
-
         this.logService.log(`Deploying secrets for ${workerName}`)
         await this.deploySecrets({
           workerName,
@@ -117,15 +149,13 @@ export class DeployCommand implements WorkerCommandExecutor {
           env: params.env,
           configPath: tempWranglerConfigPath,
         })
-        return
       }
-
-      // Run wrangler command
-      return this.wranglerService.execWorkerCommand('deploy', [tempWranglerConfigPath], params.env)
     } catch (error) {
       this.errorService.handleError(error instanceof Error ? error : new Error(String(error)))
     }
   }
+
+
 
   /**
    * Deploys secrets for a worker
