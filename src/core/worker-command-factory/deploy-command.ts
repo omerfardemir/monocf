@@ -9,9 +9,9 @@ import {
   WranglerService,
 } from '../../services/index.js'
 import {DeployCommandParams, isDeployCommandParams} from '../../types/command-types.js'
-import {WRANGLER_FILE, ServiceBindingOptions} from '../../types/wrangler-types.js'
+import {WRANGLER_FILE} from '../../types/wrangler-types.js'
 import {WorkerCommandExecutor} from './worker-command-executor.js'
-import {experimental_patchConfig, experimental_readRawConfig} from 'wrangler'
+import {experimental_patchConfig} from 'wrangler'
 
 /**
  * Command executor for the deploy command
@@ -57,11 +57,7 @@ export class DeployCommand implements WorkerCommandExecutor {
    * @param deployedServices Set of already deployed services to prevent circular dependencies
    * @returns Promise that resolves when the command completes successfully
    */
-  async execute(
-    workerName: string, 
-    params: DeployCommandParams, 
-    deployedServices = new Set<string>()
-  ): Promise<void> {
+  async execute(workerName: string, params: DeployCommandParams, deployedServices = new Set<string>()): Promise<void> {
     // Only log the start message for the initial worker
     if (deployedServices.size === 0) {
       this.logService.log('MonoCF deploy command starting')
@@ -100,11 +96,11 @@ export class DeployCommand implements WorkerCommandExecutor {
 
       // Get service bindings from the config file
       const serviceBindings = this.serviceBindingService.getServiceBindings(tempWranglerConfigPath, params.env)
-      
+
       // Deploy dependencies first (recursive)
       if (serviceBindings.length > 0) {
         this.logService.log(`Deploying dependencies for worker ${workerName}`)
-        
+
         for (const binding of serviceBindings) {
           // Recursively deploy each dependency
           await this.execute(binding.service, params, deployedServices)
@@ -154,8 +150,6 @@ export class DeployCommand implements WorkerCommandExecutor {
       this.errorService.handleError(error instanceof Error ? error : new Error(String(error)))
     }
   }
-
-
 
   /**
    * Deploys secrets for a worker
