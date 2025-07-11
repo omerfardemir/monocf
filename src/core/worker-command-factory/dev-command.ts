@@ -92,6 +92,8 @@ export class DevCommand implements WorkerCommandExecutor {
         true,
       )
 
+      console.log(new Set(serviceBindingPaths.flatMap((serviceBindingPath) => serviceBindingPath.path)))
+
       // Handle environment variables
       this.environmentService.patchEnvironmentFile(workerPath, params.env)
 

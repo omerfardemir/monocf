@@ -49,6 +49,7 @@ export class ServiceBindingService {
       env?: string
     },
     recursive?: boolean,
+    existingServiceBindings: Array<ServiceBindingOptions & { path: string }> = [],
   ): Array<ServiceBindingOptions & { path: string }> {
     try {
       // Get service bindings from the config file
@@ -88,7 +89,7 @@ export class ServiceBindingService {
 
         // Handle service bindings
         if (recursive) {
-          this.createServiceBindings(
+          const recursiveServices = this.createServiceBindings(
             {
               configPath: tempWranglerConfigPath,
               rootDir: options.rootDir,
@@ -98,6 +99,7 @@ export class ServiceBindingService {
               env: options.env,
             },
             true,
+            existingServiceBindings,
           )
         }
         
@@ -125,7 +127,9 @@ export class ServiceBindingService {
         env: options.env,
       })
 
-      return serviceBindingPaths
+      existingServiceBindings.push(...serviceBindingPaths)
+
+      return existingServiceBindings
     } catch (error) {
       this.errorService.throwWorkerCommandError(
         `Failed to create service bindings: ${error instanceof Error ? error.message : String(error)}`,
@@ -146,12 +150,18 @@ export class ServiceBindingService {
       ? {
         env: {
           [env]: {
-            services,
+            services: services.map((service) => ({
+              binding: service.binding,
+              service: service.service,
+            })),
           },
         },
       }
       : {
-        services,
+        services: services.map((service) => ({
+          binding: service.binding,
+          service: service.service,
+        })),
       }
 
     experimental_patchConfig(configPath, patchData, false)
