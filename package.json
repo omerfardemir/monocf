@@ -1,7 +1,7 @@
 {
   "name": "monocf",
   "description": "MonoCF for manage Cloudflare Workers in monorepo",
-  "version": "0.0.6",
+  "version": "0.0.7",
   "author": "Omer Demir",
   "bin": {
     "monocf": "./bin/run.js"
@@ -65,9 +65,8 @@
     "lint": "eslint",
     "postpack": "shx rm -f oclif.manifest.json",
     "posttest": "npm run lint",
-    "prepack": "oclif manifest && oclif readme",
+    "prepack": "oclif manifest",
     "test": "mocha --forbid-only \"test/**/*.test.ts\"",
-    "version": "oclif readme",
     "format": "prettier --write \"(src|test)/**/*.{ts,tsx,js,jsx}\""
   },
   "types": "dist/index.d.ts"
