@@ -168,15 +168,15 @@ export class FileService {
    * Cleans up temporary files
    */
   cleanupTempFiles(): void {
-    // for (const file of this.tempFiles) {
-    //   try {
-    //     if (existsSync(file)) {
-    //       unlinkSync(file)
-    //     }
-    //   } catch {
-    //     this.errorService.handleError(new Error(`Failed to delete temporary file: ${file}`), false)
-    //   }
-    // }
+    for (const file of this.tempFiles) {
+      try {
+        if (existsSync(file)) {
+          unlinkSync(file)
+        }
+      } catch {
+        this.errorService.handleError(new Error(`Failed to delete temporary file: ${file}`), false)
+      }
+    }
 
     this.tempFiles = []
   }
