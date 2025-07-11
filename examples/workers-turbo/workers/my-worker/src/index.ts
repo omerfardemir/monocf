@@ -2,7 +2,7 @@ import { CfEnv, ServerService } from '@workers-turbo/types'
 import {Hono} from 'hono'
 
 interface Env extends CfEnv {
-  SERVICE: ServerService,
+  SERVICE_2: ServerService,
   NAME: string
   USER: string
   API_KEY: string
@@ -14,7 +14,7 @@ const app = new Hono<{
 }>()
 
 app.get('/', async (c) => {
-  const sum = await c.env.SERVICE.sum(1, 2)
+  const sum = await c.env.SERVICE_2.sum(1, 2)
   return c.text(`Hello Hono! Sum: ${sum}, Name: ${c.env.NAME}`)
 })
 

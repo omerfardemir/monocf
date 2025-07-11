@@ -98,7 +98,7 @@ export class DevCommand implements WorkerCommandExecutor {
       // Run wrangler command
       return this.wranglerService.execWorkerCommand(
         'dev',
-        [tempWranglerConfigPath, ...serviceBindingPaths.flatMap((serviceBindingPath) => serviceBindingPath.path)],
+        [tempWranglerConfigPath, ...new Set(serviceBindingPaths.flatMap((serviceBindingPath) => serviceBindingPath.path))],
         params.env,
       )
     } catch (error) {

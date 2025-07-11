@@ -1,12 +1,12 @@
-import {join} from 'node:path'
-import {existsSync} from 'node:fs'
-import {experimental_patchConfig, experimental_readRawConfig} from 'wrangler'
-import {ErrorService} from './error-service.js'
-import {ServiceBindingError} from '../types/error-types.js'
-import {FileService} from './file-service.js'
-import {ServiceBindingOptions, WRANGLER_FILE} from '../types/wrangler-types.js'
-import {sanitizeWorkerName} from '../utils/string.js'
-import {EnvironmentService} from './environment-service.js'
+import { join } from 'node:path'
+import { existsSync } from 'node:fs'
+import { experimental_patchConfig, experimental_readRawConfig } from 'wrangler'
+import { ErrorService } from './error-service.js'
+import { ServiceBindingError } from '../types/error-types.js'
+import { FileService } from './file-service.js'
+import { ServiceBindingOptions, WRANGLER_FILE } from '../types/wrangler-types.js'
+import { sanitizeWorkerName } from '../utils/string.js'
+import { EnvironmentService } from './environment-service.js'
 
 /**
  * Service for handling service bindings
@@ -49,7 +49,7 @@ export class ServiceBindingService {
       env?: string
     },
     recursive?: boolean,
-  ): Array<ServiceBindingOptions & {path: string}> {
+  ): Array<ServiceBindingOptions & { path: string }> {
     try {
       // Get service bindings from the config file
       const serviceBindings = this.getServiceBindings(options.configPath, options.env)
@@ -65,7 +65,8 @@ export class ServiceBindingService {
 
       // Process each service binding
       for (const serviceBinding of serviceBindings) {
-        const {binding, service} = serviceBinding
+        const { service } = serviceBinding
+
         // Validate service
         const servicePath = join(options.rootDir, options.workersDirName, service)
         this.validateService(service, servicePath)
@@ -85,41 +86,9 @@ export class ServiceBindingService {
           env: options.env,
         })
 
-        // Update the main config with the service binding
-        const {rawConfig} = experimental_readRawConfig({
-          config: tempWranglerConfigPath,
-        })
-
-        const patchData = options.env
-          ? {
-              env: {
-                [options.env]: {
-                  services: [
-                    {
-                      binding,
-                      service: rawConfig.name!,
-                    },
-                  ],
-                },
-              },
-            }
-          : {
-              services: [
-                {
-                  binding,
-                  service: rawConfig.name!,
-                },
-              ],
-            }
-
-        experimental_patchConfig(options.configPath, patchData, false)
-
-        // Handle environment variables
-        this.environmentService.patchEnvironmentFile(servicePath, options.env)
-
         // Handle service bindings
         if (recursive) {
-          const recursiveServiceBindingPaths = this.createServiceBindings(
+          this.createServiceBindings(
             {
               configPath: tempWranglerConfigPath,
               rootDir: options.rootDir,
@@ -130,18 +99,31 @@ export class ServiceBindingService {
             },
             true,
           )
-
-          serviceBindingPaths.push(...recursiveServiceBindingPaths)
         }
+        
+        const { rawConfig: serviceRawConfig } = experimental_readRawConfig({
+          config: tempWranglerConfigPath,
+        })
 
-        const serviceBindingWithPath: ServiceBindingOptions & {path: string} = {
+        const serviceName = sanitizeWorkerName(serviceRawConfig.name!)
+
+        // Handle environment variables
+        this.environmentService.patchEnvironmentFile(servicePath, options.env)
+
+        const serviceBindingWithPath: ServiceBindingOptions & { path: string } = {
           ...serviceBinding,
-          service: rawConfig.name!,
+          service: serviceName,
           path: tempWranglerConfigPath,
         }
 
         serviceBindingPaths.push(serviceBindingWithPath)
       }
+
+      this.patchServices({
+        configPath: options.configPath,
+        services: serviceBindingPaths,
+        env: options.env,
+      })
 
       return serviceBindingPaths
     } catch (error) {
@@ -149,6 +131,30 @@ export class ServiceBindingService {
         `Failed to create service bindings: ${error instanceof Error ? error.message : String(error)}`,
       )
     }
+  }
+
+  patchServices({
+    configPath,
+    services,
+    env,
+  }: {
+    configPath: string
+    services: Array<ServiceBindingOptions>
+    env?: string
+  }) {
+    const patchData = env
+      ? {
+        env: {
+          [env]: {
+            services,
+          },
+        },
+      }
+      : {
+        services,
+      }
+
+    experimental_patchConfig(configPath, patchData, false)
   }
 
   handleServiceBinding(options: {
@@ -202,7 +208,7 @@ export class ServiceBindingService {
    */
   public getServiceBindings(configPath: string, env?: string): Array<ServiceBindingOptions> {
     try {
-      const {rawConfig} = experimental_readRawConfig({
+      const { rawConfig } = experimental_readRawConfig({
         config: configPath,
       })
 
