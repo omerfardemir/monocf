@@ -110,7 +110,7 @@ export class FileService {
           {
             env: {
               [options.env]: {
-                name: sanitizedWorkerName,
+                name: `${sanitizedWorkerName}-${options.env}`,
               },
             },
           },

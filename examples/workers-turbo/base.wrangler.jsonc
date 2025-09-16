@@ -2,7 +2,7 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "{workerName}-{version}",
   "main": "src/index.ts",
-  "account_id": "f5b882dfbeef2debaeec0a4883d77ed6",
+  "account_id": "9e0c5de6e569e446c08137120ba21641",
   "compatibility_date": "2025-01-09",
   "compatibility_flags": [
     "nodejs_compat"

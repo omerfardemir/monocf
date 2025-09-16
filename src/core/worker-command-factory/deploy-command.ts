@@ -23,6 +23,7 @@ export class DeployCommand implements WorkerCommandExecutor {
   private serviceBindingService: ServiceBindingService
   private environmentService: EnvironmentService
   private logService: LogService
+  private deployedServices: Set<string> = new Set<string>()
 
   /**
    * Creates a new DeployCommand
@@ -54,15 +55,9 @@ export class DeployCommand implements WorkerCommandExecutor {
    * Executes the deploy command
    * @param workerName Worker name
    * @param params Command parameters
-   * @param deployedServices Set of already deployed services to prevent circular dependencies
    * @returns Promise that resolves when the command completes successfully
    */
-  async execute(workerName: string, params: DeployCommandParams, deployedServices = new Set<string>()): Promise<void> {
-    // Only log the start message for the initial worker
-    if (deployedServices.size === 0) {
-      this.logService.log('MonoCF deploy command starting')
-    }
-
+  async execute(workerName: string, params: DeployCommandParams): Promise<void> {
     if (!isDeployCommandParams(params)) {
       this.errorService.throwConfigurationError('Invalid command parameters for deploy command')
     }
@@ -73,14 +68,14 @@ export class DeployCommand implements WorkerCommandExecutor {
     }
 
     // Skip if already deployed to prevent circular dependencies
-    if (deployedServices.has(workerName)) {
+    if (this.deployedServices.has(workerName)) {
       this.logService.log(`Worker ${workerName} already deployed, skipping`)
       return
     }
 
     try {
       // Add to deployed services to prevent circular dependencies
-      deployedServices.add(workerName)
+      this.deployedServices.add(workerName)
 
       // Validate worker
       this.fileService.validateWorker(params.rootDir, params.workersDirName, workerName)
@@ -108,7 +103,7 @@ export class DeployCommand implements WorkerCommandExecutor {
 
         for (const binding of serviceBindings) {
           // Recursively deploy each dependency
-          await this.execute(binding.service, params, deployedServices)
+          await this.execute(binding.service, params)
         }
       }
 
