@@ -1,10 +1,5 @@
 {
 	"$schema": "../../node_modules/wrangler/config-schema.json",
 	"main": "src/index.ts",
-	"services": [
-    {
-      "binding": "CF_WRITER",
-      "service": "new-worker",
-    },
-  ]
+  "name": "second-worker"
 }

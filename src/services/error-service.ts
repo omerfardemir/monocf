@@ -51,7 +51,9 @@ export class ErrorService {
     }
 
     if (exit) {
-      this.command.error(message, {exit: code})
+      this.command.error(message, {
+        exitCode: code,
+      })
     } else {
       this.command.warn(message)
     }

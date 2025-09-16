@@ -1,9 +1,9 @@
 import {existsSync, readFileSync} from 'node:fs'
 import {join} from 'node:path'
-import {CliConfig, CliFlags, DEFAULT_BASE_CONFIG, WORKER_CLI_CONFIG_FILE} from '../types/config-types.js'
-import {WorkerCommand} from '../types/command-types.js'
+import {CliConfig, CliFlags, DEFAULT_BASE_CONFIG, MONOCF_CONFIG_FILE} from '../types/config-types.js'
+import {Command} from '../types/command-types.js'
 import {ErrorService} from './error-service.js'
-import {WorkerArgs, WorkerFlags} from '../flags/index.js'
+import {StartDockerFlags, WorkerArgs, WorkerFlags} from '../flags/index.js'
 import {ConfigurationError} from '../types/error-types.js'
 
 /**
@@ -36,9 +36,9 @@ export class ConfigurationService {
    * @param args Command line arguments
    * @returns Loaded configuration
    */
-  loadConfiguration(flags: WorkerFlags, args: WorkerArgs): CliConfig & CliFlags {
+  loadConfiguration(flags: WorkerFlags | StartDockerFlags, args: WorkerArgs): CliConfig & CliFlags {
     // Load configuration from file
-    const cliConfigPath = join(process.cwd(), WORKER_CLI_CONFIG_FILE)
+    const cliConfigPath = join(process.cwd(), MONOCF_CONFIG_FILE)
     if (existsSync(cliConfigPath)) {
       try {
         const parsed: CliConfig = JSON.parse(readFileSync(cliConfigPath, 'utf8'))
@@ -52,6 +52,7 @@ export class ConfigurationService {
           all: flags.all ?? false,
           env: flags.env,
           command: flags.command,
+          port: parsed.port ?? flags.port ?? 8787,
         }
       } catch (error) {
         this.errorService.throwConfigurationError(`Failed to parse configuration file: ${(error as Error).message}`)
@@ -93,11 +94,6 @@ export class ConfigurationService {
     // Worker name is not allowed when using --all flag
     if (this.cliConfig.all && workerName) {
       this.errorService.throwConfigurationError('Worker name is not allowed when using --all flag')
-    }
-
-    // Validate command
-    if (!this.cliConfig.command) {
-      this.errorService.throwConfigurationError('Command is required')
     }
   }
 
@@ -161,7 +157,7 @@ export class ConfigurationService {
    * Gets the command
    * @returns Command or undefined if not set
    */
-  getCommand(): WorkerCommand | undefined {
+  getCommand(): Command | undefined {
     return this.cliConfig.command
   }
 

@@ -1,38 +1,40 @@
 {
 	"$schema": "../../node_modules/wrangler/config-schema.json",
 	"main": "src/index.ts",
+	"name": "my-worker",
+	"compatibility_date": "2025-01-09",
+	"route": {
+		"pattern": "api-dev.seenwise.com/primary/*",
+		"zone_name": "seenwise.com",
+	},
 	"services": [
 		{
 			"binding": "SERVICE_2",
 			"service": "second-worker"
-		},
-		{
-			"binding": "SERVICE_3",
-			"service": "third-worker"
 		}
 	],
 	"env": {
 		"dev": {
+			"route": {
+				"pattern": "api-dev.seenwise.com/primary/*",
+				"zone_name": "seenwise.com",
+			},
 			"services": [
 				{
 					"binding": "SERVICE_2",
 					"service": "second-worker"
-				},
-				{
-					"binding": "SERVICE_3",
-					"service": "third-worker"
 				}
 			]
 		},
 		"production": {
+			"route": {
+				"pattern": "api.seenwise.com/primary/*",
+				"zone_name": "seenwise.com",
+			},
 			"services": [
 				{
 					"binding": "SERVICE_2",
 					"service": "second-worker"
-				},
-				{
-					"binding": "SERVICE_3",
-					"service": "third-worker"
 				}
 			]
 		}

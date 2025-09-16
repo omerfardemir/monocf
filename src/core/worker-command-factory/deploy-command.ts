@@ -67,6 +67,11 @@ export class DeployCommand implements WorkerCommandExecutor {
       this.errorService.throwConfigurationError('Invalid command parameters for deploy command')
     }
 
+    if (this.fileService.isIgnoredWorker(workerName)) {
+      this.logService.log(`Worker ${workerName} is ignored, skipping`)
+      return
+    }
+
     // Skip if already deployed to prevent circular dependencies
     if (deployedServices.has(workerName)) {
       this.logService.log(`Worker ${workerName} already deployed, skipping`)

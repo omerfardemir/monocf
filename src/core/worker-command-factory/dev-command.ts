@@ -8,19 +8,24 @@ import {
   WranglerService,
 } from '../../services/index.js'
 import {DevCommandParams, isDevCommandParams} from '../../types/command-types.js'
-import {WRANGLER_FILE} from '../../types/wrangler-types.js'
 import {WorkerCommandExecutor} from './worker-command-executor.js'
+import {WorkerService} from '../../services/worker-service.js'
+import {parse} from 'jsonc-parser'
+import {existsSync, mkdirSync, readFileSync, writeFileSync} from 'node:fs'
+import {Unstable_RawConfig} from 'wrangler'
+import {MONOCF_FOLDER} from '../../types/config-types.js'
+import {getRoutePrefix} from '../../utils/string.js'
 
 /**
  * Command executor for the dev command
  */
 export class DevCommand implements WorkerCommandExecutor {
-  private serviceBindingService: ServiceBindingService
   private errorService: ErrorService
   private fileService: FileService
   private wranglerService: WranglerService
-  private environmentService: EnvironmentService
   private logService: LogService
+  private workerService: WorkerService
+  private readonly BASE_PORT = 9001
 
   /**
    * Creates a new DevCommand
@@ -40,12 +45,11 @@ export class DevCommand implements WorkerCommandExecutor {
     environmentService: EnvironmentService,
     logService: LogService,
   ) {
-    this.serviceBindingService = serviceBindingService
     this.errorService = errorService
     this.fileService = fileService
     this.wranglerService = wranglerService
-    this.environmentService = environmentService
     this.logService = logService
+    this.workerService = new WorkerService(fileService, logService, environmentService, serviceBindingService)
   }
 
   /**
@@ -62,52 +66,111 @@ export class DevCommand implements WorkerCommandExecutor {
     }
 
     try {
-      // Validate worker
-      this.fileService.validateWorker(params.rootDir, params.workersDirName, workerName)
+      if (params.multiWorker) {
+        return this.executeMultiWorker(params)
+      }
 
-      // Create temp config
-      const workerPath = join(params.rootDir, params.workersDirName, workerName)
-      const wranglerConfigPath = join(workerPath, WRANGLER_FILE)
-      const baseConfigPath = params.baseConfig ? join(params.rootDir, params.baseConfig) : undefined
+      const workerConfigPath = this.workerService.initializeWorker(workerName, params)
 
-      const tempWranglerConfigPath = this.fileService.createTempWranglerConfig({
-        workerName,
-        configPath: wranglerConfigPath,
-        workerPath,
-        baseConfigPath,
-        replaceValues: params.variables,
-        env: params.env,
-      })
-
-      // Handle service bindings
-      const serviceBindingPaths = this.serviceBindingService.createServiceBindings(
-        {
-          configPath: tempWranglerConfigPath,
-          rootDir: params.rootDir,
-          workersDirName: params.workersDirName,
-          baseConfigPath,
-          variables: params.variables,
-          env: params.env,
-        },
-        true,
-      )
-
-      console.log(new Set(serviceBindingPaths.flatMap((serviceBindingPath) => serviceBindingPath.path)))
-
-      // Handle environment variables
-      this.environmentService.patchEnvironmentFile(workerPath, params.env)
+      if (!workerConfigPath) {
+        return
+      }
 
       // Run wrangler command
       return this.wranglerService.execWorkerCommand(
         'dev',
         [
-          tempWranglerConfigPath,
-          ...new Set(serviceBindingPaths.flatMap((serviceBindingPath) => serviceBindingPath.path)),
+          workerConfigPath.tempWranglerConfigPath,
+          ...new Set(workerConfigPath.serviceBindingPaths.flatMap((serviceBindingPath) => serviceBindingPath.path)),
         ],
         params.env,
       )
     } catch (error) {
       this.errorService.handleError(error instanceof Error ? error : new Error(String(error)))
     }
+  }
+
+  async executeMultiWorker(params: DevCommandParams): Promise<void> {
+    const workers = this.fileService.getWorkers(params.rootDir, params.workersDirName)
+    const workersConfigPaths = workers
+      .map((workerName) => this.workerService.initializeWorker(workerName, params))
+      .filter((s) => s !== undefined)
+
+    const monocfFolder = join(params.rootDir, MONOCF_FOLDER)
+    if (!existsSync(monocfFolder)) {
+      mkdirSync(monocfFolder)
+    }
+
+    const proxyMap: Record<string, number> = {}
+
+    for (const [index, workerConfigPath] of workersConfigPaths.entries()) {
+      const config: Unstable_RawConfig = parse(readFileSync(workerConfigPath.tempWranglerConfigPath, 'utf8'))
+      const port = config.dev?.port ?? this.BASE_PORT + index
+      const args = [
+        'dev',
+        `--inspector-port ${9230 + index}`,
+        `--port ${port}`,
+        `--persist-to ${monocfFolder}/local-storage/${config.name}`,
+        `--config ${workerConfigPath.tempWranglerConfigPath}`,
+      ]
+
+      if (params.env) {
+        args.push('--env', params.env)
+      }
+
+      // Populate proxyMap using the route defined in the worker's wrangler config
+      const prefix = getRoutePrefix(config) ?? `/${workerConfigPath.workerName}`
+      proxyMap[prefix] = port
+
+      this.wranglerService.executeHiddenCommand(args)
+      continue
+    }
+
+    // Write proxy worker source file into .monocf folder
+    const proxyWorkerName = 'proxy-worker'
+    const proxyWorkerPath = join(monocfFolder, proxyWorkerName)
+    const proxySrcDir = join(proxyWorkerPath, 'src')
+    if (!existsSync(proxyWorkerPath)) mkdirSync(proxyWorkerPath, {recursive: true})
+    if (!existsSync(proxySrcDir)) mkdirSync(proxySrcDir, {recursive: true})
+    const proxyIndexPath = join(proxySrcDir, 'index.ts')
+    const proxyHandler = `export default {
+  async fetch(request, env, ctx) {
+    const map = ${JSON.stringify(proxyMap, null, 2)}
+    const url = new URL(request.url);
+    const pathname = url.pathname;
+    const match = Object.keys(map).find(p => pathname.startsWith(p));
+    if (!match) return new Response('Not found', { status: 404 });
+    const targetPort = map[match];
+    const targetUrl = new URL(request.url);
+    targetUrl.port = String(targetPort);
+    const proxied = new Request(targetUrl.toString(), request);
+    return fetch(proxied);
+  },
+};`
+    writeFileSync(proxyIndexPath, proxyHandler)
+
+    // Write proxy worker wrangler.jsonc
+    const proxyPort = params.port ?? 8787
+    const proxyConfigPath = join(proxyWorkerPath, 'wrangler.jsonc')
+    const proxyConfig = `{
+  "name": "${proxyWorkerName}",
+  "compatibility_date": "2025-01-09",
+  "main": "./src/index.ts",
+  "dev": {
+    "port": ${proxyPort}
+  }
+}`
+    writeFileSync(proxyConfigPath, proxyConfig)
+
+    // Add proxy worker to the list of workers to run
+    const proxyArgs = [
+      'dev',
+      `--inspector-port ${9230 + workersConfigPaths.length}`,
+      `--port ${proxyPort}`,
+      `--persist-to ${monocfFolder}/${proxyWorkerName}`,
+      `--config ${proxyConfigPath}`,
+    ]
+
+    return this.wranglerService.executeWranglerCommand(proxyArgs)
   }
 }

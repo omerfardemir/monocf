@@ -57,6 +57,11 @@ const workerFlags = {
     description: 'Deploy service bindings for the worker before deploy main worker',
     required: false,
   }),
+  port: Flags.integer({
+    char: 'p',
+    description: 'Port to use for the dev command. default: 8787',
+    required: false,
+  }),
 }
 
 const workerArgs = {

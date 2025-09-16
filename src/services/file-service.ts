@@ -2,12 +2,15 @@ import {existsSync, readFileSync, readdirSync, unlinkSync, writeFileSync} from '
 import {join} from 'node:path'
 
 import {ErrorService} from './error-service.js'
-import {TEMP_BASE_WRANGLER_FILE, TEMP_WRANGLER_FILE, TEMP_ENV_FILE} from '../types/wrangler-types.js'
+import {TEMP_BASE_WRANGLER_FILE, TEMP_WRANGLER_FILE, TEMP_ENV_FILE, WRANGLER_FILE} from '../types/wrangler-types.js'
 import {appendLine, sanitizeWorkerName} from '../utils/index.js'
 import {FileOperationError} from '../types/error-types.js'
 
 import {experimental_patchConfig, experimental_readRawConfig} from 'wrangler'
 import {getPackageVersion} from '../utils/version.js'
+import {MONOCF_IGNORE_FILE} from '../types/config-types.js'
+
+import ignore from 'ignore'
 
 /**
  * Service for handling file operations
@@ -15,6 +18,7 @@ import {getPackageVersion} from '../utils/version.js'
 export class FileService {
   private errorService: ErrorService
   private tempFiles: string[] = []
+  private ignoredWorkers: string[] = []
 
   /**
    * Creates a new FileService
@@ -97,6 +101,22 @@ export class FileService {
         },
         true,
       )
+
+      if (options.env) {
+        // add worker name to env, because it is not added by wrangler
+        // in development mode it is required to connect to other workers
+        experimental_patchConfig(
+          tempWranglerPath,
+          {
+            env: {
+              [options.env]: {
+                name: sanitizedWorkerName,
+              },
+            },
+          },
+          true,
+        )
+      }
 
       // Add default variables
       const version = getPackageVersion(packagePath)
@@ -212,6 +232,13 @@ export class FileService {
     if (!existsSync(workerPath)) {
       this.errorService.throwFileOperationError(`Worker not found at ${workerPath}. Please check the worker name.`)
     }
+
+    const wranglerConfigPath = join(workerPath, WRANGLER_FILE)
+    if (!existsSync(wranglerConfigPath)) {
+      this.errorService.throwFileOperationError(
+        `Wrangler config not found at ${wranglerConfigPath}. Please check the worker name.`,
+      )
+    }
   }
 
   /**
@@ -261,5 +288,40 @@ export class FileService {
     } catch (error) {
       this.errorService.handleError(new Error(`Failed to update gitignore: ${(error as Error).message}`), false)
     }
+  }
+
+  /**
+   * Load the ignored workers from the monocf ignore file
+   * @param root Root directory of the project
+   * @param workersDir Workers directory name
+   */
+  loadIgnoreFile(root: string, workersDir: string): void {
+    // Resolve ignore file relative to the provided project root
+    const ignorePath = join(root, MONOCF_IGNORE_FILE)
+    if (!existsSync(ignorePath)) {
+      return
+    }
+
+    const ignoreFileContent = readFileSync(ignorePath, 'utf8')
+    const ig = ignore().add(ignoreFileContent)
+
+    const workers = this.getWorkers(root, workersDir)
+
+    // Evaluate ignore patterns against relative paths so entries like
+    // "bravo", "workers/charlie" or "**/alpha" work cross-platform.
+    this.ignoredWorkers = workers.filter((worker) => {
+      const relName = worker
+      const relWithDir = `${workersDir}/${worker}`.replaceAll('\\', '/')
+      return ig.ignores(relName) || ig.ignores(relWithDir)
+    })
+  }
+
+  /**
+   * Check if a worker is ignored
+   * @param workerName Worker name
+   * @returns True if the worker is ignored, false otherwise
+   */
+  isIgnoredWorker(workerName: string): boolean {
+    return this.ignoredWorkers.includes(workerName)
   }
 }

@@ -6,6 +6,8 @@ import {AbstractCommand} from './abstract-command.js'
 import {WhoamiCommand} from './whoami/index.js'
 import {WorkerCreateCommand} from './worker/create-command.js'
 import {WranglerCommand} from './worker/wrangler-command.js'
+import {DockerStartCommand} from './docker/start.js'
+import {DockerStopCommand} from './docker/stop.js'
 
 /**
  * Command registration interface
@@ -65,6 +67,10 @@ export class CommandRegistry {
     // Register worker commands
     this.registerCommand('worker', WranglerCommand)
     this.registerCommand('worker:create', WorkerCreateCommand)
+
+    // Register docker commands
+    this.registerCommand('docker:start', DockerStartCommand)
+    this.registerCommand('docker:stop', DockerStopCommand)
 
     // Add new commands here...
     // this.registerCommand('new-command', NewCommandClass);

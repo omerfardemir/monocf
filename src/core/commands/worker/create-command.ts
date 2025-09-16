@@ -4,7 +4,7 @@ import {existsSync, readFileSync} from 'node:fs'
 import {CreateWorkerArgs, CreateWorkerFlags} from '../../../flags/index.js'
 import {WranglerService} from '../../../services/index.js'
 import {Commander} from '../../../types/command-types.js'
-import {CreateWorkerConfig, WORKER_CLI_CONFIG_FILE} from '../../../types/config-types.js'
+import {CreateWorkerConfig, MONOCF_CONFIG_FILE} from '../../../types/config-types.js'
 import {AbstractCommand} from '../abstract-command.js'
 
 export class WorkerCreateCommand extends AbstractCommand<CreateWorkerArgs, CreateWorkerFlags> {
@@ -57,7 +57,7 @@ export class WorkerCreateCommand extends AbstractCommand<CreateWorkerArgs, Creat
     }
 
     // Load configuration from file if it exists
-    const cliConfigPath = join(process.cwd(), WORKER_CLI_CONFIG_FILE)
+    const cliConfigPath = join(process.cwd(), MONOCF_CONFIG_FILE)
     if (existsSync(cliConfigPath)) {
       try {
         const parsed = JSON.parse(readFileSync(cliConfigPath, 'utf8'))

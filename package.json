@@ -12,9 +12,10 @@
     "@cloudflare/workers-types": "^4.20250507.0",
     "@oclif/core": "^4.5.0",
     "dotenv": "^16.5.0",
+    "ignore": "^7.0.5",
     "jsonc-parser": "^3.3.1",
     "nanospinner": "^1.2.2",
-    "wrangler": "^4.14.3"
+    "wrangler": "^4.27.0"
   },
   "devDependencies": {
     "@eslint/compat": "^1",
@@ -23,6 +24,7 @@
     "@types/chai": "^4",
     "@types/mocha": "^10",
     "@types/node": "^18",
+    "@types/sinon": "^17.0.4",
     "chai": "^4",
     "eslint": "^9",
     "eslint-config-oclif": "^6",
@@ -30,6 +32,7 @@
     "mocha": "^10",
     "oclif": "^4",
     "shx": "^0.3.3",
+    "sinon": "^21.0.0",
     "ts-node": "^10",
     "typescript": "^5"
   },

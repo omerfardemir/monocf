@@ -42,6 +42,6 @@ jobs:
           name: Release ${{ steps.version-check.outputs.tag }}
           tag: ${{ steps.version-check.outputs.tag }}
           commit: ${{ github.sha }}
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.GH_PAT }}
           generateReleaseNotes: true
           skipIfReleaseExists: true

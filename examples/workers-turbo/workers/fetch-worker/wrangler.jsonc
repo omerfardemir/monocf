@@ -1,0 +1,8 @@
+{
+	"$schema": "../../node_modules/wrangler/config-schema.json",
+	"main": "src/index.ts",
+	"name": "fetch-worker",
+	"route": "http://127.0.0.1:8787/fetch-worker/*",
+  "account_id": "f5b882dfbeef2debaeec0a4883d77ed6",
+  "compatibility_date": "2025-01-09"
+}

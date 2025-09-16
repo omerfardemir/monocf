@@ -21,12 +21,12 @@ export interface Commander {
  */
 export type WorkerCommand = 'deploy' | 'dev'
 
+export type Command = WorkerCommand | 'docker' | 'create'
+
 /**
  * Base interface for all worker command parameters
  */
 export interface BaseCommandParams {
-  /** Worker name */
-  workerName: string
   /** Root directory of the project */
   rootDir: string
   /** Workers directory name in monorepo */
@@ -39,18 +39,31 @@ export interface BaseCommandParams {
   variables?: Record<string, string>
 }
 
+export interface DockerParams extends BaseCommandParams {
+  /** Port to use for the docker container */
+  port?: number
+}
+
 /**
  * Parameters specific to the dev command
  */
 export interface DevCommandParams extends BaseCommandParams {
+  /** Worker name */
+  workerName: string
   /** Command type */
   command: 'dev'
+  /** Whether to run dev for multiple workers */
+  multiWorker?: boolean
+  /** Port to use for the proxy worker */
+  port?: number
 }
 
 /**
  * Parameters specific to the deploy command
  */
 export interface DeployCommandParams extends BaseCommandParams {
+  /** Worker name */
+  workerName: string
   /** Command type */
   command: 'deploy'
   /** Whether to deploy secrets for the worker */
