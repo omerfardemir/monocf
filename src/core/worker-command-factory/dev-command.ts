@@ -65,6 +65,11 @@ export class DevCommand implements WorkerCommandExecutor {
       this.errorService.throwConfigurationError('Invalid command parameters for dev command')
     }
 
+    if (this.fileService.isIgnoredWorker(workerName)) {
+      this.logService.log(`Worker ${workerName} is ignored, skipping`)
+      return
+    }
+
     try {
       if (params.multiWorker) {
         return this.executeMultiWorker(params)
@@ -93,6 +98,7 @@ export class DevCommand implements WorkerCommandExecutor {
   async executeMultiWorker(params: DevCommandParams): Promise<void> {
     const workers = this.fileService.getWorkers(params.rootDir, params.workersDirName)
     const workersConfigPaths = workers
+      .filter((workerName) => !this.fileService.isIgnoredWorker(workerName))
       .map((workerName) => this.workerService.initializeWorker(workerName, params))
       .filter((s) => s !== undefined)
 
