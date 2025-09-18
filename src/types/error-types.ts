@@ -3,6 +3,7 @@
  */
 export class MonocfError extends Error {
   exit: number | false
+
   /**
    * Creates a new WorkerManagerError
    * @param message Error message

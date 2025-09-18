@@ -74,77 +74,77 @@ export class DeployCommand implements WorkerCommandExecutor {
     }
 
     // Add to deployed services to prevent circular dependencies
-      this.deployedServices.add(workerName)
+    this.deployedServices.add(workerName)
 
-      // Validate worker
-      this.fileService.validateWorker(params.rootDir, params.workersDirName, workerName)
+    // Validate worker
+    this.fileService.validateWorker(params.rootDir, params.workersDirName, workerName)
 
-      // Create temp config
-      const workerPath = join(params.rootDir, params.workersDirName, workerName)
-      const wranglerConfigPath = join(workerPath, WRANGLER_FILE)
-      const baseConfigPath = params.baseConfig ? join(params.rootDir, params.baseConfig) : undefined
+    // Create temp config
+    const workerPath = join(params.rootDir, params.workersDirName, workerName)
+    const wranglerConfigPath = join(workerPath, WRANGLER_FILE)
+    const baseConfigPath = params.baseConfig ? join(params.rootDir, params.baseConfig) : undefined
 
-      const tempWranglerConfigPath = this.fileService.createTempWranglerConfig({
-        workerName,
-        configPath: wranglerConfigPath,
-        workerPath,
-        baseConfigPath,
-        replaceValues: params.variables,
-        env: params.env,
-      })
+    const tempWranglerConfigPath = this.fileService.createTempWranglerConfig({
+      workerName,
+      configPath: wranglerConfigPath,
+      workerPath,
+      baseConfigPath,
+      replaceValues: params.variables,
+      env: params.env,
+    })
 
-      // Get service bindings from the config file
-      const serviceBindings = this.serviceBindingService.getServiceBindings(tempWranglerConfigPath, params.env)
+    // Get service bindings from the config file
+    const serviceBindings = this.serviceBindingService.getServiceBindings(tempWranglerConfigPath, params.env)
 
-      // Deploy dependencies first (recursive)
-      if (serviceBindings.length > 0 && params.deployBindings) {
-        this.logService.log(`Deploying dependencies for worker ${workerName}`)
+    // Deploy dependencies first (recursive)
+    if (serviceBindings.length > 0 && params.deployBindings) {
+      this.logService.log(`Deploying dependencies for worker ${workerName}`)
 
-        for (const binding of serviceBindings) {
-          // Recursively deploy each dependency
-          await this.execute(binding.service, params)
-        }
+      for (const binding of serviceBindings) {
+        // Recursively deploy each dependency
+        await this.execute(binding.service, params)
       }
+    }
 
-      // Handle service bindings for this worker's config
-      const services = this.serviceBindingService.handleServiceBinding({
-        configPath: tempWranglerConfigPath,
-        rootDir: params.rootDir,
-        workersDirName: params.workersDirName,
-        baseConfigPath,
-        variables: params.variables,
-        env: params.env,
-      })
+    // Handle service bindings for this worker's config
+    const services = this.serviceBindingService.handleServiceBinding({
+      configPath: tempWranglerConfigPath,
+      rootDir: params.rootDir,
+      workersDirName: params.workersDirName,
+      baseConfigPath,
+      variables: params.variables,
+      env: params.env,
+    })
 
-      // Patch the config with service bindings
-      const patch = params.env
-        ? {
-            env: {
-              [params.env]: {
-                services,
-              },
+    // Patch the config with service bindings
+    const patch = params.env
+      ? {
+          env: {
+            [params.env]: {
+              services,
             },
-          }
-        : {
-            services,
-          }
+          },
+        }
+      : {
+          services,
+        }
 
-      experimental_patchConfig(tempWranglerConfigPath, patch, false)
+    experimental_patchConfig(tempWranglerConfigPath, patch, false)
 
-      // Deploy this worker
-      this.logService.log(`Deploying worker ${workerName}`)
-      await this.wranglerService.execWorkerCommand('deploy', [tempWranglerConfigPath], params.env)
+    // Deploy this worker
+    this.logService.log(`Deploying worker ${workerName}`)
+    await this.wranglerService.execWorkerCommand('deploy', [tempWranglerConfigPath], params.env)
 
-      // Deploy secrets if needed
-      if (params.deploySecrets) {
-        this.logService.log(`Deploying secrets for ${workerName}`)
-        await this.deploySecrets({
-          workerName,
-          workerPath,
-          env: params.env,
-          configPath: tempWranglerConfigPath,
-        })
-      }
+    // Deploy secrets if needed
+    if (params.deploySecrets) {
+      this.logService.log(`Deploying secrets for ${workerName}`)
+      await this.deploySecrets({
+        workerName,
+        workerPath,
+        env: params.env,
+        configPath: tempWranglerConfigPath,
+      })
+    }
   }
 
   /**

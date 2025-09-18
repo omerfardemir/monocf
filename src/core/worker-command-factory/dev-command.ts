@@ -71,24 +71,24 @@ export class DevCommand implements WorkerCommandExecutor {
     }
 
     if (params.multiWorker) {
-        return this.executeMultiWorker(params)
-      }
+      return this.executeMultiWorker(params)
+    }
 
-      const workerConfigPath = this.workerService.initializeWorker(workerName, params)
+    const workerConfigPath = this.workerService.initializeWorker(workerName, params)
 
-      if (!workerConfigPath) {
-        return
-      }
+    if (!workerConfigPath) {
+      return
+    }
 
-      // Run wrangler command
-      return this.wranglerService.execWorkerCommand(
-        'dev',
-        [
-          workerConfigPath.tempWranglerConfigPath,
-          ...new Set(workerConfigPath.serviceBindingPaths.flatMap((serviceBindingPath) => serviceBindingPath.path)),
-        ],
-        params.env,
-      )
+    // Run wrangler command
+    return this.wranglerService.execWorkerCommand(
+      'dev',
+      [
+        workerConfigPath.tempWranglerConfigPath,
+        ...new Set(workerConfigPath.serviceBindingPaths.flatMap((serviceBindingPath) => serviceBindingPath.path)),
+      ],
+      params.env,
+    )
   }
 
   async executeMultiWorker(params: DevCommandParams): Promise<void> {
