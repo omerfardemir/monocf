@@ -1,10 +1,12 @@
-import {WorkerCommand} from './command-types.js'
+import {Command} from './command-types.js'
 
 /**
  * Constants for configuration files
  */
 export const DEFAULT_BASE_CONFIG = 'base.wrangler.jsonc'
-export const WORKER_CLI_CONFIG_FILE = 'worker.config.json'
+export const MONOCF_CONFIG_FILE = 'monocf.config.json'
+export const MONOCF_IGNORE_FILE = '.monocfignore'
+export const MONOCF_FOLDER = './.monocf'
 
 /**
  * CLI configuration interface
@@ -22,6 +24,8 @@ export interface CliConfig {
   variables?: Record<string, string>
   /** Whether to deploy service bindings for the worker */
   deployBindings?: boolean
+  /** Port to use for the dev command */
+  port?: number
 }
 
 /**
@@ -32,8 +36,10 @@ export interface CliFlags {
   all?: boolean
   /** Environment to use (dev, production etc.) */
   env?: string
-  /** Command to execute (dev or deploy) */
-  command?: WorkerCommand
+  /** Command to execute */
+  command?: Command
+  /** Port to use for the dev command */
+  port?: number
 }
 
 /**

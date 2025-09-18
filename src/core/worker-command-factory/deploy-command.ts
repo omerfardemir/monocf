@@ -23,6 +23,7 @@ export class DeployCommand implements WorkerCommandExecutor {
   private serviceBindingService: ServiceBindingService
   private environmentService: EnvironmentService
   private logService: LogService
+  private deployedServices: Set<string> = new Set<string>()
 
   /**
    * Creates a new DeployCommand
@@ -54,100 +55,95 @@ export class DeployCommand implements WorkerCommandExecutor {
    * Executes the deploy command
    * @param workerName Worker name
    * @param params Command parameters
-   * @param deployedServices Set of already deployed services to prevent circular dependencies
    * @returns Promise that resolves when the command completes successfully
    */
-  async execute(workerName: string, params: DeployCommandParams, deployedServices = new Set<string>()): Promise<void> {
-    // Only log the start message for the initial worker
-    if (deployedServices.size === 0) {
-      this.logService.log('MonoCF deploy command starting')
-    }
-
+  async execute(workerName: string, params: DeployCommandParams): Promise<void> {
     if (!isDeployCommandParams(params)) {
       this.errorService.throwConfigurationError('Invalid command parameters for deploy command')
     }
 
+    if (this.fileService.isIgnoredWorker(workerName)) {
+      this.logService.log(`Worker ${workerName} is ignored, skipping`)
+      return
+    }
+
     // Skip if already deployed to prevent circular dependencies
-    if (deployedServices.has(workerName)) {
+    if (this.deployedServices.has(workerName)) {
       this.logService.log(`Worker ${workerName} already deployed, skipping`)
       return
     }
 
-    try {
-      // Add to deployed services to prevent circular dependencies
-      deployedServices.add(workerName)
+    // Add to deployed services to prevent circular dependencies
+    this.deployedServices.add(workerName)
 
-      // Validate worker
-      this.fileService.validateWorker(params.rootDir, params.workersDirName, workerName)
+    // Validate worker
+    this.fileService.validateWorker(params.rootDir, params.workersDirName, workerName)
 
-      // Create temp config
-      const workerPath = join(params.rootDir, params.workersDirName, workerName)
-      const wranglerConfigPath = join(workerPath, WRANGLER_FILE)
-      const baseConfigPath = params.baseConfig ? join(params.rootDir, params.baseConfig) : undefined
+    // Create temp config
+    const workerPath = join(params.rootDir, params.workersDirName, workerName)
+    const wranglerConfigPath = join(workerPath, WRANGLER_FILE)
+    const baseConfigPath = params.baseConfig ? join(params.rootDir, params.baseConfig) : undefined
 
-      const tempWranglerConfigPath = this.fileService.createTempWranglerConfig({
-        workerName,
-        configPath: wranglerConfigPath,
-        workerPath,
-        baseConfigPath,
-        replaceValues: params.variables,
-        env: params.env,
-      })
+    const tempWranglerConfigPath = this.fileService.createTempWranglerConfig({
+      workerName,
+      configPath: wranglerConfigPath,
+      workerPath,
+      baseConfigPath,
+      replaceValues: params.variables,
+      env: params.env,
+    })
 
-      // Get service bindings from the config file
-      const serviceBindings = this.serviceBindingService.getServiceBindings(tempWranglerConfigPath, params.env)
+    // Get service bindings from the config file
+    const serviceBindings = this.serviceBindingService.getServiceBindings(tempWranglerConfigPath, params.env)
 
-      // Deploy dependencies first (recursive)
-      if (serviceBindings.length > 0 && params.deployBindings) {
-        this.logService.log(`Deploying dependencies for worker ${workerName}`)
+    // Deploy dependencies first (recursive)
+    if (serviceBindings.length > 0 && params.deployBindings) {
+      this.logService.log(`Deploying dependencies for worker ${workerName}`)
 
-        for (const binding of serviceBindings) {
-          // Recursively deploy each dependency
-          await this.execute(binding.service, params, deployedServices)
-        }
+      for (const binding of serviceBindings) {
+        // Recursively deploy each dependency
+        await this.execute(binding.service, params)
       }
+    }
 
-      // Handle service bindings for this worker's config
-      const services = this.serviceBindingService.handleServiceBinding({
-        configPath: tempWranglerConfigPath,
-        rootDir: params.rootDir,
-        workersDirName: params.workersDirName,
-        baseConfigPath,
-        variables: params.variables,
-        env: params.env,
-      })
+    // Handle service bindings for this worker's config
+    const services = this.serviceBindingService.handleServiceBinding({
+      configPath: tempWranglerConfigPath,
+      rootDir: params.rootDir,
+      workersDirName: params.workersDirName,
+      baseConfigPath,
+      variables: params.variables,
+      env: params.env,
+    })
 
-      // Patch the config with service bindings
-      const patch = params.env
-        ? {
-            env: {
-              [params.env]: {
-                services,
-              },
+    // Patch the config with service bindings
+    const patch = params.env
+      ? {
+          env: {
+            [params.env]: {
+              services,
             },
-          }
-        : {
-            services,
-          }
+          },
+        }
+      : {
+          services,
+        }
 
-      experimental_patchConfig(tempWranglerConfigPath, patch, false)
+    experimental_patchConfig(tempWranglerConfigPath, patch, false)
 
-      // Deploy this worker
-      this.logService.log(`Deploying worker ${workerName}`)
-      await this.wranglerService.execWorkerCommand('deploy', [tempWranglerConfigPath], params.env)
+    // Deploy this worker
+    this.logService.log(`Deploying worker ${workerName}`)
+    await this.wranglerService.execWorkerCommand('deploy', [tempWranglerConfigPath], params.env)
 
-      // Deploy secrets if needed
-      if (params.deploySecrets) {
-        this.logService.log(`Deploying secrets for ${workerName}`)
-        await this.deploySecrets({
-          workerName,
-          workerPath,
-          env: params.env,
-          configPath: tempWranglerConfigPath,
-        })
-      }
-    } catch (error) {
-      this.errorService.handleError(error instanceof Error ? error : new Error(String(error)))
+    // Deploy secrets if needed
+    if (params.deploySecrets) {
+      this.logService.log(`Deploying secrets for ${workerName}`)
+      await this.deploySecrets({
+        workerName,
+        workerPath,
+        env: params.env,
+        configPath: tempWranglerConfigPath,
+      })
     }
   }
 

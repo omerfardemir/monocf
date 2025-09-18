@@ -42,8 +42,7 @@ export default class WorkerCreate extends CommandBase {
   async run(): Promise<void> {
     // Parse command line arguments
     const {args, flags} = await this.parse(WorkerCreate)
-
-    // Execute command
-    await CommandRegistry.executeCommand<CreateWorkerArgs, CreateWorkerFlags>('worker:create', this, args, flags)
+    this.command = await CommandRegistry.createCommand('worker:create', this)
+    this.command.execute(args, flags)
   }
 }

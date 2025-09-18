@@ -57,6 +57,11 @@ const workerFlags = {
     description: 'Deploy service bindings for the worker before deploy main worker',
     required: false,
   }),
+  port: Flags.integer({
+    char: 'p',
+    description: 'Port to use for the dev command. default: 8787',
+    required: false,
+  }),
 }
 
 const workerArgs = {
@@ -89,7 +94,7 @@ export default class Worker extends CommandBase {
     // Normalize flags to convert kebab-case to camelCase
     const normalizedFlags: WorkerFlags = normalizeFlags<WorkerFlags>(flags)
 
-    // Run command
-    await CommandRegistry.executeCommand<WorkerArgs, WorkerFlags>('worker', this, args, normalizedFlags)
+    this.command = await CommandRegistry.createCommand('worker', this)
+    return this.command.execute(args, normalizedFlags)
   }
 }

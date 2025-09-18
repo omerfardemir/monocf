@@ -1,24 +1,28 @@
 /**
  * Base error class for MonoCF
  */
-export class WorkerManagerError extends Error {
+export class MonocfError extends Error {
+  exit: number | false
+
   /**
    * Creates a new WorkerManagerError
    * @param message Error message
    */
   constructor(message: string) {
     super(message)
+
     this.name = 'WorkerManagerError'
+    this.exit = false
 
     // This is needed to make instanceof work correctly in TypeScript
-    Object.setPrototypeOf(this, WorkerManagerError.prototype)
+    Object.setPrototypeOf(this, MonocfError.prototype)
   }
 }
 
 /**
  * Error thrown when a configuration is invalid
  */
-export class ConfigurationError extends WorkerManagerError {
+export class ConfigurationError extends MonocfError {
   /**
    * Creates a new ConfigurationError
    * @param message Error message
@@ -26,6 +30,7 @@ export class ConfigurationError extends WorkerManagerError {
   constructor(message: string) {
     super(message)
     this.name = 'ConfigurationError'
+    this.exit = 2
 
     // This is needed to make instanceof work correctly in TypeScript
     Object.setPrototypeOf(this, ConfigurationError.prototype)
@@ -35,7 +40,7 @@ export class ConfigurationError extends WorkerManagerError {
 /**
  * Error thrown when a worker command fails
  */
-export class WorkerCommandError extends WorkerManagerError {
+export class WorkerCommandError extends MonocfError {
   /**
    * Creates a new WorkerCommandError
    * @param message Error message
@@ -43,6 +48,7 @@ export class WorkerCommandError extends WorkerManagerError {
   constructor(message: string) {
     super(message)
     this.name = 'WorkerCommandError'
+    this.exit = 2
 
     // This is needed to make instanceof work correctly in TypeScript
     Object.setPrototypeOf(this, WorkerCommandError.prototype)
@@ -52,7 +58,7 @@ export class WorkerCommandError extends WorkerManagerError {
 /**
  * Error thrown when a file operation fails
  */
-export class FileOperationError extends WorkerManagerError {
+export class FileOperationError extends MonocfError {
   /**
    * Creates a new FileOperationError
    * @param message Error message
@@ -60,6 +66,7 @@ export class FileOperationError extends WorkerManagerError {
   constructor(message: string) {
     super(message)
     this.name = 'FileOperationError'
+    this.exit = 2
 
     // This is needed to make instanceof work correctly in TypeScript
     Object.setPrototypeOf(this, FileOperationError.prototype)
@@ -69,7 +76,7 @@ export class FileOperationError extends WorkerManagerError {
 /**
  * Error thrown when a service binding operation fails
  */
-export class ServiceBindingError extends WorkerManagerError {
+export class ServiceBindingError extends MonocfError {
   /**
    * Creates a new ServiceBindingError
    * @param message Error message
@@ -77,6 +84,7 @@ export class ServiceBindingError extends WorkerManagerError {
   constructor(message: string) {
     super(message)
     this.name = 'ServiceBindingError'
+    this.exit = 2
 
     // This is needed to make instanceof work correctly in TypeScript
     Object.setPrototypeOf(this, ServiceBindingError.prototype)
@@ -86,7 +94,7 @@ export class ServiceBindingError extends WorkerManagerError {
 /**
  * Error thrown when a spawned wrangler command fails
  */
-export class WranglerError extends Error {
+export class WranglerError extends MonocfError {
   args: string[]
   code: number
   command: string
@@ -104,6 +112,7 @@ export class WranglerError extends Error {
     this.code = code
     this.command = command
     this.args = args
+    this.exit = code === 0 ? false : code
 
     // This is needed to make instanceof work correctly in TypeScript
     Object.setPrototypeOf(this, WranglerError.prototype)

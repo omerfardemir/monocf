@@ -4,7 +4,7 @@ import {ErrorService, FileService, LogService} from '../../services/index.js'
 /**
  * Abstract base class for all CLI commands
  */
-export abstract class AbstractCommand<TArgs = unknown, TFlags = unknown> {
+export abstract class MonocfCommand<TArgs = unknown, TFlags = unknown> {
   protected errorService: ErrorService
   protected fileService: FileService
   protected logService: LogService
@@ -16,9 +16,9 @@ export abstract class AbstractCommand<TArgs = unknown, TFlags = unknown> {
    */
   constructor(command: Commander) {
     this.command = command
-    this.errorService = new ErrorService(command)
-    this.fileService = new FileService(this.errorService)
     this.logService = new LogService(command)
+    this.errorService = new ErrorService()
+    this.fileService = new FileService(this.errorService)
   }
 
   /**
@@ -26,27 +26,12 @@ export abstract class AbstractCommand<TArgs = unknown, TFlags = unknown> {
    * @param args Command arguments
    * @param flags Command flags
    */
-  protected abstract execute(args: TArgs, flags: TFlags): Promise<void>
+  public abstract execute(args: TArgs, flags: TFlags): Promise<void>
 
   /**
    * Cleanup method that will be called after command execution
    * regardless of success or failure
    * Commands can override this method to implement their own cleanup logic
    */
-  protected async finally(): Promise<void> {}
-
-  /**
-   * Error handling wrapper for command execution
-   * @param args Command arguments
-   * @param flags Command flags
-   */
-  public async executeWithErrorHandling(args: TArgs, flags: TFlags): Promise<void> {
-    try {
-      await this.execute(args, flags)
-    } catch (error) {
-      this.errorService.handleError(error instanceof Error ? error : new Error(String(error)))
-    } finally {
-      await this.finally()
-    }
-  }
+  public async finally(): Promise<void> {}
 }

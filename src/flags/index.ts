@@ -13,6 +13,7 @@ export interface WorkerFlags {
   env?: string
   rootDir?: string
   workersDirName?: string
+  port?: number
 }
 
 export interface CreateWorkerArgs {
@@ -22,6 +23,10 @@ export interface CreateWorkerArgs {
 export interface CreateWorkerFlags {
   rootDir?: string
   workersDirName?: string
+}
+
+export interface StartDockerFlags extends WorkerFlags {
+  port?: number
 }
 
 // Utility type to extract the type of a field from an interface

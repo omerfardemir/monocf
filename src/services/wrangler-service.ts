@@ -1,7 +1,7 @@
 import {ChildProcess, exec, spawn} from 'node:child_process'
-import {join} from 'node:path'
-import {existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync} from 'node:fs'
-import {experimental_patchConfig} from 'wrangler'
+import path, {join} from 'node:path'
+import {copyFileSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync} from 'node:fs'
+import {experimental_patchConfig, Unstable_RawConfig} from 'wrangler'
 import {
   execEventListener,
   TEMP_BASE_WRANGLER_FILE,
@@ -13,7 +13,7 @@ import {
 import {ErrorService} from './error-service.js'
 import {createSpinner} from 'nanospinner'
 import {downloadTemplate} from '@bluwy/giget-core'
-import {stripComments} from 'jsonc-parser'
+import {parse, stripComments} from 'jsonc-parser'
 import {FileService} from './file-service.js'
 
 /**
@@ -23,6 +23,7 @@ export class WranglerService {
   private errorService: ErrorService
   private fileService: FileService
   private eventListeners?: execEventListener
+  public childProcesses: ChildProcess[] = []
 
   /**
    * Creates a new WranglerService
@@ -41,7 +42,7 @@ export class WranglerService {
    * @param args Arguments to pass to wrangler
    * @returns Promise that resolves when the command completes successfully
    */
-  private executeWranglerCommand(args: string[]): Promise<void> {
+  public executeWranglerCommand(args: string[]): Promise<void> {
     return new Promise((resolve, reject) => {
       // Create a wrapper for the stdout/stderr/exit events to handle Promise resolution
       const enhancedOptions: execEventListener = {
@@ -83,6 +84,12 @@ export class WranglerService {
     })
   }
 
+  public executeHiddenCommand(args: string[]): ChildProcess {
+    const childProcess = this.spawnHiddenWrangler(args)
+    this.childProcesses.push(childProcess)
+    return childProcess
+  }
+
   /**
    * Spawns an interactive wrangler process
    * @param args Arguments to pass to wrangler
@@ -95,13 +102,27 @@ export class WranglerService {
       stdio: ['inherit', 'inherit', 'inherit'],
     })
 
-    wrangler.on('exit', (code) => {
+    wrangler.on('exit', async (code) => {
       // Call the exit listener with the exit code (whether success or failure)
       // This allows the Promise to resolve or reject appropriately
       options?.onExitListener?.(code || 0)
     })
 
     return wrangler
+  }
+
+  /**
+   * Spawns a hidden wrangler process
+   * @param args Arguments to pass to wrangler
+   * @returns Child process
+   */
+  private spawnHiddenWrangler(args: string[]): ChildProcess {
+    const process = spawn('wrangler', args, {
+      shell: true,
+      stdio: ['inherit', 'ignore', 'ignore'],
+    })
+
+    return process
   }
 
   /**
@@ -136,6 +157,30 @@ export class WranglerService {
     }
 
     return this.executeWranglerCommand(args)
+  }
+
+  async buildWorker(configPath: string, envPath?: string, env?: string): Promise<string> {
+    const baseFolder = path.dirname(configPath)
+    const args = ['deploy', '--dry-run', '--outdir=./dist', '--minify', '--config', configPath]
+
+    if (env) {
+      args.push('--env', env)
+    }
+
+    await this.executeWranglerCommand(args)
+
+    // copy wrangler.jsonc to dist folder
+    const json: Unstable_RawConfig = parse(readFileSync(configPath, 'utf8'))
+    json.main = 'index.js'
+    const distWranglerJsoncPath = join(baseFolder, 'dist', 'wrangler.jsonc')
+    writeFileSync(distWranglerJsoncPath, JSON.stringify(json, null, 2))
+
+    if (envPath) {
+      const envFilename = env && env !== 'dev' ? `.dev.vars.${env}` : '.dev.vars'
+      copyFileSync(envPath, join(baseFolder, 'dist', envFilename))
+    }
+
+    return distWranglerJsoncPath
   }
 
   /**

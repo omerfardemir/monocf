@@ -1,0 +1,3 @@
+{
+  "extends": "@workers-turbo/typescript-config/base.json"
+}

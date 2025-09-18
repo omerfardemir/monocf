@@ -1,18 +1,20 @@
 import {Commander} from '../../types/command-types.js'
 import {CommandFactory} from './command-factory.js'
-import {AbstractCommand} from './abstract-command.js'
+import {MonocfCommand} from './command.js'
 
 // Import command implementations
 import {WhoamiCommand} from './whoami/index.js'
 import {WorkerCreateCommand} from './worker/create-command.js'
 import {WranglerCommand} from './worker/wrangler-command.js'
+import {DockerStartCommand} from './docker/start.js'
+import {DockerStopCommand} from './docker/stop.js'
 
 /**
  * Command registration interface
  */
 interface CommandRegistration {
   name: string
-  commandClass: new (command: Commander) => AbstractCommand
+  commandClass: new (command: Commander) => MonocfCommand
 }
 
 /**
@@ -49,7 +51,7 @@ export class CommandRegistry {
    * @param name The name of the command
    * @param commandClass The command class constructor
    */
-  public registerCommand(name: string, commandClass: new (command: Commander) => AbstractCommand): void {
+  public registerCommand(name: string, commandClass: new (command: Commander) => MonocfCommand): void {
     this._commandRegistrations.push({name, commandClass})
   }
 
@@ -65,6 +67,10 @@ export class CommandRegistry {
     // Register worker commands
     this.registerCommand('worker', WranglerCommand)
     this.registerCommand('worker:create', WorkerCreateCommand)
+
+    // Register docker commands
+    this.registerCommand('docker:start', DockerStartCommand)
+    this.registerCommand('docker:stop', DockerStopCommand)
 
     // Add new commands here...
     // this.registerCommand('new-command', NewCommandClass);
@@ -105,6 +111,12 @@ export class CommandRegistry {
 
     // Execute the command
     return CommandFactory.executeCommand(commandName, command, args, flags)
+  }
+
+  public static async createCommand(commandName: string, command: Commander): Promise<MonocfCommand> {
+    // Ensure registry is initialized
+    this.getInstance().initialize()
+    return CommandFactory.createCommand(commandName, command)
   }
 
   /**

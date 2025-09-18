@@ -5,10 +5,6 @@
 		{
 			"binding": "SERVICE_2",
 			"service": "second-worker"
-		},
-		{
-			"binding": "SERVICE_3",
-			"service": "third-worker"
 		}
 	],
 	"env": {
@@ -17,10 +13,6 @@
 				{
 					"binding": "SERVICE_2",
 					"service": "second-worker"
-				},
-				{
-					"binding": "SERVICE_3",
-					"service": "third-worker"
 				}
 			]
 		},
@@ -29,10 +21,6 @@
 				{
 					"binding": "SERVICE_2",
 					"service": "second-worker"
-				},
-				{
-					"binding": "SERVICE_3",
-					"service": "third-worker"
 				}
 			]
 		}

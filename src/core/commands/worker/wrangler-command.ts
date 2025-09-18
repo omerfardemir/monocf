@@ -1,4 +1,4 @@
-import {Commander, WorkerCommandParams} from '../../../types/command-types.js'
+import {Commander, DevCommandParams, WorkerCommandParams} from '../../../types/command-types.js'
 import {
   WranglerService,
   ConfigurationService,
@@ -6,10 +6,10 @@ import {
   EnvironmentService,
 } from '../../../services/index.js'
 import {WorkerArgs, WorkerFlags} from '../../../flags/index.js'
-import {AbstractCommand} from '../abstract-command.js'
+import {MonocfCommand} from '../command.js'
 import {WorkerCommandFactory} from '../../worker-command-factory/index.js'
 
-export class WranglerCommand extends AbstractCommand<WorkerArgs, WorkerFlags> {
+export class WranglerCommand extends MonocfCommand<WorkerArgs, WorkerFlags> {
   private serviceBindingService: ServiceBindingService
   private wranglerService: WranglerService
   private configService: ConfigurationService
@@ -30,7 +30,14 @@ export class WranglerCommand extends AbstractCommand<WorkerArgs, WorkerFlags> {
     // Validate directories
     this.fileService.validateWorkersDirectory(config.rootDir, config.workersDirName)
 
+    // Load ignore file
+    this.fileService.loadIgnoreFile(config.rootDir, config.workersDirName)
+
     this.environmentService.setRootDir(config.rootDir)
+
+    if (!config.command || !(config.command === 'deploy' || config.command === 'dev')) {
+      this.errorService.throwConfigurationError('Command is required and must be either "deploy" or "dev"')
+    }
 
     // Create command parameters
     const params: WorkerCommandParams = {
@@ -41,6 +48,7 @@ export class WranglerCommand extends AbstractCommand<WorkerArgs, WorkerFlags> {
       env: config.env,
       baseConfig: config.baseConfig,
       variables: config.variables,
+      port: config.port,
       ...(config.command === 'deploy' && {deploySecrets: config.deploySecrets}),
       ...(config.command === 'deploy' && {deployBindings: config.deployBindings}),
     }
@@ -58,9 +66,18 @@ export class WranglerCommand extends AbstractCommand<WorkerArgs, WorkerFlags> {
     // Execute command
     if (config.all) {
       const workers = this.fileService.getWorkers(config.rootDir, config.workersDirName)
-      for (const worker of workers) {
-        params.workerName = worker
-        await commandExecutor.execute(worker, params)
+
+      if (config.command === 'deploy') {
+        for (const worker of workers) {
+          params.workerName = worker
+          await commandExecutor.execute(worker, params)
+        }
+      } else if (config.command === 'dev') {
+        // leave workerName empty to execute dev for all workers
+        await commandExecutor.execute('', {
+          ...params,
+          multiWorker: true,
+        } as DevCommandParams)
       }
     } else if (params.workerName) {
       await commandExecutor.execute(params.workerName, params)
@@ -72,7 +89,7 @@ export class WranglerCommand extends AbstractCommand<WorkerArgs, WorkerFlags> {
   /**
    * Cleanup after command execution
    */
-  protected async finally(): Promise<void> {
+  public async finally(): Promise<void> {
     return new Promise((resolve) => {
       this.fileService.cleanupTempFiles()
       this.environmentService.rollbackEnvironmentVariables()
