@@ -7,7 +7,6 @@ export interface Commander {
   /** Gets the command events */
   cmdEvents(): execEventListener
   /** Logs an error */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   error(
     input: Error | string,
     options: {

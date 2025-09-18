@@ -1,7 +1,6 @@
 import {CommandBase} from '../../types/oclif-types.js'
 import {CommandRegistry} from '../../core/commands/registry.js'
 import {Flags} from '@oclif/core'
-import { MonocfCommand } from '../../core/commands/command.js'
 
 /**
  * Command to create a new worker

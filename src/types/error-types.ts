@@ -2,15 +2,16 @@
  * Base error class for MonoCF
  */
 export class MonocfError extends Error {
-  exit: number
+  exit: number | false
   /**
    * Creates a new WorkerManagerError
    * @param message Error message
    */
   constructor(message: string) {
     super(message)
+
     this.name = 'WorkerManagerError'
-    this.exit = 2
+    this.exit = false
 
     // This is needed to make instanceof work correctly in TypeScript
     Object.setPrototypeOf(this, MonocfError.prototype)
@@ -28,6 +29,7 @@ export class ConfigurationError extends MonocfError {
   constructor(message: string) {
     super(message)
     this.name = 'ConfigurationError'
+    this.exit = 2
 
     // This is needed to make instanceof work correctly in TypeScript
     Object.setPrototypeOf(this, ConfigurationError.prototype)
@@ -45,6 +47,7 @@ export class WorkerCommandError extends MonocfError {
   constructor(message: string) {
     super(message)
     this.name = 'WorkerCommandError'
+    this.exit = 2
 
     // This is needed to make instanceof work correctly in TypeScript
     Object.setPrototypeOf(this, WorkerCommandError.prototype)
@@ -62,6 +65,7 @@ export class FileOperationError extends MonocfError {
   constructor(message: string) {
     super(message)
     this.name = 'FileOperationError'
+    this.exit = 2
 
     // This is needed to make instanceof work correctly in TypeScript
     Object.setPrototypeOf(this, FileOperationError.prototype)
@@ -79,6 +83,7 @@ export class ServiceBindingError extends MonocfError {
   constructor(message: string) {
     super(message)
     this.name = 'ServiceBindingError'
+    this.exit = 2
 
     // This is needed to make instanceof work correctly in TypeScript
     Object.setPrototypeOf(this, ServiceBindingError.prototype)
@@ -88,7 +93,7 @@ export class ServiceBindingError extends MonocfError {
 /**
  * Error thrown when a spawned wrangler command fails
  */
-export class WranglerError extends Error {
+export class WranglerError extends MonocfError {
   args: string[]
   code: number
   command: string
@@ -106,6 +111,7 @@ export class WranglerError extends Error {
     this.code = code
     this.command = command
     this.args = args
+    this.exit = code === 0 ? false : code
 
     // This is needed to make instanceof work correctly in TypeScript
     Object.setPrototypeOf(this, WranglerError.prototype)

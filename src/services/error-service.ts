@@ -3,7 +3,6 @@ import {
   FileOperationError,
   ServiceBindingError,
   WorkerCommandError,
-  MonocfError,
   WranglerError,
 } from '../types/error-types.js'
 

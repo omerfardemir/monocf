@@ -3,7 +3,6 @@ import {Args, Flags} from '@oclif/core'
 import {VerifiedFields, CreateWorkerArgs, CreateWorkerFlags} from '../../flags/index.js'
 import {CommandBase} from '../../types/oclif-types.js'
 import {CommandRegistry} from '../../core/commands/registry.js'
-import { MonocfCommand } from '../../core/commands/command.js'
 
 /**
  * Worker create command args & flags

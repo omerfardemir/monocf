@@ -35,10 +35,13 @@ export abstract class CommandBase extends Command implements Commander {
     }
   }
 
-  async catch(err: MonocfError): Promise<any> {
-    return error(err.message, {
-      exit: err.exit
-    })
+  async catch(err: MonocfError): Promise<void | never> {
+    if (err.exit === false) {
+      return error(err.message, { exit: false });
+    } else {
+      const exitCode = typeof err.exit === 'number' ? err.exit : 2;
+      return error(err.message, { exit: exitCode });
+    }
   }
 
   async finally(err?: Error): Promise<void> {
