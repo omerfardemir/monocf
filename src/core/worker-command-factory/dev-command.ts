@@ -70,8 +70,7 @@ export class DevCommand implements WorkerCommandExecutor {
       return
     }
 
-    try {
-      if (params.multiWorker) {
+    if (params.multiWorker) {
         return this.executeMultiWorker(params)
       }
 
@@ -90,9 +89,6 @@ export class DevCommand implements WorkerCommandExecutor {
         ],
         params.env,
       )
-    } catch (error) {
-      this.errorService.handleError(error instanceof Error ? error : new Error(String(error)))
-    }
   }
 
   async executeMultiWorker(params: DevCommandParams): Promise<void> {

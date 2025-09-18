@@ -194,7 +194,7 @@ export class FileService {
           unlinkSync(file)
         }
       } catch {
-        this.errorService.handleError(new Error(`Failed to delete temporary file: ${file}`), false)
+        throw new Error(`Failed to delete temporary file: ${file}`)
       }
     }
 
@@ -286,7 +286,7 @@ export class FileService {
         appendLine(gitignorePath, line, true)
       }
     } catch (error) {
-      this.errorService.handleError(new Error(`Failed to update gitignore: ${(error as Error).message}`), false)
+      throw new Error(`Failed to update gitignore: ${(error as Error).message}`)
     }
   }
 

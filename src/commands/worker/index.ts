@@ -94,7 +94,7 @@ export default class Worker extends CommandBase {
     // Normalize flags to convert kebab-case to camelCase
     const normalizedFlags: WorkerFlags = normalizeFlags<WorkerFlags>(flags)
 
-    // Run command
-    await CommandRegistry.executeCommand<WorkerArgs, WorkerFlags>('worker', this, args, normalizedFlags)
+    this.command = await CommandRegistry.createCommand('worker', this)
+    return this.command.execute(args, normalizedFlags)
   }
 }

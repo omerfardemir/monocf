@@ -73,8 +73,7 @@ export class DeployCommand implements WorkerCommandExecutor {
       return
     }
 
-    try {
-      // Add to deployed services to prevent circular dependencies
+    // Add to deployed services to prevent circular dependencies
       this.deployedServices.add(workerName)
 
       // Validate worker
@@ -146,9 +145,6 @@ export class DeployCommand implements WorkerCommandExecutor {
           configPath: tempWranglerConfigPath,
         })
       }
-    } catch (error) {
-      this.errorService.handleError(error instanceof Error ? error : new Error(String(error)))
-    }
   }
 
   /**

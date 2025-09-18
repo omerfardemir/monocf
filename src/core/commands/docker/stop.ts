@@ -1,8 +1,8 @@
-import {AbstractCommand} from '../abstract-command.js'
+import {MonocfCommand} from '../command.js'
 import {DockerService} from '../../../services/docker-service.js'
 import {Commander} from '../../../types/command-types.js'
 
-export class DockerStopCommand extends AbstractCommand {
+export class DockerStopCommand extends MonocfCommand {
   private dockerService: DockerService
 
   constructor(commander: Commander) {
@@ -10,7 +10,7 @@ export class DockerStopCommand extends AbstractCommand {
     this.dockerService = new DockerService()
   }
 
-  protected async execute(): Promise<void> {
+  public async execute(): Promise<void> {
     return this.dockerService.stop()
   }
 }

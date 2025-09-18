@@ -8,7 +8,20 @@ export interface Commander {
   cmdEvents(): execEventListener
   /** Logs an error */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  error(input: Error | string, options?: any): void | never
+  error(
+    input: Error | string,
+    options: {
+      code?: string
+      exit: false
+    },
+  ): void
+  error(
+    input: Error | string,
+    options?: {
+      code?: string
+      exit?: number
+    },
+  ): never
   /** Logs a warning */
   warn(input: Error | string): Error | string
   /** Logs a message */

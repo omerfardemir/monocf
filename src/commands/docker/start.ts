@@ -1,6 +1,7 @@
 import {CommandBase} from '../../types/oclif-types.js'
 import {CommandRegistry} from '../../core/commands/registry.js'
 import {Flags} from '@oclif/core'
+import { MonocfCommand } from '../../core/commands/command.js'
 
 /**
  * Command to create a new worker
@@ -43,6 +44,7 @@ export default class DockerStart extends CommandBase {
     const {args, flags} = await this.parse(DockerStart)
 
     // Execute command
-    await CommandRegistry.executeCommand('docker:start', this, args, flags)
+    this.command = await CommandRegistry.createCommand('docker:start', this)
+    this.command.execute(args, flags)
   }
 }

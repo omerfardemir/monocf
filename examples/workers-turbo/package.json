@@ -12,7 +12,8 @@
     "start": "concurrently \"npm:worker-1\" \"npm:worker-2\""
   },
   "dependencies": {
-    "hono": "^4.7.8"
+    "hono": "^4.7.8",
+    "oclif": "^4.22.22"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250806.0",

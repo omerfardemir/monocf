@@ -12,7 +12,6 @@ export default class DockerStop extends CommandBase {
    * Run the docker stop command
    */
   async run(): Promise<void> {
-    const {args, flags} = await this.parse(DockerStop)
-    return new DockerStopCommand(this).executeWithErrorHandling(args, flags)
+    return new DockerStopCommand(this).execute()
   }
 }

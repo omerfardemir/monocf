@@ -6,10 +6,10 @@ import {
   EnvironmentService,
 } from '../../../services/index.js'
 import {WorkerArgs, WorkerFlags} from '../../../flags/index.js'
-import {AbstractCommand} from '../abstract-command.js'
+import {MonocfCommand} from '../command.js'
 import {WorkerCommandFactory} from '../../worker-command-factory/index.js'
 
-export class WranglerCommand extends AbstractCommand<WorkerArgs, WorkerFlags> {
+export class WranglerCommand extends MonocfCommand<WorkerArgs, WorkerFlags> {
   private serviceBindingService: ServiceBindingService
   private wranglerService: WranglerService
   private configService: ConfigurationService
@@ -36,7 +36,7 @@ export class WranglerCommand extends AbstractCommand<WorkerArgs, WorkerFlags> {
     this.environmentService.setRootDir(config.rootDir)
 
     if (!config.command || !(config.command === 'deploy' || config.command === 'dev')) {
-      this.errorService.throwConfigurationError('Command is required')
+      this.errorService.throwConfigurationError('Command is required and must be either "deploy" or "dev"')
     }
 
     // Create command parameters
@@ -89,7 +89,7 @@ export class WranglerCommand extends AbstractCommand<WorkerArgs, WorkerFlags> {
   /**
    * Cleanup after command execution
    */
-  protected async finally(): Promise<void> {
+  public async finally(): Promise<void> {
     return new Promise((resolve) => {
       this.fileService.cleanupTempFiles()
       this.environmentService.rollbackEnvironmentVariables()

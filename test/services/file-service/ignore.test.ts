@@ -5,21 +5,6 @@ import {join} from 'node:path'
 
 import {FileService} from '../../../src/services/file-service.js'
 import {ErrorService} from '../../../src/services/error-service.js'
-import {Commander} from '../../../src/types/command-types.js'
-
-// Dummy commander for ErrorService
-const commander: Commander = {
-  cmdEvents: () => ({}),
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  error(_input: Error | string, _options?: any) {
-    /* noop in tests */
-  },
-  warn: (input: Error | string) => input,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  log(_message?: string, ..._args: any[]) {
-    /* noop */
-  },
-}
 
 function createTempProject() {
   const root = mkdtempSync(join(tmpdir(), 'monocf-ignore-test-'))
@@ -39,7 +24,7 @@ describe('FileService.loadIgnoreFile / isIgnoredWorker', () => {
     // ignore bravo and charlie by name
     writeFileSync(join(root, '.monocfignore'), ['bravo', 'charlie'].join('\n'), 'utf8')
 
-    const fsService = new FileService(new ErrorService(commander))
+    const fsService = new FileService(new ErrorService())
     fsService.loadIgnoreFile(root, workersDir)
 
     expect(fsService.isIgnoredWorker('alpha')).to.equal(false)
@@ -54,7 +39,7 @@ describe('FileService.loadIgnoreFile / isIgnoredWorker', () => {
     // patterns with directory prefix and glob
     writeFileSync(join(root, '.monocfignore'), ['workers/charlie', '**/bravo'].join('\n'), 'utf8')
 
-    const fsService = new FileService(new ErrorService(commander))
+    const fsService = new FileService(new ErrorService())
     fsService.loadIgnoreFile(root, workersDir)
 
     expect(fsService.isIgnoredWorker('alpha')).to.equal(false)
@@ -66,7 +51,7 @@ describe('FileService.loadIgnoreFile / isIgnoredWorker', () => {
 
   it('does nothing when .monocfignore does not exist', () => {
     const {root, workersDir} = createTempProject()
-    const fsService = new FileService(new ErrorService(commander))
+    const fsService = new FileService(new ErrorService())
     fsService.loadIgnoreFile(root, workersDir)
 
     expect(fsService.isIgnoredWorker('alpha')).to.equal(false)

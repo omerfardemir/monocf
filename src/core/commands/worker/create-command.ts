@@ -5,9 +5,9 @@ import {CreateWorkerArgs, CreateWorkerFlags} from '../../../flags/index.js'
 import {WranglerService} from '../../../services/index.js'
 import {Commander} from '../../../types/command-types.js'
 import {CreateWorkerConfig, MONOCF_CONFIG_FILE} from '../../../types/config-types.js'
-import {AbstractCommand} from '../abstract-command.js'
+import {MonocfCommand} from '../command.js'
 
-export class WorkerCreateCommand extends AbstractCommand<CreateWorkerArgs, CreateWorkerFlags> {
+export class WorkerCreateCommand extends MonocfCommand<CreateWorkerArgs, CreateWorkerFlags> {
   private wranglerService: WranglerService
 
   constructor(command: Commander) {
@@ -15,7 +15,7 @@ export class WorkerCreateCommand extends AbstractCommand<CreateWorkerArgs, Creat
     this.wranglerService = new WranglerService(this.errorService, this.fileService, command.cmdEvents())
   }
 
-  protected async execute(args: CreateWorkerArgs, flags: CreateWorkerFlags) {
+  public async execute(args: CreateWorkerArgs, flags: CreateWorkerFlags) {
     this.logService.log('MonoCF starting to create worker...')
 
     // Get configuration from flags or config file
@@ -80,7 +80,7 @@ export class WorkerCreateCommand extends AbstractCommand<CreateWorkerArgs, Creat
   /**
    * Cleanup after command execution
    */
-  protected async finally(): Promise<void> {
+  public async finally(): Promise<void> {
     return new Promise((resolve) => {
       this.fileService.cleanupTempFiles()
       resolve()

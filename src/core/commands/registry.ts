@@ -1,6 +1,6 @@
 import {Commander} from '../../types/command-types.js'
 import {CommandFactory} from './command-factory.js'
-import {AbstractCommand} from './abstract-command.js'
+import {MonocfCommand} from './command.js'
 
 // Import command implementations
 import {WhoamiCommand} from './whoami/index.js'
@@ -14,7 +14,7 @@ import {DockerStopCommand} from './docker/stop.js'
  */
 interface CommandRegistration {
   name: string
-  commandClass: new (command: Commander) => AbstractCommand
+  commandClass: new (command: Commander) => MonocfCommand
 }
 
 /**
@@ -51,7 +51,7 @@ export class CommandRegistry {
    * @param name The name of the command
    * @param commandClass The command class constructor
    */
-  public registerCommand(name: string, commandClass: new (command: Commander) => AbstractCommand): void {
+  public registerCommand(name: string, commandClass: new (command: Commander) => MonocfCommand): void {
     this._commandRegistrations.push({name, commandClass})
   }
 
@@ -111,6 +111,12 @@ export class CommandRegistry {
 
     // Execute the command
     return CommandFactory.executeCommand(commandName, command, args, flags)
+  }
+
+  public static async createCommand(commandName: string, command: Commander): Promise<MonocfCommand> {
+    // Ensure registry is initialized
+    this.getInstance().initialize()
+    return CommandFactory.createCommand(commandName, command)
   }
 
   /**

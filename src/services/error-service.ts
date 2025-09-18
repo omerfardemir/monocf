@@ -3,62 +3,14 @@ import {
   FileOperationError,
   ServiceBindingError,
   WorkerCommandError,
-  WorkerManagerError,
+  MonocfError,
   WranglerError,
 } from '../types/error-types.js'
-import {Commander} from '../types/command-types.js'
 
 /**
  * Service for handling errors in the application
  */
 export class ErrorService {
-  private command: Commander
-
-  /**
-   * Creates a new ErrorService
-   * @param command Command instance for error reporting
-   */
-  constructor(command: Commander) {
-    this.command = command
-  }
-
-  /**
-   * Handles an error and exits the process if necessary
-   * @param error Error to handle
-   * @param exit Whether to exit the process
-   */
-  handleError(error: Error, exit: boolean = true): void {
-    let message: string
-    let code = 1
-
-    if (error instanceof WorkerManagerError) {
-      message = `${error.name}: ${error.message}`
-
-      if (error instanceof ConfigurationError) {
-        message = `Configuration Error: ${error.message}`
-      } else if (error instanceof WorkerCommandError) {
-        message = `Worker Command Error: ${error.message}`
-      } else if (error instanceof FileOperationError) {
-        message = `File Operation Error: ${error.message}`
-      } else if (error instanceof ServiceBindingError) {
-        message = `Service Binding Error: ${error.message}`
-      } else if (error instanceof WranglerError) {
-        message = `Wrangler Error: ${error.message}`
-        code = error.code
-      }
-    } else {
-      message = error.message
-    }
-
-    if (exit) {
-      this.command.error(message, {
-        exitCode: code,
-      })
-    } else {
-      this.command.warn(message)
-    }
-  }
-
   /**
    * Throws a configuration error
    * @param message Error message

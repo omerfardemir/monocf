@@ -1,5 +1,5 @@
 import {Commander, DockerParams} from '../../../types/command-types.js'
-import {AbstractCommand} from '../abstract-command.js'
+import {MonocfCommand} from '../command.js'
 import {StartDockerFlags, WorkerArgs} from '../../../flags/index.js'
 import {
   ConfigurationService,
@@ -13,7 +13,7 @@ import {
 /**
  * Command executor for the docker start command
  */
-export class DockerStartCommand extends AbstractCommand<WorkerArgs, StartDockerFlags> {
+export class DockerStartCommand extends MonocfCommand<WorkerArgs, StartDockerFlags> {
   private configService: ConfigurationService
   private environmentService: EnvironmentService
   private dockerService: DockerService
@@ -36,7 +36,7 @@ export class DockerStartCommand extends AbstractCommand<WorkerArgs, StartDockerF
     )
   }
 
-  protected async execute(args: WorkerArgs, flags: StartDockerFlags): Promise<void> {
+  public async execute(args: WorkerArgs, flags: StartDockerFlags): Promise<void> {
     // Load configuration
     const config = this.configService.loadConfiguration(flags, args)
 
@@ -86,7 +86,7 @@ export class DockerStartCommand extends AbstractCommand<WorkerArgs, StartDockerF
   /**
    * Cleanup after command execution
    */
-  protected async finally(): Promise<void> {
+  public async finally(): Promise<void> {
     return new Promise((resolve) => {
       this.fileService.cleanupTempFiles()
       this.environmentService.rollbackEnvironmentVariables()
