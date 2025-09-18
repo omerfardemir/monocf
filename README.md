@@ -12,7 +12,6 @@
 * [Configuration](#configuration)
 * [Commands](#commands)
 * [Contributing](#contributing)
-* [Table of contents](#table-of-contents)
 
 # MonoCF
 
@@ -51,7 +50,7 @@ src/
       index.ts    -- Main worker command (dev/deploy)
   core/           -- Core business logic
     commands/     -- Command pattern implementations
-      abstract-command.ts   -- Abstract base class for commands
+      command.ts   -- Abstract base class for commands
       command-factory.ts    -- Factory for creating commands
       registry.ts           -- Command registry for auto-discovery
       whoami/               -- Whoami command implementation
@@ -99,19 +98,18 @@ $ npm install -g monocf
 $ monocf COMMAND
 running command...
 $ monocf (--version)
-monocf/0.0.6 win32-x64 node-v22.14.0
+monocf/0.0.9 win32-x64 node-v22.14.0
 $ monocf --help [COMMAND]
 USAGE
   $ monocf COMMAND
-...
 ```
 <!-- usagestop -->
 
 ## Configuration
 
-### worker.config.json
+### monocf.config.json
 
-The `worker.config.json` file is a central configuration file for the MonoCF that allows you to define global settings for your workers project. This file should be placed in the root directory of your project.
+The `monocf.config.json` file is a central configuration file for the MonoCF that allows you to define global settings for your workers project. This file should be placed in the root directory of your project.
 
 #### Configuration Options
 
@@ -123,6 +121,7 @@ The `worker.config.json` file is a central configuration file for the MonoCF tha
 | `deploySecrets` | Whether to deploy secrets when deploying workers (default: `false`) |
 | `variables` | Custom variables that can be replace(like {version}) in your worker configurations |
 | `deployBindings` | Whether to deploy service bindings for the worker before deploy main worker (default: `false`) |
+| `port` | The port to use for the proxy worker in multi-worker dev mode (default: `8787`) |
 
 #### Example Configuration
 
@@ -133,6 +132,7 @@ The `worker.config.json` file is a central configuration file for the MonoCF tha
   "baseConfig": "base.wrangler.jsonc",
   "deploySecrets": true,
   "deployBindings": true,
+  "port": 8787,
   "variables": {
     "version": "1.0.0"
   }
@@ -146,8 +146,27 @@ With this configuration:
 3. Secrets will be deployed automatically during deployment
 4. The `version` variable (1.0.0) will be replaced in your worker configurations where {version} is used
 5. Service bindings will be deployed automatically during deployment
+6. The proxy worker will run on port 8787 in multi-worker dev mode.
 
 You can override these settings using command-line flags when running commands.
+
+### .monocfignore
+
+You can create a `.monocfignore` file in your project's root directory to specify workers that should be excluded from bulk commands like `dev --all` and `deploy --all`. The file uses the same syntax as `.gitignore`.
+
+#### Example .monocfignore
+
+```
+# Comments are supported
+# Ignore a worker by its directory name
+worker-to-ignore
+
+# Ignore workers in a specific path
+workers/another-to-ignore
+
+# You can also use glob patterns
+**/experimental-*
+```
 
 ### Environment Variables Management
 
@@ -195,9 +214,46 @@ This allows you to define common variables at the root level and override them a
 ## Commands
 
 <!-- commands -->
+* [`monocf docker start`](#monocf-docker-start)
+* [`monocf docker stop`](#monocf-docker-stop)
 * [`monocf whoami`](#monocf-whoami)
 * [`monocf worker [WORKERNAME]`](#monocf-worker-workername)
 * [`monocf worker create WORKERNAME`](#monocf-worker-create-workername)
+
+## `monocf docker start`
+
+Starts a local development environment for multiple workers using Docker.
+
+```
+USAGE
+  $ monocf docker start [-p <value>]
+
+FLAGS
+  -p, --port=<value>  Port to use for the proxy worker (default: 8787)
+
+DESCRIPTION
+  Starts a local development environment for multiple workers using Docker. This command generates a `docker-compose.yml` file in a `.monocf` directory and starts the services. It creates a reverse proxy that routes requests to the correct worker based on the path.
+
+EXAMPLES
+  $ monocf docker start
+
+  $ monocf docker start -p 3000
+```
+
+## `monocf docker stop`
+
+Stops the local development environment for multiple workers using Docker.
+
+```
+USAGE
+  $ monocf docker stop
+
+DESCRIPTION
+  Stops the local development environment for multiple workers using Docker.
+
+EXAMPLES
+  $ monocf docker stop
+```
 
 ## `monocf whoami`
 
@@ -214,7 +270,7 @@ EXAMPLES
   $ monocf whoami
 ```
 
-_See code: [src/commands/whoami/index.ts](https://github.com/omerfardemir/monocf/blob/v0.0.6/src/commands/whoami/index.ts)_
+_See code: [src/commands/whoami/index.ts](https://github.com/omerfardemir/monocf/blob/v0.0.9/src/commands/whoami/index.ts)_
 
 ## `monocf worker [WORKERNAME]`
 
@@ -222,7 +278,7 @@ Workers command for running dev or deploy for a worker or all workers
 
 ```
 USAGE
-  $ monocf worker [WORKERNAME] -c <value> [-a] [-b <value>] [-s] [-e <value>] [-r <value>] [-w <value>] [-d]
+  $ monocf worker [WORKERNAME] -c <value> [-a] [-b <value>] [-s] [-e <value>] [-r <value>] [-w <value>] [-d] [-p <value>]
 
 ARGUMENTS
   WORKERNAME  Worker name
@@ -233,12 +289,14 @@ FLAGS
   -c, --command=<value>           (required) Command to execute (dev or deploy)
   -d, --deploy-bindings           Deploy service bindings for the worker before deploy main worker
   -e, --env=<value>               Environment to use (dev, production etc.)
+  -p, --port=<value>              Port to use for the proxy worker in multi-worker dev mode (default: 8787)
   -r, --root-dir=<value>          Root directory of the project
   -s, --deploy-secrets            Deploy secrets for the worker
   -w, --workers-dir-name=<value>  Workers directory name in monorepo
 
 DESCRIPTION
-  Workers command for running dev or deploy for a worker or all workers
+  Workers command for running dev or deploy for a worker or all workers.
+  When using `dev --all`, a proxy worker is started to route requests to the correct worker.
 
 EXAMPLES
   $ monocf worker my-worker -c dev
@@ -246,9 +304,11 @@ EXAMPLES
   $ monocf worker my-worker -c deploy -e dev
 
   $ monocf worker -c deploy -a -e production
+
+  $ monocf worker -c dev -a --port 8000
 ```
 
-_See code: [src/commands/worker/index.ts](https://github.com/omerfardemir/monocf/blob/v0.0.6/src/commands/worker/index.ts)_
+_See code: [src/commands/worker/index.ts](https://github.com/omerfardemir/monocf/blob/v0.0.9/src/commands/worker/index.ts)_
 
 ## `monocf worker create WORKERNAME`
 
@@ -272,8 +332,35 @@ EXAMPLES
   $ monocf worker create my-worker
 ```
 
-_See code: [src/commands/worker/create.ts](https://github.com/omerfardemir/monocf/blob/v0.0.6/src/commands/worker/create.ts)_
+_See code: [src/commands/worker/create.ts](https://github.com/omerfardemir/monocf/blob/v0.0.9/src/commands/worker/create.ts)_
 <!-- commandsstop -->
+
+## Multi-Worker Local Development
+
+MonoCF offers two ways to run multiple workers locally for development:
+
+1.  **Proxy-Based Development (`dev --all`)**: This is the simplest method and works out-of-the-box without needing Docker. When you run `monocf worker -c dev --all`, it will:
+    *   Start a `wrangler dev` session for each of your workers on a different port.
+    *   Start an additional proxy worker (by default on port `8787`) that intelligently routes incoming requests to the correct worker based on the URL path. The path is determined by the `route` property in each worker's `wrangler.jsonc` file, or it defaults to the worker's directory name.
+    *   You can specify a different port for the proxy using the `--port` flag.
+
+    ```sh-session
+    # Run all workers, with the proxy listening on port 8000
+    $ monocf worker -c dev --all --port 8000
+    ```
+
+2.  **Docker-Based Development (`docker start`)**: For a more robust and isolated environment, you can use the Docker-based setup. This is ideal for complex scenarios or to ensure consistency across different development machines.
+    *   Running `monocf docker start` will generate a `.monocf` directory in your project root containing a `docker-compose.yml`, `Dockerfile`, and `nginx.conf`.
+    *   It spins up a Docker container with `workerd` running all your workers, and an Nginx container acting as a reverse proxy.
+    *   This provides a production-like environment locally. You can stop the environment with `monocf docker stop`.
+
+    ```sh-session
+    # Start the Docker-based multi-worker environment
+    $ monocf docker start
+    
+    # Stop the environment
+    $ monocf docker stop
+    ```
 
 ## Contributing
 
@@ -323,15 +410,23 @@ To add a new command to the CLI:
    ```typescript
    // src/core/commands/example/example-command.ts
    import { Commander } from "../../../types/command-types.js";
-   import { AbstractCommand } from "../abstract-command.js";
+   import { MonocfCommand } from "../command.js";
    
-   export class ExampleCommand extends AbstractCommand<ExampleArgs, ExampleFlags> {
+   export class ExampleCommand extends MonocfCommand<ExampleArgs, ExampleFlags> {
+    // add your services
+    private wranglerService: WranglerService
+
+    constructor(command: Commander) {
+      super(command)
+      this.wranglerService = new WranglerService(this.errorService, this.fileService, command.cmdEvents())
+
+    }
      // Implement your command logic here
-     protected async execute(args: ExampleArgs, flags: ExampleFlags): Promise<void> {
+     public async execute(args: ExampleArgs, flags: ExampleFlags): Promise<void> {
        // Command implementation
      }
      
-     protected async finally(): Promise<void> {
+     public async finally(): Promise<void> {
        // Cleanup logic
        return Promise.resolve();
      }
@@ -353,9 +448,25 @@ To add a new command to the CLI:
    export default class Example extends CommandBase {
      static description = 'Example command description';
      static examples = ['<%= config.bin %> example'];
+     static args = {
+      name: Args.string({
+        description: 'Worker name',
+        required: false,
+      }),
+     }
+     static flags = {
+      flag: Flags.boolean({
+        char: 'a',
+        default: false,
+        description: 'example flag',
+        required: false,
+      }),
+     }
      
      async run() {
-       await CommandRegistry.executeCommand('example', this);
+      const {args, flags} = await this.parse(Example)
+      this.command = await CommandRegistry.createCommand('example', this)
+      return this.command.execute(args, flags)
      }
    }
    ```
