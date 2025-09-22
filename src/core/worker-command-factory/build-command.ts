@@ -6,9 +6,9 @@ import {
   ServiceBindingService,
   WranglerService,
 } from '../../services/index.js'
-import { BuildCommandParams, isBuildCommandParams } from '../../types/command-types.js'
-import { WorkerCommandExecutor } from './worker-command-executor.js'
-import { WorkerService } from '../../services/worker-service.js'
+import {BuildCommandParams, isBuildCommandParams} from '../../types/command-types.js'
+import {WorkerCommandExecutor} from './worker-command-executor.js'
+import {WorkerService} from '../../services/worker-service.js'
 
 /**
  * Command executor for the build command
@@ -79,7 +79,7 @@ export class BuildCommand implements WorkerCommandExecutor {
       workerConfigPath.tempWranglerConfigPath,
       undefined,
       params.env,
-      params.minify
+      params.minify,
     )
   }
 
@@ -95,9 +95,8 @@ export class BuildCommand implements WorkerCommandExecutor {
         workerConfigPath.tempWranglerConfigPath,
         undefined,
         params.env,
-        params.minify
+        params.minify,
       )
     }
   }
-
 }

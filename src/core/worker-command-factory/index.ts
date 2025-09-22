@@ -7,7 +7,7 @@ import {
   WranglerService,
 } from '../../services/index.js'
 import {WorkerCommand} from '../../types/command-types.js'
-import { BuildCommand } from './build-command.js'
+import {BuildCommand} from './build-command.js'
 import {DeployCommand} from './deploy-command.js'
 import {DevCommand} from './dev-command.js'
 import {WorkerCommandExecutor} from './worker-command-executor.js'
