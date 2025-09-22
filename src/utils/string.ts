@@ -35,7 +35,11 @@ export function parseRouteFromPattern(pattern: string): string {
  * @param config Wrangler config
  * @returns Simple path prefix
  */
-export function getRoutePrefix(config: Unstable_RawConfig): string | undefined {
+export function getRoutePrefix(config: Unstable_RawConfig, env?: string): string | undefined {
+  if (env && config.env && env in config.env) {
+    return getRoutePrefix(config.env[env])
+  }
+  
   // Prefer a single `route` string if present
   if (typeof config.route === 'string') {
     return parseRouteFromPattern(config.route)
