@@ -26,6 +26,8 @@ export interface CliConfig {
   deployBindings?: boolean
   /** Port to use for the dev command */
   port?: number
+  /** Whether to minify the worker code (only for build command) */
+  minify?: boolean
 }
 
 /**
