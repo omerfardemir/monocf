@@ -14,6 +14,7 @@ export interface WorkerFlags {
   rootDir?: string
   workersDirName?: string
   port?: number
+  minify?: boolean
 }
 
 export interface CreateWorkerArgs {

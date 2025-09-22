@@ -116,7 +116,7 @@ export class GenerateConfigService {
       collections.workers.push(workerConfig)
 
       // Build the worker
-      await this.wranglerService.buildWorker(jsoncPath, envPath, params.env)
+      await this.wranglerService.buildWorker(jsoncPath, envPath, params.env, true)
 
       // Generate configuration parts for this worker
       this.generateWorkerConfigParts(workerConfig, collections)

@@ -53,6 +53,7 @@ export class ConfigurationService {
           env: flags.env,
           command: flags.command,
           port: parsed.port ?? flags.port ?? 8787,
+          minify: parsed.minify,
         }
       } catch (error) {
         this.errorService.throwConfigurationError(`Failed to parse configuration file: ${(error as Error).message}`)
@@ -64,6 +65,7 @@ export class ConfigurationService {
     if (flags.workersDirName) this.cliConfig.workersDirName = flags.workersDirName
     if (flags.baseConfig) this.cliConfig.baseConfig = flags.baseConfig
     if (flags.deploySecrets) this.cliConfig.deploySecrets = flags.deploySecrets
+    if (flags.minify) this.cliConfig.minify = flags.minify
     if (this.cliConfig.rootDir === '') this.cliConfig.rootDir = process.cwd()
 
     // Set default base config if not specified
