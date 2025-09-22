@@ -74,9 +74,6 @@ export class BuildCommand implements WorkerCommandExecutor {
       return
     }
 
-    // sleep 1 sec
-    await new Promise((resolve) => setTimeout(resolve, 1000))
-
     // Run wrangler command
     await this.wranglerService.buildWorker(
       workerConfigPath.tempWranglerConfigPath,
@@ -93,7 +90,7 @@ export class BuildCommand implements WorkerCommandExecutor {
       .map((workerName) => this.workerService.initializeWorker(workerName, params))
       .filter((s) => s !== undefined)
 
-    for (const [_, workerConfigPath] of workersConfigPaths.entries()) {
+    for (const workerConfigPath of workersConfigPaths) {
       await this.wranglerService.buildWorker(
         workerConfigPath.tempWranglerConfigPath,
         undefined,
