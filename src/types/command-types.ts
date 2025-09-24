@@ -31,7 +31,7 @@ export interface Commander {
 /**
  * Available worker commands
  */
-export type WorkerCommand = 'deploy' | 'dev'
+export type WorkerCommand = 'deploy' | 'dev' | 'build'
 
 export type Command = WorkerCommand | 'docker' | 'create'
 
@@ -84,10 +84,21 @@ export interface DeployCommandParams extends BaseCommandParams {
   deployBindings?: boolean
 }
 
+export interface BuildCommandParams extends BaseCommandParams {
+  /** Worker name */
+  workerName: string
+  /** Command type */
+  command: 'build'
+  /** Whether to run dev for multiple workers */
+  multiWorker?: boolean
+  /** Whether to minify the output */
+  minify?: boolean
+}
+
 /**
  * Union type of all command parameters
  */
-export type WorkerCommandParams = DevCommandParams | DeployCommandParams
+export type WorkerCommandParams = DevCommandParams | DeployCommandParams | BuildCommandParams
 
 /**
  * Type guard to check if parameters are for dev command
@@ -105,4 +116,13 @@ export function isDevCommandParams(params: WorkerCommandParams): params is DevCo
  */
 export function isDeployCommandParams(params: WorkerCommandParams): params is DeployCommandParams {
   return params.command === 'deploy'
+}
+
+/**
+ * Type guard to check if parameters are for build command
+ * @param params Worker command parameters
+ * @returns True if parameters are for build command
+ */
+export function isBuildCommandParams(params: WorkerCommandParams): params is BuildCommandParams {
+  return params.command === 'build'
 }

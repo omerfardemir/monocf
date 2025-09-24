@@ -7,6 +7,7 @@ import {
   WranglerService,
 } from '../../services/index.js'
 import {WorkerCommand} from '../../types/command-types.js'
+import {BuildCommand} from './build-command.js'
 import {DeployCommand} from './deploy-command.js'
 import {DevCommand} from './dev-command.js'
 import {WorkerCommandExecutor} from './worker-command-executor.js'
@@ -58,6 +59,17 @@ export class WorkerCommandFactory {
           services.fileService,
           services.wranglerService,
           services.serviceBindingService,
+          services.environmentService,
+          services.logService,
+        )
+      }
+
+      case 'build': {
+        return new BuildCommand(
+          services.serviceBindingService,
+          services.errorService,
+          services.fileService,
+          services.wranglerService,
           services.environmentService,
           services.logService,
         )

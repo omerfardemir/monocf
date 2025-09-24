@@ -166,11 +166,11 @@ export class FileService {
       const configPath = join(workerPath, TEMP_WRANGLER_FILE)
       const baseConfigPath = join(workerPath, TEMP_BASE_WRANGLER_FILE)
 
-      const {rawConfig: baseRawConfig} = experimental_readRawConfig({
-        config: baseConfigPath,
+      const {rawConfig: workerRawConfig} = experimental_readRawConfig({
+        config: configPath,
       })
 
-      let config = experimental_patchConfig(configPath, baseRawConfig, true)
+      let config = experimental_patchConfig(baseConfigPath, workerRawConfig, true)
       config = config.replaceAll('{workerName}', workerName)
 
       writeFileSync(configPath, config, {

@@ -159,13 +159,19 @@ export class WranglerService {
     return this.executeWranglerCommand(args)
   }
 
-  async buildWorker(configPath: string, envPath?: string, env?: string): Promise<string> {
+  async buildWorker(configPath: string, envPath?: string, env?: string, minify?: boolean): Promise<string> {
     const baseFolder = path.dirname(configPath)
-    const args = ['deploy', '--dry-run', '--outdir=./dist', '--minify', '--config', configPath]
+    const args = ['deploy', '--dry-run', '--outdir=./dist']
 
     if (env) {
       args.push('--env', env)
     }
+
+    if (minify) {
+      args.push('--minify')
+    }
+
+    args.push('--config', configPath)
 
     await this.executeWranglerCommand(args)
 

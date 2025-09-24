@@ -29,7 +29,7 @@ const workerFlags = {
   }),
   command: workerCommand({
     char: 'c',
-    description: 'Command to execute (dev or deploy)',
+    description: 'Command to execute (dev, deploy)',
     required: true,
   }),
   'deploy-secrets': Flags.boolean({
@@ -60,6 +60,11 @@ const workerFlags = {
   port: Flags.integer({
     char: 'p',
     description: 'Port to use for the dev command. default: 8787',
+    required: false,
+  }),
+  minify: Flags.boolean({
+    char: 'm',
+    description: 'Minify the worker script during build/deploy',
     required: false,
   }),
 }
