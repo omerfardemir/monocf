@@ -82,6 +82,8 @@ export interface DeployCommandParams extends BaseCommandParams {
   deploySecrets?: boolean
   /** Whether to deploy service bindings for the worker */
   deployBindings?: boolean
+    /** Whether to minify the output */
+  minify?: boolean
 }
 
 export interface BuildCommandParams extends BaseCommandParams {

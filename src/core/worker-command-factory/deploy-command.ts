@@ -133,7 +133,7 @@ export class DeployCommand implements WorkerCommandExecutor {
 
     // Deploy this worker
     this.logService.log(`Deploying worker ${workerName}`)
-    await this.wranglerService.execWorkerCommand('deploy', [tempWranglerConfigPath], params.env)
+    await this.wranglerService.execWorkerCommand('deploy', [tempWranglerConfigPath], params.env, params.minify)
 
     // Deploy secrets if needed
     if (params.deploySecrets) {

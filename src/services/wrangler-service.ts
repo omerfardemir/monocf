@@ -147,13 +147,18 @@ export class WranglerService {
    * @param command Command to execute (dev, deploy)
    * @param configPaths Paths to the wrangler config files
    * @param env Environment to use
+   * @param minify Whether to minify the worker (only for deploy)
    * @returns Promise that resolves when the command completes successfully
    */
-  async execWorkerCommand(command: WorkerCommand, configPaths: string[], env?: string): Promise<void> {
+  async execWorkerCommand(command: WorkerCommand, configPaths: string[], env?: string, minify?: boolean): Promise<void> {
     const args = [command, ...configPaths.flatMap((c) => ['-c', c])]
 
     if (env) {
       args.push('--env', env)
+    }
+
+    if (command === 'deploy' && minify) {
+      args.push('--minify')
     }
 
     return this.executeWranglerCommand(args)
