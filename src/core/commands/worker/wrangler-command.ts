@@ -51,7 +51,7 @@ export class WranglerCommand extends MonocfCommand<WorkerArgs, WorkerFlags> {
       port: config.port,
       ...(config.command === 'deploy' && {deploySecrets: config.deploySecrets}),
       ...(config.command === 'deploy' && {deployBindings: config.deployBindings}),
-      ...(config.command === 'build' && {minify: config.minify}),
+      ...((config.command !== 'dev') && {minify: config.minify}),
     }
 
     // Create command executor
