@@ -35,8 +35,18 @@ export class WranglerCommand extends MonocfCommand<WorkerArgs, WorkerFlags> {
 
     this.environmentService.setRootDir(config.rootDir)
 
-    if (!config.command || !(config.command === 'deploy' || config.command === 'dev' || config.command === 'build')) {
-      this.errorService.throwConfigurationError('Command is required and must be either "deploy", "dev" or "build"')
+    if (
+      !config.command ||
+      !(
+        config.command === 'preview' ||
+        config.command === 'deploy' ||
+        config.command === 'dev' ||
+        config.command === 'build'
+      )
+    ) {
+      this.errorService.throwConfigurationError(
+        'Command is required and must be either "deploy", "dev", "build" or "preview"',
+      )
     }
 
     // Create command parameters
@@ -51,7 +61,7 @@ export class WranglerCommand extends MonocfCommand<WorkerArgs, WorkerFlags> {
       port: config.port,
       ...(config.command === 'deploy' && {deploySecrets: config.deploySecrets}),
       ...(config.command === 'deploy' && {deployBindings: config.deployBindings}),
-      ...((config.command !== 'dev') && {minify: config.minify}),
+      ...(config.command !== 'dev' && {minify: config.minify}),
     }
 
     // Create command executor
@@ -79,6 +89,11 @@ export class WranglerCommand extends MonocfCommand<WorkerArgs, WorkerFlags> {
           ...params,
           multiWorker: true,
         } as DevCommandParams)
+      } else if (config.command === 'preview') {
+        for (const worker of workers) {
+          params.workerName = worker
+          await commandExecutor.execute(worker, params)
+        }
       }
     } else if (params.workerName) {
       await commandExecutor.execute(params.workerName, params)

@@ -7,6 +7,7 @@ export const DEFAULT_BASE_CONFIG = 'base.wrangler.jsonc'
 export const MONOCF_CONFIG_FILE = 'monocf.config.json'
 export const MONOCF_IGNORE_FILE = '.monocfignore'
 export const MONOCF_FOLDER = './.monocf'
+export const VERSIONS_FOLDER = `${MONOCF_FOLDER}/versions`
 
 /**
  * CLI configuration interface

@@ -25,3 +25,20 @@ export interface ServiceBindingOptions {
   entrypoint?: string
   props?: Record<string, unknown>
 }
+
+/**
+ * Worker version interface
+ * It is output from `wrangler versions list --json`
+ */
+export interface WorkerVersion {
+  id: string
+  number: number
+  metadata: {
+    created_on: string
+    source: string
+    author_id: string
+    author_email: string
+    has_preview: boolean
+  }
+  annotations: Array<{key: string; value: string}>
+}

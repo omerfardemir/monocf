@@ -8,15 +8,15 @@ import {
   ServiceBindingService,
   WranglerService,
 } from '../../services/index.js'
-import {DeployCommandParams, isDeployCommandParams} from '../../types/command-types.js'
+import {PreviewCommandParams, isPreviewCommandParams} from '../../types/command-types.js'
 import {WRANGLER_FILE} from '../../types/wrangler-types.js'
 import {WorkerCommandExecutor} from './worker-command-executor.js'
 import {experimental_patchConfig} from 'wrangler'
 
 /**
- * Command executor for the deploy command
+ * Command executor for the preview command
  */
-export class DeployCommand implements WorkerCommandExecutor {
+export class PreviewCommand implements WorkerCommandExecutor {
   private errorService: ErrorService
   private fileService: FileService
   private wranglerService: WranglerService
@@ -26,7 +26,7 @@ export class DeployCommand implements WorkerCommandExecutor {
   private deployedServices: Set<string> = new Set<string>()
 
   /**
-   * Creates a new DeployCommand
+   * Creates a new PreviewCommand
    * @param errorService Error service
    * @param fileService File service
    * @param wranglerService Wrangler service
@@ -52,14 +52,14 @@ export class DeployCommand implements WorkerCommandExecutor {
   }
 
   /**
-   * Executes the deploy command
+   * Executes create version upload command
    * @param workerName Worker name
    * @param params Command parameters
    * @returns Promise that resolves when the command completes successfully
    */
-  async execute(workerName: string, params: DeployCommandParams): Promise<void> {
-    if (!isDeployCommandParams(params)) {
-      this.errorService.throwConfigurationError('Invalid command parameters for deploy command')
+  async execute(workerName: string, params: PreviewCommandParams): Promise<void> {
+    if (!isPreviewCommandParams(params)) {
+      this.errorService.throwConfigurationError('Invalid command parameters for preview command')
     }
 
     if (this.fileService.isIgnoredWorker(workerName)) {
@@ -131,28 +131,22 @@ export class DeployCommand implements WorkerCommandExecutor {
 
     experimental_patchConfig(tempWranglerConfigPath, patch, false)
 
-    // Deploy this worker
-    this.logService.log(`Deploying worker ${workerName}`)
+    // upload this worker
+    this.logService.log(`Uploading worker ${workerName}`)
 
-    // Check if deploying from existing version
-    if (params.fromVersion) {
-      if (!params.deployFromVersionId) {
-        await this.wranglerService.versionDeployCommand(tempWranglerConfigPath, params.env, params.message)
-      } else {
-        await this.wranglerService.versionDeployCommand(
-          tempWranglerConfigPath,
-          params.env,
-          params.message,
-          params.deployFromVersionId,
-        )
-      }
-    } else {
-      await this.wranglerService.execWorkerCommand('deploy', [tempWranglerConfigPath], params.env, params.minify)
-    }
+    const version = await this.wranglerService.versionUploadCommand(
+      tempWranglerConfigPath,
+      params.env,
+      params.message,
+      params.minify,
+    )
 
-    // Deploy secrets if needed
+    // save version details to .monocf/versions/{workerName}.json
+    this.fileService.saveWorkerVersionDetails(workerName, version)
+
+    // Deploy secrets if required
     if (params.deploySecrets) {
-      this.logService.log(`Deploying secrets for ${workerName}`)
+      this.logService.log(`Deploying secrets for worker ${workerName}`)
       await this.deploySecrets({
         workerName,
         workerPath,
