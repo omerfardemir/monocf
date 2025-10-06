@@ -53,11 +53,17 @@ export class PreviewCommand implements WorkerCommandExecutor {
 
   /**
    * Executes create version upload command
-   * @param workerName Worker name
+   * @param workers Worker names
    * @param params Command parameters
    * @returns Promise that resolves when the command completes successfully
    */
-  async execute(workerName: string, params: PreviewCommandParams): Promise<void> {
+  async execute(workers: string[], params: PreviewCommandParams): Promise<void> {
+    for (const worker of workers) {
+      await this.uploadPreview(worker, params)
+    }
+  }
+
+  private async uploadPreview(workerName: string, params: PreviewCommandParams): Promise<void> {
     if (!isPreviewCommandParams(params)) {
       this.errorService.throwConfigurationError('Invalid command parameters for preview command')
     }
@@ -102,7 +108,7 @@ export class PreviewCommand implements WorkerCommandExecutor {
 
       for (const binding of serviceBindings) {
         // Recursively deploy each dependency
-        await this.execute(binding.service, params)
+        await this.uploadPreview(binding.service, params)
       }
     }
 

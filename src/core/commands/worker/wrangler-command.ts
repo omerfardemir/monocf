@@ -1,4 +1,4 @@
-import {Commander, DevCommandParams, WorkerCommand, WorkerCommandParams} from '../../../types/command-types.js'
+import {Commander, WorkerCommand, WorkerCommandParams} from '../../../types/command-types.js'
 import {
   WranglerService,
   ConfigurationService,
@@ -60,28 +60,16 @@ export class WranglerCommand extends MonocfCommand<WorkerArgs, WorkerFlags> {
       ? this.fileService.getWorkers(config.rootDir, config.workersDirName)
       : [String(args.workerName)]
 
-    switch (params.command) {
-      case 'preview':
-      case 'deploy': {
-        for (const worker of workers) {
-          params.workerName = worker
-          await commandExecutor.execute(worker, params)
-        }
-
-        break
-      }
-
-      case 'dev':
-      case 'build': {
-        // leave workerName empty to execute dev for all workers
-        await commandExecutor.execute(workers[0], {
-          ...params,
-          multiWorker: config.all,
-        } as DevCommandParams)
-
-        break
-      }
+    if (workers.length === 0) {
+      this.errorService.throwConfigurationError(`No workers found`)
     }
+
+    await commandExecutor.execute(workers, {
+      ...params,
+      ...((params.command === 'dev' || params.command === 'build') && {
+        multiWorker: config.all,
+      }),
+    })
   }
 
   private buildParams(params: CliConfig & CliFlags & WorkerArgs): WorkerCommandParams {

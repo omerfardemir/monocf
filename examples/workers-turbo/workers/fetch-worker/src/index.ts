@@ -1,8 +1,7 @@
-import { CfEnv } from '@workers-turbo/types'
-import { Hono } from 'hono'
+import {CfEnv} from '@workers-turbo/types'
+import {Hono} from 'hono'
 
-interface Env extends CfEnv {
-}
+interface Env extends CfEnv {}
 
 const app = new Hono<{
   Bindings: Env

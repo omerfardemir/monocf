@@ -53,11 +53,17 @@ export class DeployCommand implements WorkerCommandExecutor {
 
   /**
    * Executes the deploy command
-   * @param workerName Worker name
+   * @param workers Worker names
    * @param params Command parameters
    * @returns Promise that resolves when the command completes successfully
    */
-  async execute(workerName: string, params: DeployCommandParams): Promise<void> {
+  async execute(workers: string[], params: DeployCommandParams): Promise<void> {
+    for (const worker of workers) {
+      await this.deployWorker(worker, params)
+    }
+  }
+
+  private async deployWorker(workerName: string, params: DeployCommandParams): Promise<void> {
     if (!isDeployCommandParams(params)) {
       this.errorService.throwConfigurationError('Invalid command parameters for deploy command')
     }
@@ -102,7 +108,7 @@ export class DeployCommand implements WorkerCommandExecutor {
 
       for (const binding of serviceBindings) {
         // Recursively deploy each dependency
-        await this.execute(binding.service, params)
+        await this.deployWorker(binding.service, params)
       }
     }
 

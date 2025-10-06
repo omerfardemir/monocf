@@ -54,11 +54,21 @@ export class DevCommand implements WorkerCommandExecutor {
 
   /**
    * Executes the dev command
-   * @param workerName Worker name
+   * @param workers Worker names
    * @param params Command parameters
    * @returns Promise that resolves when the command completes successfully
    */
-  async execute(workerName: string, params: DevCommandParams): Promise<void> {
+  async execute(workers: string[], params: DevCommandParams): Promise<void> {
+    if (params.multiWorker) {
+      return this.executeMultiWorker(params)
+    }
+
+    for (const worker of workers) {
+      await this.executeWorker(worker, params)
+    }
+  }
+
+  private async executeWorker(workerName: string, params: DevCommandParams): Promise<void> {
     this.logService.log('MonoCF dev command starting...')
 
     if (!isDevCommandParams(params)) {
@@ -68,10 +78,6 @@ export class DevCommand implements WorkerCommandExecutor {
     if (this.fileService.isIgnoredWorker(workerName)) {
       this.logService.log(`Worker ${workerName} is ignored, skipping`)
       return
-    }
-
-    if (params.multiWorker) {
-      return this.executeMultiWorker(params)
     }
 
     const workerConfigPath = this.workerService.initializeWorker(workerName, params)
