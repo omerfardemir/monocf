@@ -5,6 +5,6 @@ export default class ServerService extends WorkerEntrypoint {
     return new Response(null, {status: 404})
   }
   sum(a: number, b: number) {
-    return a+b;
+    return a + b
   }
 }

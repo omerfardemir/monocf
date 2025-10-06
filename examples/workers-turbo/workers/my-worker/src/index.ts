@@ -1,9 +1,9 @@
-import { Fetcher } from '@cloudflare/workers-types'
-import { CfEnv, ServerService } from '@workers-turbo/types'
+import {Fetcher} from '@cloudflare/workers-types'
+import {CfEnv, ServerService} from '@workers-turbo/types'
 import {Hono} from 'hono'
 
 interface Env extends CfEnv {
-  SERVICE_2: ServerService,
+  SERVICE_2: ServerService
   NAME: string
   USER: string
   API_KEY: string
@@ -13,8 +13,7 @@ interface Env extends CfEnv {
 
 const app = new Hono<{
   Bindings: Env
-}>()
-.basePath('/primary')
+}>().basePath('/primary')
 
 app.get('/', async (c) => {
   const sum = await c.env.SERVICE_2.sum(1, 2)
@@ -25,7 +24,7 @@ app.get('/env', async (c) => {
   return c.json({
     user: c.env.USER, // override in worker .dev.vars
     apiKey: c.env.API_KEY, // override in worker .dev.vars
-    databaseUrl: c.env.DATABASE_URL // from root .dev.vars
+    databaseUrl: c.env.DATABASE_URL, // from root .dev.vars
   })
 })
 

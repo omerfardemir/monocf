@@ -31,7 +31,7 @@ export interface Commander {
 /**
  * Available worker commands
  */
-export type WorkerCommand = 'deploy' | 'dev' | 'build'
+export type WorkerCommand = 'deploy' | 'dev' | 'build' | 'preview'
 
 export type Command = WorkerCommand | 'docker' | 'create'
 
@@ -82,8 +82,32 @@ export interface DeployCommandParams extends BaseCommandParams {
   deploySecrets?: boolean
   /** Whether to deploy service bindings for the worker */
   deployBindings?: boolean
-    /** Whether to minify the output */
+  /** Whether to minify the output */
   minify?: boolean
+  /** Message for the deploy version */
+  message?: string
+  /** Whether to deploy from an existing version */
+  fromVersion?: boolean
+  /** If specified, deploys from an existing version ID instead of creating a new version */
+  deployFromVersionId?: string
+}
+
+/**
+ * Parameters specific to the preview command
+ */
+export interface PreviewCommandParams extends BaseCommandParams {
+  /** Worker name */
+  workerName: string
+  /** Command type */
+  command: 'preview'
+  /** Whether to deploy secrets for the worker */
+  deploySecrets?: boolean
+  /** Whether to deploy service bindings for the worker */
+  deployBindings?: boolean
+  /** Whether to minify the output */
+  minify?: boolean
+  /** Message for the preview version */
+  message?: string
 }
 
 export interface BuildCommandParams extends BaseCommandParams {
@@ -100,7 +124,7 @@ export interface BuildCommandParams extends BaseCommandParams {
 /**
  * Union type of all command parameters
  */
-export type WorkerCommandParams = DevCommandParams | DeployCommandParams | BuildCommandParams
+export type WorkerCommandParams = DevCommandParams | DeployCommandParams | BuildCommandParams | PreviewCommandParams
 
 /**
  * Type guard to check if parameters are for dev command
@@ -127,4 +151,13 @@ export function isDeployCommandParams(params: WorkerCommandParams): params is De
  */
 export function isBuildCommandParams(params: WorkerCommandParams): params is BuildCommandParams {
   return params.command === 'build'
+}
+
+/**
+ * Type guard to check if parameters are for deploy command
+ * @param params Worker command parameters
+ * @returns True if parameters are for deploy command
+ */
+export function isPreviewCommandParams(params: WorkerCommandParams): params is PreviewCommandParams {
+  return params.command === 'preview'
 }

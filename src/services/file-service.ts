@@ -8,7 +8,7 @@ import {FileOperationError} from '../types/error-types.js'
 
 import {experimental_patchConfig, experimental_readRawConfig} from 'wrangler'
 import {getPackageVersion} from '../utils/version.js'
-import {MONOCF_IGNORE_FILE} from '../types/config-types.js'
+import {MONOCF_IGNORE_FILE, VERSIONS_FOLDER} from '../types/config-types.js'
 
 import ignore from 'ignore'
 
@@ -323,5 +323,27 @@ export class FileService {
    */
   isIgnoredWorker(workerName: string): boolean {
     return this.ignoredWorkers.includes(workerName)
+  }
+
+  /**
+   * Saves worker version details to a file
+   * @param workerName Worker name
+   * @param versionDetails Version details to save
+   */
+  saveWorkerVersionDetails(workerName: string, versionDetails: unknown): void {
+    try {
+      const versionsDir = join(VERSIONS_FOLDER, 'versions')
+      if (!existsSync(versionsDir)) {
+        // create directory
+        writeFileSync(versionsDir, '', {flag: 'wx'})
+      }
+
+      const versionFilePath = join(versionsDir, `${workerName}.json`)
+      writeFileSync(versionFilePath, JSON.stringify(versionDetails, null, 2), {encoding: 'utf8', flag: 'w'})
+    } catch (error) {
+      this.errorService.throwFileOperationError(
+        `Failed to save version details for ${workerName}: ${(error as Error).message}`,
+      )
+    }
   }
 }

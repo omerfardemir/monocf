@@ -48,11 +48,21 @@ export class BuildCommand implements WorkerCommandExecutor {
 
   /**
    * Executes the build command
-   * @param workerName Worker name
+   * @param workers Worker name
    * @param params Command parameters
    * @returns Promise that resolves when the command completes successfully
    */
-  async execute(workerName: string, params: BuildCommandParams): Promise<void> {
+  async execute(workers: string[], params: BuildCommandParams): Promise<void> {
+    if (params.multiWorker) {
+      return this.executeMultiWorker(params)
+    }
+
+    for (const worker of workers) {
+      await this.buildWorker(worker, params)
+    }
+  }
+
+  private async buildWorker(workerName: string, params: BuildCommandParams): Promise<void> {
     this.logService.log('MonoCF build command starting...')
 
     if (!isBuildCommandParams(params)) {
@@ -62,10 +72,6 @@ export class BuildCommand implements WorkerCommandExecutor {
     if (this.fileService.isIgnoredWorker(workerName)) {
       this.logService.log(`Worker ${workerName} is ignored, skipping`)
       return
-    }
-
-    if (params.multiWorker) {
-      return this.executeMultiWorker(params)
     }
 
     const workerConfigPath = this.workerService.initializeWorker(workerName, params)
@@ -83,13 +89,13 @@ export class BuildCommand implements WorkerCommandExecutor {
     )
   }
 
-  async executeMultiWorker(params: BuildCommandParams): Promise<void> {
+  private async executeMultiWorker(params: BuildCommandParams): Promise<void> {
     const workers = this.fileService.getWorkers(params.rootDir, params.workersDirName)
     const workersConfigPaths = workers
       .filter((workerName) => !this.fileService.isIgnoredWorker(workerName))
       .map((workerName) => this.workerService.initializeWorker(workerName, params))
       .filter((s) => s !== undefined)
-
+    this.logService.log(JSON.stringify(workersConfigPaths, null, 2))
     for (const workerConfigPath of workersConfigPaths) {
       await this.wranglerService.buildWorker(
         workerConfigPath.tempWranglerConfigPath,

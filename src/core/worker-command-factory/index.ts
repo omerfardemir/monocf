@@ -10,6 +10,7 @@ import {WorkerCommand} from '../../types/command-types.js'
 import {BuildCommand} from './build-command.js'
 import {DeployCommand} from './deploy-command.js'
 import {DevCommand} from './dev-command.js'
+import {PreviewCommand} from './preview-command.js'
 import {WorkerCommandExecutor} from './worker-command-executor.js'
 
 /**
@@ -55,6 +56,17 @@ export class WorkerCommandFactory {
 
       case 'deploy': {
         return new DeployCommand(
+          services.errorService,
+          services.fileService,
+          services.wranglerService,
+          services.serviceBindingService,
+          services.environmentService,
+          services.logService,
+        )
+      }
+
+      case 'preview': {
+        return new PreviewCommand(
           services.errorService,
           services.fileService,
           services.wranglerService,

@@ -9,6 +9,7 @@ import {
   WRANGLER_FILE,
   WorkerCommand,
   WranglerError,
+  WorkerVersion,
 } from '../types/index.js'
 import {ErrorService} from './error-service.js'
 import {createSpinner} from 'nanospinner'
@@ -81,6 +82,8 @@ export class WranglerService {
           ),
         )
       })
+
+      this.childProcesses.push(childProcess)
     })
   }
 
@@ -119,7 +122,7 @@ export class WranglerService {
   private spawnHiddenWrangler(args: string[]): ChildProcess {
     const process = spawn('wrangler', args, {
       shell: true,
-      stdio: ['inherit', 'ignore', 'ignore'],
+      stdio: ['inherit', 'pipe', 'ignore'],
     })
 
     return process
@@ -144,13 +147,18 @@ export class WranglerService {
 
   /**
    * Executes a wrangler worker command
-   * @param command Command to execute (dev, deploy)
+   * @param command Command to execute
    * @param configPaths Paths to the wrangler config files
    * @param env Environment to use
    * @param minify Whether to minify the worker (only for deploy)
    * @returns Promise that resolves when the command completes successfully
    */
-  async execWorkerCommand(command: WorkerCommand, configPaths: string[], env?: string, minify?: boolean): Promise<void> {
+  async execWorkerCommand(
+    command: WorkerCommand,
+    configPaths: string[],
+    env?: string,
+    minify?: boolean,
+  ): Promise<void> {
     const args = [command, ...configPaths.flatMap((c) => ['-c', c])]
 
     if (env) {
@@ -162,6 +170,112 @@ export class WranglerService {
     }
 
     return this.executeWranglerCommand(args)
+  }
+
+  /**
+   * Executes a wrangler version upload command
+   * @param configPath Paths to the wrangler config files
+   * @param env Environment to use
+   * @param message Commit message for the version
+   * @param minify Whether to minify the worker
+   * @returns Promise that resolves when the command completes successfully
+   */
+  async versionUploadCommand(
+    configPath: string,
+    env?: string,
+    message?: string,
+    minify?: boolean,
+  ): Promise<{
+    id: string
+    previewUrl: string
+  }> {
+    const args = ['versions upload', '-c', configPath]
+
+    if (env) {
+      args.push('--env', env)
+    }
+
+    if (minify) {
+      args.push('--minify')
+    }
+
+    if (message) {
+      args.push('--message', message)
+    }
+
+    await this.executeWranglerCommand(args)
+
+    // parse preview url and version id from stdout
+    // wrangler does not have a command to get the version id/url after upload
+    // so we need to parse the stdout of the command
+    const child = this.childProcesses[0]
+    let previewUrlMatch: RegExpMatchArray | null = null
+    let versionIdMatch: RegExpMatchArray | null = null
+
+    child.stdout?.on('data', (data: Buffer) => {
+      const output = data.toString()
+      versionIdMatch = output.match(/Worker Version ID: ([a-f0-9-]+)/)
+      previewUrlMatch = output.match(/Version Preview URL: (https:\/\/[^\s]+)/)
+    })
+
+    await new Promise((resolve) => {
+      child.on('close', resolve)
+    })
+
+    return {
+      id: versionIdMatch ? versionIdMatch[1] : '',
+      previewUrl: previewUrlMatch ? previewUrlMatch[1] : '',
+    }
+  }
+
+  async versionDeployCommand(configPath: string, env?: string, message?: string, versionId?: string): Promise<void> {
+    const args = ['versions', 'deploy', '-c', configPath, '--yes']
+    const triggerArgs = ['triggers', 'deploy', '-c', configPath]
+
+    if (env) {
+      args.push('--env', env)
+      triggerArgs.push('--env', env)
+    }
+
+    if (message) {
+      args.push('--message', message)
+    }
+
+    if (versionId) {
+      args.push('--version-id', versionId)
+    }
+
+    await this.executeWranglerCommand(args)
+    await this.executeWranglerCommand(triggerArgs)
+  }
+
+  /**
+   * Gets the list of versions for a worker
+   * @param configPath Path to the wrangler config file
+   * @param env Environment to use
+   * @returns Promise that resolves to the list of worker versions
+   */
+  async getVersions(configPath: string, env?: string): Promise<WorkerVersion[]> {
+    const args = ['versions', 'list', '-c', configPath, '--json']
+
+    if (env) {
+      args.push('--env', env)
+    }
+
+    const child = this.spawnHiddenWrangler(args)
+
+    const list: WorkerVersion[] = []
+    child.stdout?.on('data', (data: Buffer) => {
+      const output = data.toString()
+      const versions = JSON.parse(output) as WorkerVersion[]
+      list.push(...versions)
+    })
+
+    await new Promise((resolve) => {
+      child.on('close', resolve)
+    })
+
+    return list
   }
 
   async buildWorker(configPath: string, envPath?: string, env?: string, minify?: boolean): Promise<string> {

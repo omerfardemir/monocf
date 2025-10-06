@@ -29,7 +29,7 @@ const workerFlags = {
   }),
   command: workerCommand({
     char: 'c',
-    description: 'Command to execute (dev, deploy)',
+    description: 'Command to execute (dev, deploy, build, preview)',
     required: true,
   }),
   'deploy-secrets': Flags.boolean({
@@ -65,6 +65,21 @@ const workerFlags = {
   minify: Flags.boolean({
     char: 'm',
     description: 'Minify the worker script during build/deploy',
+    required: false,
+  }),
+  message: Flags.string({
+    char: 'M',
+    description: 'Message for the preview version',
+    required: false,
+  }),
+  'from-version': Flags.boolean({
+    char: 'f',
+    description: 'Deploy from an existing version or latest uploaded version',
+    required: false,
+  }),
+  'deploy-from-version-id': Flags.string({
+    char: 'F',
+    description: 'If specified, deploys from an existing version ID instead of latest uploaded version',
     required: false,
   }),
 }

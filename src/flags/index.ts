@@ -15,6 +15,9 @@ export interface WorkerFlags {
   workersDirName?: string
   port?: number
   minify?: boolean
+  fromVersion?: boolean
+  deployFromVersionId?: string
+  message?: string
 }
 
 export interface CreateWorkerArgs {
