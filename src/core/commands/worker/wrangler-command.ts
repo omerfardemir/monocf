@@ -1,4 +1,4 @@
-import {Commander, DevCommandParams, WorkerCommandParams} from '../../../types/command-types.js'
+import {Commander, DevCommandParams, WorkerCommand, WorkerCommandParams} from '../../../types/command-types.js'
 import {
   WranglerService,
   ConfigurationService,
@@ -8,6 +8,7 @@ import {
 import {WorkerArgs, WorkerFlags} from '../../../flags/index.js'
 import {MonocfCommand} from '../command.js'
 import {WorkerCommandFactory} from '../../worker-command-factory/index.js'
+import {CliConfig, CliFlags} from '../../../types/config-types.js'
 
 export class WranglerCommand extends MonocfCommand<WorkerArgs, WorkerFlags> {
   private serviceBindingService: ServiceBindingService
@@ -35,40 +36,14 @@ export class WranglerCommand extends MonocfCommand<WorkerArgs, WorkerFlags> {
 
     this.environmentService.setRootDir(config.rootDir)
 
-    if (
-      !config.command ||
-      !(
-        config.command === 'preview' ||
-        config.command === 'deploy' ||
-        config.command === 'dev' ||
-        config.command === 'build'
-      )
-    ) {
-      this.errorService.throwConfigurationError(
-        'Command is required and must be either "deploy", "dev", "build" or "preview"',
-      )
-    }
-
     // Create command parameters
-    const params: WorkerCommandParams = {
-      command: config.command!,
-      workerName: args.workerName || '',
-      rootDir: config.rootDir,
-      workersDirName: config.workersDirName,
-      env: config.env,
-      baseConfig: config.baseConfig,
-      variables: config.variables,
-      port: config.port,
-      ...(config.command === 'deploy' && {deploySecrets: config.deploySecrets}),
-      ...(config.command === 'deploy' && {deployBindings: config.deployBindings}),
-      ...(config.command === 'deploy' && {fromVersion: config.fromVersion}),
-      ...(config.command === 'deploy' && {deployFromVersionId: config.deployFromVersionId}),
-      ...(config.command === 'deploy' && {message: config.message}),
-      ...(config.command !== 'dev' && {minify: config.minify}),
-    }
+    const params: WorkerCommandParams = this.buildParams({
+      ...config,
+      ...args,
+    })
 
     // Create command executor
-    const commandExecutor = WorkerCommandFactory.createCommand(config.command!, {
+    const commandExecutor = WorkerCommandFactory.createCommand(params.command, {
       errorService: this.errorService,
       fileService: this.fileService,
       serviceBindingService: this.serviceBindingService,
@@ -77,32 +52,66 @@ export class WranglerCommand extends MonocfCommand<WorkerArgs, WorkerFlags> {
       logService: this.logService,
     })
 
-    // Execute command
-    if (config.all) {
-      const workers = this.fileService.getWorkers(config.rootDir, config.workersDirName)
-
-      if (config.command === 'deploy') {
-        for (const worker of workers) {
-          params.workerName = worker
-          await commandExecutor.execute(worker, params)
-        }
-      } else if (config.command === 'dev' || config.command === 'build') {
-        // leave workerName empty to execute dev for all workers
-        await commandExecutor.execute('', {
-          ...params,
-          multiWorker: true,
-        } as DevCommandParams)
-      } else if (config.command === 'preview') {
-        for (const worker of workers) {
-          params.workerName = worker
-          await commandExecutor.execute(worker, params)
-        }
-      }
-    } else if (params.workerName) {
-      await commandExecutor.execute(params.workerName, params)
-    } else {
-      this.errorService.throwConfigurationError('Worker name is required')
+    if (!config.all && !args.workerName) {
+      this.errorService.throwConfigurationError('Worker name is required if --all flag is not set')
     }
+
+    const workers = config.all
+      ? this.fileService.getWorkers(config.rootDir, config.workersDirName)
+      : [String(args.workerName)]
+
+    switch (params.command) {
+      case 'preview':
+      case 'deploy': {
+        for (const worker of workers) {
+          params.workerName = worker
+          await commandExecutor.execute(worker, params)
+        }
+
+        break
+      }
+
+      case 'dev':
+      case 'build': {
+        // leave workerName empty to execute dev for all workers
+        await commandExecutor.execute(workers[0], {
+          ...params,
+          multiWorker: config.all,
+        } as DevCommandParams)
+
+        break
+      }
+    }
+  }
+
+  private buildParams(params: CliConfig & CliFlags & WorkerArgs): WorkerCommandParams {
+    return {
+      command: this.validateCommand(params.command!),
+      workerName: params.workerName || '',
+      rootDir: params.rootDir,
+      workersDirName: params.workersDirName,
+      env: params.env,
+      baseConfig: params.baseConfig,
+      variables: params.variables,
+      port: params.port,
+      ...(params.command !== 'dev' && {minify: params.minify}),
+      ...(params.command === 'deploy' && {
+        deploySecrets: params.deploySecrets,
+        deployBindings: params.deployBindings,
+        fromVersion: params.fromVersion,
+        deployFromVersionId: params.deployFromVersionId,
+        message: params.message,
+      }),
+    }
+  }
+
+  private validateCommand(command: string): WorkerCommand | never {
+    const validCommands = ['dev', 'build', 'preview', 'deploy']
+    if (!validCommands.includes(command)) {
+      this.errorService.throwConfigurationError(`Unsupported command: ${command}`)
+    }
+
+    return command as WorkerCommand
   }
 
   /**

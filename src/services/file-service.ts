@@ -337,6 +337,7 @@ export class FileService {
         // create directory
         writeFileSync(versionsDir, '', {flag: 'wx'})
       }
+
       const versionFilePath = join(versionsDir, `${workerName}.json`)
       writeFileSync(versionFilePath, JSON.stringify(versionDetails, null, 2), {encoding: 'utf8', flag: 'w'})
     } catch (error) {
