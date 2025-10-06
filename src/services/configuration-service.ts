@@ -54,6 +54,9 @@ export class ConfigurationService {
           command: flags.command,
           port: parsed.port ?? flags.port ?? 8787,
           minify: parsed.minify,
+          fromVersion: flags.fromVersion,
+          deployFromVersionId: flags.deployFromVersionId,
+          message: flags.message,
         }
       } catch (error) {
         this.errorService.throwConfigurationError(`Failed to parse configuration file: ${(error as Error).message}`)

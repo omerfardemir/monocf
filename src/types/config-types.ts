@@ -29,6 +29,12 @@ export interface CliConfig {
   port?: number
   /** Whether to minify the worker code (only for build command) */
   minify?: boolean
+  /** Whether to deploy from an existing version */
+  fromVersion?: boolean
+  /** Specific version ID to deploy from (only if fromVersion is true) */
+  deployFromVersionId?: string
+  /** Message for the deploy version */
+  message?: string
 }
 
 /**

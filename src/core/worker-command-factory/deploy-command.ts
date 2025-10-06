@@ -136,8 +136,16 @@ export class DeployCommand implements WorkerCommandExecutor {
 
     // Check if deploying from existing version
     if (params.fromVersion) {
+      this.logService.log(`deploying from existing version`)
       if (!params.deployFromVersionId) {
-        await this.wranglerService.versionDeployCommand(tempWranglerConfigPath, params.env, params.message)
+        this.logService.log(`No specific version ID provided, deploying latest version`)
+        const versions = await this.wranglerService.getVersions(tempWranglerConfigPath, params.env)
+        const latestVersion = versions.pop()
+        if (!latestVersion) {
+          this.errorService.throwWorkerCommandError(`No versions found for worker ${workerName}. Before deploying from version, please create a version using "monocf worker <worker-name> deploy -e <env>"`)
+        }
+
+        await this.wranglerService.versionDeployCommand(tempWranglerConfigPath, params.env, params.message, latestVersion.id)
       } else {
         await this.wranglerService.versionDeployCommand(
           tempWranglerConfigPath,

@@ -61,6 +61,9 @@ export class WranglerCommand extends MonocfCommand<WorkerArgs, WorkerFlags> {
       port: config.port,
       ...(config.command === 'deploy' && {deploySecrets: config.deploySecrets}),
       ...(config.command === 'deploy' && {deployBindings: config.deployBindings}),
+      ...(config.command === 'deploy' && {fromVersion: config.fromVersion}),
+      ...(config.command === 'deploy' && {deployFromVersionId: config.deployFromVersionId}),
+      ...(config.command === 'deploy' && {message: config.message}),
       ...(config.command !== 'dev' && {minify: config.minify}),
     }
 

@@ -230,9 +230,11 @@ export class WranglerService {
 
   async versionDeployCommand(configPath: string, env?: string, message?: string, versionId?: string): Promise<void> {
     const args = ['versions', 'deploy', '-c', configPath, '--yes']
+    const triggerArgs = ['triggers', 'deploy', '-c', configPath]
 
     if (env) {
       args.push('--env', env)
+      triggerArgs.push('--env', env)
     }
 
     if (message) {
@@ -244,6 +246,7 @@ export class WranglerService {
     }
 
     await this.executeWranglerCommand(args)
+    await this.executeWranglerCommand(triggerArgs)
   }
 
   /**
