@@ -90,6 +90,7 @@ export class WranglerCommand extends MonocfCommand<WorkerArgs, WorkerFlags> {
         deployFromVersionId: params.deployFromVersionId,
         message: params.message,
       }),
+      ...(params.command === 'preview' && {deploySecrets: params.deploySecrets}),
     }
   }
 

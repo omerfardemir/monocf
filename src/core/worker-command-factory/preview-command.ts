@@ -140,15 +140,12 @@ export class PreviewCommand implements WorkerCommandExecutor {
     // upload this worker
     this.logService.log(`Uploading worker ${workerName}`)
 
-    const version = await this.wranglerService.versionUploadCommand(
+    await this.wranglerService.versionUploadCommand(
       tempWranglerConfigPath,
       params.env,
       params.message,
       params.minify,
     )
-
-    // save version details to .monocf/versions/{workerName}.json
-    this.fileService.saveWorkerVersionDetails(workerName, version)
 
     // Deploy secrets if required
     if (params.deploySecrets) {
@@ -157,7 +154,7 @@ export class PreviewCommand implements WorkerCommandExecutor {
         workerName,
         workerPath,
         env: params.env,
-        configPath: tempWranglerConfigPath,
+        configPath: tempWranglerConfigPath
       })
     }
   }
@@ -180,7 +177,12 @@ export class PreviewCommand implements WorkerCommandExecutor {
     const envPath = this.environmentService.createTempEnvFile(params.workerPath, params.env)
     if (existsSync(envPath)) {
       try {
-        return await this.wranglerService.execSecretBulkUpload(envPath, params.configPath, params.env)
+        return this.wranglerService.execSecretBulkUpload(
+          envPath, 
+          params.configPath, 
+          params.env,
+          true
+        )
       } catch (error) {
         this.errorService.throwWorkerCommandError(
           `Failed to deploy secrets for ${params.workerName}: ${(error as Error).message}`,
