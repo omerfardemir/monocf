@@ -3,7 +3,7 @@ import {Args, Flags} from '@oclif/core'
 import {VerifiedFields, CreateWorkerArgs, DeploySecretsFlags} from '../../flags/index.js'
 import {CommandBase} from '../../types/oclif-types.js'
 import {CommandRegistry} from '../../core/commands/registry.js'
-import { normalizeFlags } from '../../utils/flag.js'
+import {normalizeFlags} from '../../utils/flag.js'
 
 /**
  * Secrets deploy command args & flags

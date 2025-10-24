@@ -303,11 +303,12 @@ export class FileService {
    * @param root Root directory of the project
    * @param workersDir Workers directory name
    */
-  loadIgnoreFile(root: string, workersDir: string): void {
+  loadIgnoreFile(root: string, workersDir: string): string[] {
     // Resolve ignore file relative to the provided project root
     const ignorePath = join(root, MONOCF_IGNORE_FILE)
     if (!existsSync(ignorePath)) {
-      return
+      console.log('Ignore file not found at', ignorePath)
+      return []
     }
 
     const ignoreFileContent = readFileSync(ignorePath, 'utf8')
@@ -322,6 +323,8 @@ export class FileService {
       const relWithDir = `${workersDir}/${worker}`.replaceAll('\\', '/')
       return ig.ignores(relName) || ig.ignores(relWithDir)
     })
+
+    return this.ignoredWorkers
   }
 
   /**

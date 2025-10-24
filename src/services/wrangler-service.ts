@@ -141,7 +141,7 @@ export class WranglerService {
     if (versions) {
       args.unshift('versions')
     }
-    
+
     if (env) {
       args.push('--env', env)
     }
@@ -184,12 +184,7 @@ export class WranglerService {
    * @param minify Whether to minify the worker
    * @returns Promise that resolves when the command completes successfully
    */
-  async versionUploadCommand(
-    configPath: string,
-    env?: string,
-    message?: string,
-    minify?: boolean,
-  ): Promise<void> {
+  async versionUploadCommand(configPath: string, env?: string, message?: string, minify?: boolean): Promise<void> {
     const args = ['versions upload', '-c', configPath]
 
     if (env) {

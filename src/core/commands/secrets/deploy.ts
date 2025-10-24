@@ -1,11 +1,11 @@
-import { join } from 'node:path'
-import { existsSync } from 'node:fs'
+import {join} from 'node:path'
+import {existsSync} from 'node:fs'
 
-import { CreateWorkerArgs, DeploySecretsFlags } from '../../../flags/index.js'
-import { WranglerService, EnvironmentService, ConfigurationService } from '../../../services/index.js'
-import { Commander } from '../../../types/command-types.js'
-import { MonocfCommand } from '../command.js'
-import { WRANGLER_FILE } from '../../../types/wrangler-types.js'
+import {CreateWorkerArgs, DeploySecretsFlags} from '../../../flags/index.js'
+import {WranglerService, EnvironmentService, ConfigurationService} from '../../../services/index.js'
+import {Commander} from '../../../types/command-types.js'
+import {MonocfCommand} from '../command.js'
+import {WRANGLER_FILE} from '../../../types/wrangler-types.js'
 
 export class DeploySecretsCommand extends MonocfCommand<CreateWorkerArgs, DeploySecretsFlags> {
   private wranglerService: WranglerService
@@ -69,14 +69,14 @@ export class DeploySecretsCommand extends MonocfCommand<CreateWorkerArgs, Deploy
   }
 
   /**
- * Deploys secrets for a worker
- * @param {object} params Parameters for deploying secrets
- * @param {string} params.workerName Worker name
- * @param {string} params.workerPath Path to the worker directory
- * @param {string} params.env Environment to use
- * @param {string} params.configPath Path to the wrangler config file
- * @returns Promise that resolves when the secrets are deployed successfully
- */
+   * Deploys secrets for a worker
+   * @param {object} params Parameters for deploying secrets
+   * @param {string} params.workerName Worker name
+   * @param {string} params.workerPath Path to the worker directory
+   * @param {string} params.env Environment to use
+   * @param {string} params.configPath Path to the wrangler config file
+   * @returns Promise that resolves when the secrets are deployed successfully
+   */
   private async deploySecrets(params: {
     workerName: string
     workerPath: string
