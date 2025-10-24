@@ -210,7 +210,15 @@ export class FileService {
   getWorkers(rootDir: string, workersDirName: string): string[] {
     try {
       const workersDirPath = join(rootDir, workersDirName)
-      return readdirSync(workersDirPath)
+      const dirs = readdirSync(workersDirPath)
+
+      // check `wrangler.jsonc` is exists
+      const workers = dirs.filter((dir) => {
+        const wranglerJsonPath = join(workersDirPath, dir, WRANGLER_FILE)
+        return existsSync(wranglerJsonPath)
+      })
+
+      return workers
     } catch (error) {
       this.errorService.throwFileOperationError(`Failed to get workers: ${(error as Error).message}`)
     }
