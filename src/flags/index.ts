@@ -7,7 +7,7 @@ export interface WorkerArgs {
 export interface WorkerFlags {
   all?: boolean
   baseConfig?: string
-  command: WorkerCommand
+  command?: WorkerCommand
   deploySecrets?: boolean
   deployBindings?: boolean
   env?: string
@@ -25,6 +25,14 @@ export interface CreateWorkerArgs {
 }
 
 export interface CreateWorkerFlags {
+  rootDir?: string
+  workersDirName?: string
+}
+
+export interface DeploySecretsFlags {
+  all?: boolean
+  baseConfig?: string
+  env?: string
   rootDir?: string
   workersDirName?: string
 }

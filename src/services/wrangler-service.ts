@@ -135,8 +135,12 @@ export class WranglerService {
    * @param env Environment to use
    * @returns Promise that resolves when the command completes successfully
    */
-  async execSecretBulkUpload(varsPath: string, configPath: string, env?: string): Promise<void> {
+  async execSecretBulkUpload(varsPath: string, configPath: string, env?: string, versions?: boolean): Promise<void> {
     const args = ['secret', 'bulk', varsPath, '--config', configPath]
+
+    if (versions) {
+      args.unshift('versions')
+    }
 
     if (env) {
       args.push('--env', env)
@@ -180,15 +184,7 @@ export class WranglerService {
    * @param minify Whether to minify the worker
    * @returns Promise that resolves when the command completes successfully
    */
-  async versionUploadCommand(
-    configPath: string,
-    env?: string,
-    message?: string,
-    minify?: boolean,
-  ): Promise<{
-    id: string
-    previewUrl: string
-  }> {
+  async versionUploadCommand(configPath: string, env?: string, message?: string, minify?: boolean): Promise<void> {
     const args = ['versions upload', '-c', configPath]
 
     if (env) {
@@ -204,28 +200,6 @@ export class WranglerService {
     }
 
     await this.executeWranglerCommand(args)
-
-    // parse preview url and version id from stdout
-    // wrangler does not have a command to get the version id/url after upload
-    // so we need to parse the stdout of the command
-    const child = this.childProcesses[0]
-    let previewUrlMatch: RegExpMatchArray | null = null
-    let versionIdMatch: RegExpMatchArray | null = null
-
-    child.stdout?.on('data', (data: Buffer) => {
-      const output = data.toString()
-      versionIdMatch = output.match(/Worker Version ID: ([a-f0-9-]+)/)
-      previewUrlMatch = output.match(/Version Preview URL: (https:\/\/[^\s]+)/)
-    })
-
-    await new Promise((resolve) => {
-      child.on('close', resolve)
-    })
-
-    return {
-      id: versionIdMatch ? versionIdMatch[1] : '',
-      previewUrl: previewUrlMatch ? previewUrlMatch[1] : '',
-    }
   }
 
   async versionDeployCommand(configPath: string, env?: string, message?: string, versionId?: string): Promise<void> {

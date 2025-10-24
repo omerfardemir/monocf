@@ -210,7 +210,15 @@ export class FileService {
   getWorkers(rootDir: string, workersDirName: string): string[] {
     try {
       const workersDirPath = join(rootDir, workersDirName)
-      return readdirSync(workersDirPath)
+      const dirs = readdirSync(workersDirPath)
+
+      // check `wrangler.jsonc` is exists
+      const workers = dirs.filter((dir) => {
+        const wranglerJsonPath = join(workersDirPath, dir, WRANGLER_FILE)
+        return existsSync(wranglerJsonPath)
+      })
+
+      return workers
     } catch (error) {
       this.errorService.throwFileOperationError(`Failed to get workers: ${(error as Error).message}`)
     }
@@ -295,11 +303,12 @@ export class FileService {
    * @param root Root directory of the project
    * @param workersDir Workers directory name
    */
-  loadIgnoreFile(root: string, workersDir: string): void {
+  loadIgnoreFile(root: string, workersDir: string): string[] {
     // Resolve ignore file relative to the provided project root
     const ignorePath = join(root, MONOCF_IGNORE_FILE)
     if (!existsSync(ignorePath)) {
-      return
+      console.log('Ignore file not found at', ignorePath)
+      return []
     }
 
     const ignoreFileContent = readFileSync(ignorePath, 'utf8')
@@ -314,6 +323,8 @@ export class FileService {
       const relWithDir = `${workersDir}/${worker}`.replaceAll('\\', '/')
       return ig.ignores(relName) || ig.ignores(relWithDir)
     })
+
+    return this.ignoredWorkers
   }
 
   /**
