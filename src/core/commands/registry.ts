@@ -8,6 +8,7 @@ import {WorkerCreateCommand} from './worker/create-command.js'
 import {WranglerCommand} from './worker/wrangler-command.js'
 import {DockerStartCommand} from './docker/start.js'
 import {DockerStopCommand} from './docker/stop.js'
+import { DeploySecretsCommand } from './secrets/deploy.js'
 
 /**
  * Command registration interface
@@ -72,6 +73,9 @@ export class CommandRegistry {
     this.registerCommand('docker:start', DockerStartCommand)
     this.registerCommand('docker:stop', DockerStopCommand)
 
+    // Register secrets commands
+    this.registerCommand('secrets:deploy', DeploySecretsCommand)
+    
     // Add new commands here...
     // this.registerCommand('new-command', NewCommandClass);
   }

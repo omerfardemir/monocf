@@ -21,27 +21,27 @@ MonoCF streamlines the development workflow by wrapping Wrangler commands with a
 
 ## Features
 
-- **Monorepo Support**: Easily manage multiple workers in a monorepo structure
-- **Environment Management**: Deploy to different environment secrets (dev, production, etc.)
-- **Bulk Operations**: Run commands on all workers at once
-- **Service Bindings**: Simplified management of service bindings between workers for development
-- **Configuration Management**: Centralized configuration with environment-specific overrides
-- **Worker Creation**: Quickly scaffold new worker projects with best practices
-- **Command Pattern**: Implementation of command pattern for extensibility
+* **Monorepo Support**: Easily manage multiple workers in a monorepo structure
+* **Environment Management**: Deploy to different environment secrets (dev, production, etc.)
+* **Bulk Operations**: Run commands on all workers at once
+* **Service Bindings**: Simplified management of service bindings between workers for development
+* **Configuration Management**: Centralized configuration with environment-specific overrides
+* **Worker Creation**: Quickly scaffold new worker projects with best practices
+* **Command Pattern**: Implementation of command pattern for extensibility
 
 ## Architecture
 
 The codebase follows a clean architecture with separation of concerns:
 
-- **Commands**: Implementation of oclif commands that handle CLI interactions
-- **Core**: Business logic and command pattern implementation for extensibility
-- **Services**: Reusable services for handling specific functionality
-- **Types**: TypeScript type definitions for strong typing
-- **Utils**: Utility functions for common operations
+* **Commands**: Implementation of oclif commands that handle CLI interactions
+* **Core**: Business logic and command pattern implementation for extensibility
+* **Services**: Reusable services for handling specific functionality
+* **Types**: TypeScript type definitions for strong typing
+* **Utils**: Utility functions for common operations
 
 ### Directory Structure
 
-```
+```markdown
 src/
   commands/       -- oclif command implementations
     whoami/       -- Whoami command for checking Cloudflare identity
@@ -156,7 +156,7 @@ You can create a `.monocfignore` file in your project's root directory to specif
 
 #### Example .monocfignore
 
-```
+```ignore
 # Comments are supported
 # Ignore a worker by its directory name
 worker-to-ignore
@@ -170,14 +170,14 @@ workers/another-to-ignore
 
 ### Environment Variables Management
 
-MonoCF provides a powerful way to manage environment variables across your monorepo using `.dev.vars` files. This approach allows you to define both global and worker-specific environment variables. To set different secrets for each environment, create files named `.dev.vars.<environment-name>`. When you use MonoCF with `--env <environment-name>`, the corresponding environment-specific file will be loaded instead of the .`dev.vars` file. If you enabled `deploySecrets` in the configuration, the environment variables will be deployed to the worker secrets. 
+MonoCF provides a powerful way to manage environment variables across your monorepo using `.dev.vars` files. This approach allows you to define both global and worker-specific environment variables. To set different secrets for each environment, create files named `.dev.vars.<environment-name>`. When you use MonoCF with `--env <environment-name>`, the corresponding environment-specific file will be loaded instead of the .`dev.vars` file. If you enabled `deploySecrets` in the configuration, the environment variables will be deployed to the worker secrets.
 **This is important:** If you enabled `deploySecrets` in the configuration, the environment variables will be deployed to the worker secrets. So `.dev.vars` file for only secret variables. For other variables, you can use `wrangler.jsonc` vars property.
 
 #### Root-level Environment Variables
 
 You can define global environment variables that apply to all workers by creating a `.dev.vars` file in the root directory of your project:
 
-```
+```env
 # Root .dev.vars file
 API_KEY=global-api-key
 DATABASE_URL=https://example.com/db
@@ -187,7 +187,7 @@ DATABASE_URL=https://example.com/db
 
 Each worker can have its own `.dev.vars` file with worker-specific environment variables:
 
-```
+```env
 # Worker-specific .dev.vars file
 API_KEY=worker-specific-api-key
 WORKER_SETTING=some-value
@@ -197,8 +197,8 @@ WORKER_SETTING=some-value
 
 You can also create environment-specific `.dev.vars` files for both root and worker levels:
 
-- Root level: `.dev.vars.production`, `.dev.vars.staging`, etc.
-- Worker level: `workers/my-worker/.dev.vars.production`, etc.
+* Root level: `.dev.vars.production`, `.dev.vars.staging`, etc.
+* Worker level: `workers/my-worker/.dev.vars.production`, etc.
 
 #### Variable Precedence
 
@@ -217,6 +217,7 @@ This allows you to define common variables at the root level and override them a
 * [`monocf docker start`](#monocf-docker-start)
 * [`monocf docker stop`](#monocf-docker-stop)
 * [`monocf whoami`](#monocf-whoami)
+* [`monocf secrets deploy`](#monocf-secrets-deploy)
 * [`monocf worker [WORKERNAME]`](#monocf-worker-workername)
 * [`monocf worker create WORKERNAME`](#monocf-worker-create-workername)
 
@@ -224,7 +225,7 @@ This allows you to define common variables at the root level and override them a
 
 Starts a local development environment for multiple workers using Docker.
 
-```
+```sh-session
 USAGE
   $ monocf docker start [-p <value>]
 
@@ -244,7 +245,7 @@ EXAMPLES
 
 Stops the local development environment for multiple workers using Docker.
 
-```
+```sh-session
 USAGE
   $ monocf docker stop
 
@@ -259,7 +260,7 @@ EXAMPLES
 
 Show whoami from wrangler
 
-```
+```sh-session
 USAGE
   $ monocf whoami
 
@@ -272,11 +273,40 @@ EXAMPLES
 
 _See code: [src/commands/whoami/index.ts](https://github.com/omerfardemir/monocf/blob/v0.0.9/src/commands/whoami/index.ts)_
 
+## `monocf secrets deploy`
+
+Deploy secrets for one or multiple workers.
+
+```sh-session
+USAGE
+  $ monocf secrets deploy [WORKERNAME] [-a] [-b <value>] [-e <value>] [-r <value>] [-w <value>]
+
+ARGUMENTS
+  WORKERNAME  Worker name
+
+FLAGS
+  -a, --all                       Run command for all workers
+  -b, --base-config=<value>       Base wrangler config file
+  -e, --env=<value>               Environment to use (dev, production etc.)
+  -r, --root-dir=<value>          Root directory of the project
+  -w, --workers-dir-name=<value>  Workers directory name in monorepo
+
+DESCRIPTION
+  Deploy secrets for the worker. When using --all, secrets for all workers will be deployed.
+
+EXAMPLES
+  $ monocf secrets deploy my-worker
+
+  $ monocf secrets deploy --all --env production
+```
+
+_See code: [src/commands/secrets/deploy.ts](https://github.com/omerfardemir/monocf/blob/v0.0.9/src/commands/secrets/deploy.ts)_
+
 ## `monocf worker [WORKERNAME]`
 
 Workers command for running dev or deploy for a worker or all workers
 
-```
+```sh-session
 USAGE
   $ monocf worker [WORKERNAME] -c <value> [-a] [-b <value>] [-s] [-e <value>] [-r <value>] [-w <value>] [-d] [-p <value>]
 
@@ -314,7 +344,7 @@ _See code: [src/commands/worker/index.ts](https://github.com/omerfardemir/monocf
 
 Create a new worker in the workers directory
 
-```
+```sh-session
 USAGE
   $ monocf worker create WORKERNAME [-r <value>] [-w <value>]
 
@@ -339,22 +369,22 @@ _See code: [src/commands/worker/create.ts](https://github.com/omerfardemir/monoc
 
 MonoCF offers two ways to run multiple workers locally for development:
 
-1.  **Proxy-Based Development (`dev --all`)**: This is the simplest method and works out-of-the-box without needing Docker. When you run `monocf worker -c dev --all`, it will:
-    *   Start a `wrangler dev` session for each of your workers on a different port.
-    *   Start an additional proxy worker (by default on port `8787`) that intelligently routes incoming requests to the correct worker based on the URL path. The path is determined by the `route` property in each worker's `wrangler.jsonc` file, or it defaults to the worker's directory name.
-    *   You can specify a different port for the proxy using the `--port` flag.
+1. **Proxy-Based Development (`dev --all`)**: This is the simplest method and works out-of-the-box without needing Docker. When you run `monocf worker -c dev --all`, it will:
+    * Start a `wrangler dev` session for each of your workers on a different port.
+    * Start an additional proxy worker (by default on port `8787`) that intelligently routes incoming requests to the correct worker based on the URL path. The path is determined by the `route` property in each worker's `wrangler.jsonc` file, or it defaults to the worker's directory name.
+    * You can specify a different port for the proxy using the `--port` flag.
 
-    ```sh-session
+    ```bash
     # Run all workers, with the proxy listening on port 8000
     $ monocf worker -c dev --all --port 8000
     ```
 
-2.  **Docker-Based Development (`docker start`)**: For a more robust and isolated environment, you can use the Docker-based setup. This is ideal for complex scenarios or to ensure consistency across different development machines.
-    *   Running `monocf docker start` will generate a `.monocf` directory in your project root containing a `docker-compose.yml`, `Dockerfile`, and `nginx.conf`.
-    *   It spins up a Docker container with `workerd` running all your workers, and an Nginx container acting as a reverse proxy.
-    *   This provides a production-like environment locally. You can stop the environment with `monocf docker stop`.
+2. **Docker-Based Development (`docker start`)**: For a more robust and isolated environment, you can use the Docker-based setup. This is ideal for complex scenarios or to ensure consistency across different development machines.
+    * Running `monocf docker start` will generate a `.monocf` directory in your project root containing a `docker-compose.yml`, `Dockerfile`, and `nginx.conf`.
+    * It spins up a Docker container with `workerd` running all your workers, and an Nginx container acting as a reverse proxy.
+    * This provides a production-like environment locally. You can stop the environment with `monocf docker stop`.
 
-    ```sh-session
+    ```bash
     # Start the Docker-based multi-worker environment
     $ monocf docker start
     
@@ -369,22 +399,26 @@ We welcome contributions to the MonoCF! Here's how you can help:
 ### Development Setup
 
 1. **Clone the repository**
+
    ```bash
    git clone https://github.com/omerfardemir/monocf.git
    cd monocf
    ```
 
 2. **Install dependencies**
+
    ```bash
    npm install
    ```
 
 3. **Build the project**
+
    ```bash
    npm run build
    ```
 
 4. **Link for local development**
+
    ```bash
    npm link
    ```
@@ -394,6 +428,7 @@ We welcome contributions to the MonoCF! Here's how you can help:
 To add a new command to the CLI:
 
 1. **Create args and flags types** in the appropriate directory under `src/flags/`
+
    ```typescript
    // src/flags/example.ts
    export interface ExampleArgs {
@@ -406,7 +441,9 @@ To add a new command to the CLI:
      flag2: string;
    }
    ```
+
 2. **Create a new command class** in the appropriate directory under `src/core/commands/`
+
    ```typescript
    // src/core/commands/example/example-command.ts
    import { Commander } from "../../../types/command-types.js";
@@ -434,12 +471,14 @@ To add a new command to the CLI:
    ```
 
 3. **Register the command** in the command registry (`src/core/commands/registry.ts`)
+
    ```typescript
    // In the registerBuiltInCommands method
    this.registerCommand('example', ExampleCommand);
    ```
 
 4. **Create an oclif command** in `src/commands/`
+
    ```typescript
    // src/commands/example.ts
    import { CommandBase } from '../types/oclif-types.js';
@@ -475,11 +514,11 @@ To add a new command to the CLI:
 
 We follow these coding practices:
 
-- Use TypeScript for type safety
-- Follow the command pattern for all commands
-- Write unit tests for new functionality
-- Document your code with JSDoc comments
-- Use meaningful variable and function names
+* Use TypeScript for type safety
+* Follow the command pattern for all commands
+* Write unit tests for new functionality
+* Document your code with JSDoc comments
+* Use meaningful variable and function names
 
 ### Pull Request Process
 
