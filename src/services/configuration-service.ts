@@ -1,5 +1,5 @@
 import {existsSync, readFileSync} from 'node:fs'
-import {join} from 'node:path'
+import {dirname, join, parse, relative, resolve, sep} from 'node:path'
 import {CliConfig, CliFlags, DEFAULT_BASE_CONFIG, MONOCF_CONFIG_FILE} from '../types/config-types.js'
 import {Command} from '../types/command-types.js'
 import {ErrorService} from './error-service.js'
@@ -36,14 +36,21 @@ export class ConfigurationService {
    * @param args Command line arguments
    * @returns Loaded configuration
    */
-  loadConfiguration(flags: WorkerFlags | StartDockerFlags, args: WorkerArgs): CliConfig & CliFlags {
+  loadConfiguration(
+    flags: WorkerFlags | StartDockerFlags,
+    args: WorkerArgs,
+  ): CliConfig & CliFlags & {workerName?: string} {
+    // Search for configuration file up the directory tree
+    const configPath = this.findConfigPath()
+    const cliConfigPath = configPath || join(process.cwd(), MONOCF_CONFIG_FILE)
+    const detectedRootDir = configPath ? dirname(configPath) : process.cwd()
+
     // Load configuration from file
-    const cliConfigPath = join(process.cwd(), MONOCF_CONFIG_FILE)
     if (existsSync(cliConfigPath)) {
       try {
         const parsed: CliConfig = JSON.parse(readFileSync(cliConfigPath, 'utf8'))
         this.cliConfig = {
-          rootDir: parsed.rootDir || process.cwd(),
+          rootDir: parsed.rootDir ? resolve(detectedRootDir, parsed.rootDir) : detectedRootDir,
           workersDirName: parsed.workersDirName || '',
           baseConfig: parsed.baseConfig,
           deploySecrets: parsed.deploySecrets,
@@ -61,6 +68,9 @@ export class ConfigurationService {
       } catch (error) {
         this.errorService.throwConfigurationError(`Failed to parse configuration file: ${(error as Error).message}`)
       }
+    } else {
+      // If no config file found, set default rootDir
+      this.cliConfig.rootDir = detectedRootDir
     }
 
     // Override with command line arguments
@@ -68,8 +78,9 @@ export class ConfigurationService {
     if (flags.workersDirName) this.cliConfig.workersDirName = flags.workersDirName
     if (flags.baseConfig) this.cliConfig.baseConfig = flags.baseConfig
     if (flags.deploySecrets) this.cliConfig.deploySecrets = flags.deploySecrets
+    if (flags.deployBindings) this.cliConfig.deployBindings = flags.deployBindings
     if (flags.minify) this.cliConfig.minify = flags.minify
-    if (this.cliConfig.rootDir === '') this.cliConfig.rootDir = process.cwd()
+    if (this.cliConfig.rootDir === '') this.cliConfig.rootDir = detectedRootDir
 
     // Set default base config if not specified
     if (!this.cliConfig.baseConfig) {
@@ -79,15 +90,74 @@ export class ConfigurationService {
       }
     }
 
-    // Validate configuration
-    this.validateConfiguration(args.workerName)
+    // Infer worker name if not provided
+    const inferredWorkerName = this.inferWorkerName(this.cliConfig.rootDir, this.cliConfig.workersDirName)
+    const effectiveWorkerName = args.workerName || inferredWorkerName
 
-    return this.cliConfig
+    // Validate configuration
+    this.validateConfiguration(effectiveWorkerName)
+
+    return {...this.cliConfig, workerName: effectiveWorkerName}
+  }
+
+  /**
+   * Finds the configuration file path by searching up the directory tree
+   * @returns Path to the configuration file or null if not found
+   */
+  private findConfigPath(): string | null {
+    let currentDir = process.cwd()
+    const {root} = parse(currentDir)
+
+    console.log('currentDir', currentDir)
+    console.log('root', root)
+
+    while (true) {
+      const configPath = join(currentDir, MONOCF_CONFIG_FILE)
+      if (existsSync(configPath)) {
+        console.log('configPath', configPath)
+        return configPath
+      }
+
+      if (currentDir === root) {
+        console.log('return null')
+        return null
+      }
+
+      currentDir = dirname(currentDir)
+    }
+  }
+
+  /**
+   * Infers the worker name from the current directory
+   * @param rootDir Project root directory
+   * @param workersDirName Workers directory name
+   * @returns Inferred worker name or undefined
+   */
+  private inferWorkerName(rootDir: string, workersDirName: string): string | undefined {
+    const cwd = process.cwd()
+    if (!workersDirName) return undefined
+
+    const workersDir = join(rootDir, workersDirName)
+
+    // Check if we are inside the workers directory
+    if (!cwd.startsWith(workersDir)) {
+      return undefined
+    }
+
+    // Get the relative path from workers directory
+    const relativePath = relative(workersDir, cwd)
+    if (!relativePath || relativePath.startsWith('..')) {
+      return undefined
+    }
+
+    // The first segment of the relative path is the worker name
+    const parts = relativePath.split(sep)
+    return parts[0]
   }
 
   /**
    * Validates the configuration
-   * @param workerName Worker name from command line arguments
+   * @param workerName Worker name from command line arguments or inferred
    * @throws {ConfigurationError} If the configuration is invalid
    */
   private validateConfiguration(workerName?: string): void {

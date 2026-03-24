@@ -40,6 +40,7 @@ export class WranglerCommand extends MonocfCommand<WorkerArgs, WorkerFlags> {
     const params: WorkerCommandParams = this.buildParams({
       ...config,
       ...args,
+      workerName: config.workerName,
     })
 
     // Create command executor
@@ -52,13 +53,13 @@ export class WranglerCommand extends MonocfCommand<WorkerArgs, WorkerFlags> {
       logService: this.logService,
     })
 
-    if (!config.all && !args.workerName) {
+    if (!config.all && !config.workerName) {
       this.errorService.throwConfigurationError('Worker name is required if --all flag is not set')
     }
 
     const workers = config.all
       ? this.fileService.getWorkers(config.rootDir, config.workersDirName)
-      : [String(args.workerName)]
+      : [String(config.workerName)]
 
     if (workers.length === 0) {
       this.errorService.throwConfigurationError(`No workers found`)
