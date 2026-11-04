@@ -6,8 +6,6 @@ import {MonocfCommand} from './command.js'
 import {WhoamiCommand} from './whoami/index.js'
 import {WorkerCreateCommand} from './worker/create-command.js'
 import {WranglerCommand} from './worker/wrangler-command.js'
-import {DockerStartCommand} from './docker/start.js'
-import {DockerStopCommand} from './docker/stop.js'
 import {DeploySecretsCommand} from './secrets/deploy.js'
 
 /**
@@ -68,10 +66,6 @@ export class CommandRegistry {
     // Register worker commands
     this.registerCommand('worker', WranglerCommand)
     this.registerCommand('worker:create', WorkerCreateCommand)
-
-    // Register docker commands
-    this.registerCommand('docker:start', DockerStartCommand)
-    this.registerCommand('docker:stop', DockerStopCommand)
 
     // Register secrets commands
     this.registerCommand('secrets:deploy', DeploySecretsCommand)

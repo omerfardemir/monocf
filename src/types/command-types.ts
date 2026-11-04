@@ -33,7 +33,7 @@ export interface Commander {
  */
 export type WorkerCommand = 'deploy' | 'dev' | 'build' | 'preview'
 
-export type Command = WorkerCommand | 'docker' | 'create'
+export type Command = WorkerCommand | 'create'
 
 /**
  * Base interface for all worker command parameters
@@ -49,11 +49,6 @@ export interface BaseCommandParams {
   baseConfig?: string
   /** Variables to replace in the config file */
   variables?: Record<string, string>
-}
-
-export interface DockerParams extends BaseCommandParams {
-  /** Port to use for the docker container */
-  port?: number
 }
 
 /**

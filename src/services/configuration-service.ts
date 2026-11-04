@@ -3,7 +3,7 @@ import {dirname, join, parse, relative, resolve, sep} from 'node:path'
 import {CliConfig, CliFlags, DEFAULT_BASE_CONFIG, MONOCF_CONFIG_FILE} from '../types/config-types.js'
 import {Command} from '../types/command-types.js'
 import {ErrorService} from './error-service.js'
-import {StartDockerFlags, WorkerArgs, WorkerFlags} from '../flags/index.js'
+import {WorkerArgs, WorkerFlags} from '../flags/index.js'
 import {ConfigurationError} from '../types/error-types.js'
 
 /**
@@ -36,10 +36,7 @@ export class ConfigurationService {
    * @param args Command line arguments
    * @returns Loaded configuration
    */
-  loadConfiguration(
-    flags: WorkerFlags | StartDockerFlags,
-    args: WorkerArgs,
-  ): CliConfig & CliFlags & {workerName?: string} {
+  loadConfiguration(flags: WorkerFlags, args: WorkerArgs): CliConfig & CliFlags & {workerName?: string} {
     // Search for configuration file up the directory tree
     const configPath = this.findConfigPath()
     const cliConfigPath = configPath || join(process.cwd(), MONOCF_CONFIG_FILE)

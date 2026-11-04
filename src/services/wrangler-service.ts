@@ -1,7 +1,7 @@
 import {ChildProcess, exec, spawn, StdioOptions} from 'node:child_process'
 import {constants} from 'node:os'
 import path, {join} from 'node:path'
-import {copyFileSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync} from 'node:fs'
+import {existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync} from 'node:fs'
 import {experimental_patchConfig, Unstable_RawConfig} from 'wrangler'
 import {
   execEventListener,
@@ -256,7 +256,7 @@ export class WranglerService {
     return JSON.parse(output) as WorkerVersion[]
   }
 
-  async buildWorker(configPath: string, envPath?: string, env?: string, minify?: boolean): Promise<string> {
+  async buildWorker(configPath: string, env?: string, minify?: boolean): Promise<string> {
     const baseFolder = path.dirname(configPath)
     const args = ['deploy', '--dry-run', '--outdir', join(baseFolder, 'dist')]
 
@@ -277,11 +277,6 @@ export class WranglerService {
     json.main = 'index.js'
     const distWranglerJsoncPath = join(baseFolder, 'dist', 'wrangler.jsonc')
     writeFileSync(distWranglerJsoncPath, JSON.stringify(json, null, 2))
-
-    if (envPath) {
-      const envFilename = env && env !== 'dev' ? `.dev.vars.${env}` : '.dev.vars'
-      copyFileSync(envPath, join(baseFolder, 'dist', envFilename))
-    }
 
     return distWranglerJsoncPath
   }

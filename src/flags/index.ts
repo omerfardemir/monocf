@@ -37,10 +37,6 @@ export interface DeploySecretsFlags {
   workersDirName?: string
 }
 
-export interface StartDockerFlags extends WorkerFlags {
-  port?: number
-}
-
 // Utility type to extract the type of a field from an interface
 type ExtractFieldType<T, K extends keyof T> = T[K]
 

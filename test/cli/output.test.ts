@@ -33,3 +33,15 @@ describe('CLI output', () => {
     }
   })
 })
+
+describe('removed commands', () => {
+  it.each(['start', 'stop'])('docker %s no longer exists', async (subcommand) => {
+    const fixture = createFixture({workers: [{name: 'orders'}]})
+
+    const result = await runCli(fixture, ['docker', subcommand])
+
+    expect(result.exitCode).not.toBe(0)
+    expect(result.stderr).toContain('not found')
+    expect(result.calls).toEqual([])
+  })
+})

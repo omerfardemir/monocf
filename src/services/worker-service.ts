@@ -62,15 +62,12 @@ export class WorkerService {
       true,
     )
 
-    const envPath = this.fileService.getEnvironmentFile(workerPath, params.env)
-
     return {
       workerName,
       workerPath,
       baseConfigPath,
       tempWranglerConfigPath,
       serviceBindingPaths,
-      envPath,
     }
   }
 }

@@ -81,12 +81,7 @@ export class BuildCommand implements WorkerCommandExecutor {
     }
 
     // Run wrangler command
-    await this.wranglerService.buildWorker(
-      workerConfigPath.tempWranglerConfigPath,
-      undefined,
-      params.env,
-      params.minify,
-    )
+    await this.wranglerService.buildWorker(workerConfigPath.tempWranglerConfigPath, params.env, params.minify)
   }
 
   private async executeMultiWorker(params: BuildCommandParams): Promise<void> {
@@ -96,12 +91,7 @@ export class BuildCommand implements WorkerCommandExecutor {
       .map((workerName) => this.workerService.initializeWorker(workerName, params))
       .filter((s) => s !== undefined)
     for (const workerConfigPath of workersConfigPaths) {
-      await this.wranglerService.buildWorker(
-        workerConfigPath.tempWranglerConfigPath,
-        undefined,
-        params.env,
-        params.minify,
-      )
+      await this.wranglerService.buildWorker(workerConfigPath.tempWranglerConfigPath, params.env, params.minify)
     }
   }
 }

@@ -214,47 +214,10 @@ This allows you to define common variables at the root level and override them a
 ## Commands
 
 <!-- commands -->
-* [`monocf docker start`](#monocf-docker-start)
-* [`monocf docker stop`](#monocf-docker-stop)
 * [`monocf whoami`](#monocf-whoami)
 * [`monocf secrets deploy`](#monocf-secrets-deploy)
 * [`monocf worker [WORKERNAME]`](#monocf-worker-workername)
 * [`monocf worker create WORKERNAME`](#monocf-worker-create-workername)
-
-## `monocf docker start`
-
-Starts a local development environment for multiple workers using Docker.
-
-```sh-session
-USAGE
-  $ monocf docker start [-p <value>]
-
-FLAGS
-  -p, --port=<value>  Port to use for the proxy worker (default: 8787)
-
-DESCRIPTION
-  Starts a local development environment for multiple workers using Docker. This command generates a `docker-compose.yml` file in a `.monocf` directory and starts the services. It creates a reverse proxy that routes requests to the correct worker based on the path.
-
-EXAMPLES
-  $ monocf docker start
-
-  $ monocf docker start -p 3000
-```
-
-## `monocf docker stop`
-
-Stops the local development environment for multiple workers using Docker.
-
-```sh-session
-USAGE
-  $ monocf docker stop
-
-DESCRIPTION
-  Stops the local development environment for multiple workers using Docker.
-
-EXAMPLES
-  $ monocf docker stop
-```
 
 ## `monocf whoami`
 
@@ -367,30 +330,17 @@ _See code: [src/commands/worker/create.ts](https://github.com/omerfardemir/monoc
 
 ## Multi-Worker Local Development
 
-MonoCF offers two ways to run multiple workers locally for development:
+When you run `monocf worker -c dev --all`, MonoCF will:
 
-1. **Proxy-Based Development (`dev --all`)**: This is the simplest method and works out-of-the-box without needing Docker. When you run `monocf worker -c dev --all`, it will:
-    * Start a `wrangler dev` session for each of your workers on a different port.
-    * Start an additional proxy worker (by default on port `8787`) that intelligently routes incoming requests to the correct worker based on the URL path. The path is determined by the `route` property in each worker's `wrangler.jsonc` file, or it defaults to the worker's directory name.
-    * You can specify a different port for the proxy using the `--port` flag.
+* Start a `wrangler dev` session for each of your workers on a different port.
+* Start an additional proxy worker (by default on port `8787`) that routes incoming requests to the correct worker based on the URL path. The path is determined by the `route` property in each worker's `wrangler.jsonc` file, or it defaults to the worker's directory name.
 
-    ```bash
-    # Run all workers, with the proxy listening on port 8000
-    $ monocf worker -c dev --all --port 8000
-    ```
+You can specify a different port for the proxy using the `--port` flag.
 
-2. **Docker-Based Development (`docker start`)**: For a more robust and isolated environment, you can use the Docker-based setup. This is ideal for complex scenarios or to ensure consistency across different development machines.
-    * Running `monocf docker start` will generate a `.monocf` directory in your project root containing a `docker-compose.yml`, `Dockerfile`, and `nginx.conf`.
-    * It spins up a Docker container with `workerd` running all your workers, and an Nginx container acting as a reverse proxy.
-    * This provides a production-like environment locally. You can stop the environment with `monocf docker stop`.
-
-    ```bash
-    # Start the Docker-based multi-worker environment
-    $ monocf docker start
-    
-    # Stop the environment
-    $ monocf docker stop
-    ```
+```bash
+# Run all workers, with the proxy listening on port 8000
+$ monocf worker -c dev --all --port 8000
+```
 
 ## Contributing
 
