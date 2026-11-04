@@ -95,7 +95,6 @@ export class BuildCommand implements WorkerCommandExecutor {
       .filter((workerName) => !this.fileService.isIgnoredWorker(workerName))
       .map((workerName) => this.workerService.initializeWorker(workerName, params))
       .filter((s) => s !== undefined)
-    this.logService.log(JSON.stringify(workersConfigPaths, null, 2))
     for (const workerConfigPath of workersConfigPaths) {
       await this.wranglerService.buildWorker(
         workerConfigPath.tempWranglerConfigPath,

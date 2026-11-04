@@ -307,7 +307,6 @@ export class FileService {
     // Resolve ignore file relative to the provided project root
     const ignorePath = join(root, MONOCF_IGNORE_FILE)
     if (!existsSync(ignorePath)) {
-      console.log('Ignore file not found at', ignorePath)
       return []
     }
 

@@ -108,18 +108,13 @@ export class ConfigurationService {
     let currentDir = process.cwd()
     const {root} = parse(currentDir)
 
-    console.log('currentDir', currentDir)
-    console.log('root', root)
-
     while (true) {
       const configPath = join(currentDir, MONOCF_CONFIG_FILE)
       if (existsSync(configPath)) {
-        console.log('configPath', configPath)
         return configPath
       }
 
       if (currentDir === root) {
-        console.log('return null')
         return null
       }
 
