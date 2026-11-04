@@ -32,6 +32,7 @@ export class DeploySecretsCommand extends MonocfCommand<CreateWorkerArgs, Deploy
     this.fileService.loadIgnoreFile(config.rootDir, config.workersDirName)
 
     this.environmentService.setRootDir(config.rootDir)
+    this.wranglerService.setRootDir(config.rootDir)
 
     if (!config.all && !args.workerName) {
       this.errorService.throwConfigurationError('Worker name is required if --all flag is not set')

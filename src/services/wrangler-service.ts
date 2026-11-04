@@ -1,4 +1,4 @@
-import {ChildProcess, exec, spawn} from 'node:child_process'
+import {ChildProcess, exec, spawn, StdioOptions} from 'node:child_process'
 import path, {join} from 'node:path'
 import {copyFileSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync} from 'node:fs'
 import {experimental_patchConfig, Unstable_RawConfig} from 'wrangler'
@@ -16,6 +16,7 @@ import {createSpinner} from 'nanospinner'
 import {downloadTemplate} from '@bluwy/giget-core'
 import {parse, stripComments} from 'jsonc-parser'
 import {FileService} from './file-service.js'
+import {locateWranglerBin} from '../utils/wrangler-bin.js'
 
 /**
  * Service for handling wrangler operations
@@ -24,6 +25,7 @@ export class WranglerService {
   private errorService: ErrorService
   private fileService: FileService
   private eventListeners?: execEventListener
+  private rootDir: string = process.cwd()
   public childProcesses: ChildProcess[] = []
 
   /**
@@ -36,6 +38,14 @@ export class WranglerService {
     this.errorService = errorService
     this.fileService = fileService
     this.eventListeners = eventListeners
+  }
+
+  /**
+   * Sets the directory that wrangler is resolved from
+   * @param rootDir Project root directory
+   */
+  setRootDir(rootDir: string): void {
+    this.rootDir = rootDir
   }
 
   /**
@@ -100,10 +110,7 @@ export class WranglerService {
    * @returns Child process
    */
   private spawnInteractiveWrangler(args: string[], options?: execEventListener): ChildProcess {
-    const wrangler = spawn('wrangler', args, {
-      shell: true,
-      stdio: ['inherit', 'inherit', 'inherit'],
-    })
+    const wrangler = this.spawnWrangler(args, ['inherit', 'inherit', 'inherit'])
 
     wrangler.on('exit', async (code) => {
       // Call the exit listener with the exit code (whether success or failure)
@@ -120,12 +127,17 @@ export class WranglerService {
    * @returns Child process
    */
   private spawnHiddenWrangler(args: string[]): ChildProcess {
-    const process = spawn('wrangler', args, {
-      shell: true,
-      stdio: ['inherit', 'pipe', 'ignore'],
-    })
+    return this.spawnWrangler(args, ['inherit', 'pipe', 'ignore'])
+  }
 
-    return process
+  /**
+   * Spawns wrangler without a shell, so every argument reaches it unchanged
+   * @param args Arguments to pass to wrangler
+   * @param stdio Stdio configuration of the child process
+   * @returns Child process
+   */
+  private spawnWrangler(args: string[], stdio: StdioOptions): ChildProcess {
+    return spawn(process.execPath, [locateWranglerBin(this.rootDir), ...args], {shell: false, stdio})
   }
 
   /**
@@ -185,7 +197,7 @@ export class WranglerService {
    * @returns Promise that resolves when the command completes successfully
    */
   async versionUploadCommand(configPath: string, env?: string, message?: string, minify?: boolean): Promise<void> {
-    const args = ['versions upload', '-c', configPath]
+    const args = ['versions', 'upload', '-c', configPath]
 
     if (env) {
       args.push('--env', env)
@@ -254,7 +266,7 @@ export class WranglerService {
 
   async buildWorker(configPath: string, envPath?: string, env?: string, minify?: boolean): Promise<string> {
     const baseFolder = path.dirname(configPath)
-    const args = ['deploy', '--dry-run', '--outdir=./dist']
+    const args = ['deploy', '--dry-run', '--outdir', join(baseFolder, 'dist')]
 
     if (env) {
       args.push('--env', env)

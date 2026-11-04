@@ -35,6 +35,7 @@ export class WranglerCommand extends MonocfCommand<WorkerArgs, WorkerFlags> {
     this.fileService.loadIgnoreFile(config.rootDir, config.workersDirName)
 
     this.environmentService.setRootDir(config.rootDir)
+    this.wranglerService.setRootDir(config.rootDir)
 
     // Create command parameters
     const params: WorkerCommandParams = this.buildParams({

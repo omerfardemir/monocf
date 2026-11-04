@@ -116,10 +116,14 @@ export class DevCommand implements WorkerCommandExecutor {
       const port = config.dev?.port ?? this.BASE_PORT + index
       const args = [
         'dev',
-        `--inspector-port ${9230 + index}`,
-        `--port ${port}`,
-        `--persist-to ${monocfFolder}/local-storage/${config.name}`,
-        `--config ${workerConfigPath.tempWranglerConfigPath}`,
+        '--inspector-port',
+        String(9230 + index),
+        '--port',
+        String(port),
+        '--persist-to',
+        join(monocfFolder, 'local-storage', String(config.name)),
+        '--config',
+        workerConfigPath.tempWranglerConfigPath,
       ]
 
       if (params.env) {
@@ -173,10 +177,14 @@ export class DevCommand implements WorkerCommandExecutor {
     // Add proxy worker to the list of workers to run
     const proxyArgs = [
       'dev',
-      `--inspector-port ${9230 + workersConfigPaths.length}`,
-      `--port ${proxyPort}`,
-      `--persist-to ${monocfFolder}/${proxyWorkerName}`,
-      `--config ${proxyConfigPath}`,
+      '--inspector-port',
+      String(9230 + workersConfigPaths.length),
+      '--port',
+      String(proxyPort),
+      '--persist-to',
+      join(monocfFolder, proxyWorkerName),
+      '--config',
+      proxyConfigPath,
     ]
 
     return this.wranglerService.executeWranglerCommand(proxyArgs)
