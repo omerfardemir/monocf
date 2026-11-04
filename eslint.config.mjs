@@ -17,6 +17,7 @@ export default [
     rules: {
       '@typescript-eslint/camelcase': 'off',
       'camelcase': 'off',
+      'mocha/max-top-level-suites': 'off',
       'mocha/no-top-level-hooks': 'off',
       'no-await-in-loop': 'off',
       'perfectionist/sort-array-includes': 'off',

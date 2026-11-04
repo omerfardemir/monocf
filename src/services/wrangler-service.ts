@@ -1,4 +1,5 @@
 import {ChildProcess, exec, spawn, StdioOptions} from 'node:child_process'
+import {constants} from 'node:os'
 import path, {join} from 'node:path'
 import {copyFileSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync} from 'node:fs'
 import {experimental_patchConfig, Unstable_RawConfig} from 'wrangler'
@@ -17,6 +18,26 @@ import {downloadTemplate} from '@bluwy/giget-core'
 import {parse, stripComments} from 'jsonc-parser'
 import {FileService} from './file-service.js'
 import {locateWranglerBin} from '../utils/wrangler-bin.js'
+
+const EXIT_ENVIRONMENT_ERROR = 3
+const EXIT_UNKNOWN_FAILURE = 1
+
+/**
+ * Converts how a child process ended into an exit code. A process killed by a signal is always a failure.
+ * @param code Exit code of the process, null if a signal ended it
+ * @param signal Signal that ended the process, null if it exited by itself
+ * @returns 128 + signal number after a signal, the exit code otherwise
+ */
+function toExitCode(code: null | number, signal: NodeJS.Signals | null): number {
+  if (signal) return 128 + (constants.signals[signal] ?? 0)
+  return code ?? EXIT_UNKNOWN_FAILURE
+}
+
+function describeFailure(command: string, code: null | number, signal: NodeJS.Signals | null): string {
+  return signal
+    ? `Wrangler command '${command}' was killed by ${signal}`
+    : `Wrangler command '${command}' failed with exit code ${code}`
+}
 
 /**
  * Service for handling wrangler operations
@@ -55,41 +76,24 @@ export class WranglerService {
    */
   public executeWranglerCommand(args: string[]): Promise<void> {
     return new Promise((resolve, reject) => {
-      // Create a wrapper for the stdout/stderr/exit events to handle Promise resolution
-      const enhancedOptions: execEventListener = {
-        ...this.eventListeners,
-        onExitListener(code: number) {
-          // Handle Promise resolution/rejection
-          if (code === 0) {
-            resolve()
-          } else {
-            // Create a more detailed error with the command context
-            const command = args[0] || 'unknown'
-            const errorMessage = `Wrangler command '${command}' failed with exit code ${code}`
+      const command = args[0] || 'unknown'
+      const childProcess = this.spawnWrangler(args, ['inherit', 'inherit', 'inherit'])
 
-            reject(new WranglerError(errorMessage, code, command, args))
-          }
-        },
-        onStdoutListener: (data: string) => {
-          this.eventListeners?.onStdoutListener?.(data)
-        },
-        onStderrListener: (data: string) => {
-          this.eventListeners?.onStderrListener?.(data)
-        },
-      }
+      // 'close' rather than 'exit': it fires once stdio has flushed
+      childProcess.on('close', (code, signal) => {
+        const exitCode = toExitCode(code, signal)
+        if (exitCode === 0) {
+          resolve()
+          return
+        }
 
-      // Spawn the process with the enhanced options
-      const childProcess = this.spawnInteractiveWrangler(args, enhancedOptions)
+        reject(new WranglerError(describeFailure(command, code, signal), exitCode, command, args))
+      })
 
       // Handle unexpected errors (e.g., process couldn't start)
       childProcess.on('error', (err) => {
         reject(
-          new WranglerError(
-            `Failed to start wrangler command: ${err.message}`,
-            -1, // Use -1 for process start errors
-            args[0] || 'unknown',
-            args,
-          ),
+          new WranglerError(`Failed to start wrangler command: ${err.message}`, EXIT_ENVIRONMENT_ERROR, command, args),
         )
       })
 
@@ -101,24 +105,6 @@ export class WranglerService {
     const childProcess = this.spawnHiddenWrangler(args)
     this.childProcesses.push(childProcess)
     return childProcess
-  }
-
-  /**
-   * Spawns an interactive wrangler process
-   * @param args Arguments to pass to wrangler
-   * @param options Event listeners for the command
-   * @returns Child process
-   */
-  private spawnInteractiveWrangler(args: string[], options?: execEventListener): ChildProcess {
-    const wrangler = this.spawnWrangler(args, ['inherit', 'inherit', 'inherit'])
-
-    wrangler.on('exit', async (code) => {
-      // Call the exit listener with the exit code (whether success or failure)
-      // This allows the Promise to resolve or reject appropriately
-      options?.onExitListener?.(code || 0)
-    })
-
-    return wrangler
   }
 
   /**
@@ -250,18 +236,24 @@ export class WranglerService {
 
     const child = this.spawnHiddenWrangler(args)
 
-    const list: WorkerVersion[] = []
+    let output = ''
     child.stdout?.on('data', (data: Buffer) => {
-      const output = data.toString()
-      const versions = JSON.parse(output) as WorkerVersion[]
-      list.push(...versions)
+      output += data.toString()
     })
 
-    await new Promise((resolve) => {
-      child.on('close', resolve)
-    })
+    const {code, signal} = await new Promise<{code: null | number; signal: NodeJS.Signals | null}>(
+      (resolve, reject) => {
+        child.on('error', reject)
+        child.on('close', (code, signal) => resolve({code, signal}))
+      },
+    )
 
-    return list
+    const exitCode = toExitCode(code, signal)
+    if (exitCode !== 0) {
+      throw new WranglerError(describeFailure('versions list', code, signal), exitCode, 'versions list', args)
+    }
+
+    return JSON.parse(output) as WorkerVersion[]
   }
 
   async buildWorker(configPath: string, envPath?: string, env?: string, minify?: boolean): Promise<string> {
