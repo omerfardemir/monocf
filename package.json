@@ -20,22 +20,18 @@
   "devDependencies": {
     "@eslint/compat": "^1",
     "@oclif/prettier-config": "^0.2.1",
-    "@oclif/test": "^4",
-    "@types/chai": "^4",
-    "@types/mocha": "^10",
-    "@types/node": "^18",
-    "chai": "^4",
+    "@types/node": "^22.20.5",
     "eslint": "^9",
     "eslint-config-oclif": "^6",
     "eslint-config-prettier": "^10",
-    "mocha": "^10",
     "oclif": "^4.22.22",
+    "prettier": "^3.9.10",
     "shx": "^0.3.3",
-    "ts-node": "^10",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^5.1.0"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=22.0.0"
   },
   "files": [
     "./bin",
@@ -67,7 +63,7 @@
     "postpack": "shx rm -f oclif.manifest.json",
     "posttest": "npm run lint",
     "prepack": "oclif manifest",
-    "test": "mocha --forbid-only \"test/**/*.test.ts\"",
+    "test": "vitest run",
     "format": "prettier --write \"(src|test)/**/*.{ts,tsx,js,jsx}\""
   },
   "types": "dist/index.d.ts"

@@ -1,4 +1,4 @@
-import {expect} from 'chai'
+import {afterAll, beforeAll, beforeEach, describe, expect, it} from 'vitest'
 import {mkdtempSync, rmSync, mkdirSync, writeFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
@@ -27,13 +27,13 @@ describe('FileService.loadIgnoreFile / isIgnoredWorker', () => {
   let projectRoot: string
   let workersDir: string
 
-  before(() => {
+  beforeAll(() => {
     const tempProject = createTempProject()
     projectRoot = tempProject.root
     workersDir = tempProject.workersDir
   })
 
-  after(() => {
+  afterAll(() => {
     rmSync(projectRoot, {recursive: true, force: true})
   })
 
@@ -48,9 +48,9 @@ describe('FileService.loadIgnoreFile / isIgnoredWorker', () => {
     const fsService = new FileService(new ErrorService())
     fsService.loadIgnoreFile(projectRoot, workersDir)
 
-    expect(fsService.isIgnoredWorker('alpha')).to.equal(false)
-    expect(fsService.isIgnoredWorker('bravo')).to.equal(true)
-    expect(fsService.isIgnoredWorker('charlie')).to.equal(true)
+    expect(fsService.isIgnoredWorker('alpha')).toBe(false)
+    expect(fsService.isIgnoredWorker('bravo')).toBe(true)
+    expect(fsService.isIgnoredWorker('charlie')).toBe(true)
   })
 
   it('ignores workers when patterns include directory prefixes or globs', () => {
@@ -60,17 +60,17 @@ describe('FileService.loadIgnoreFile / isIgnoredWorker', () => {
     const fsService = new FileService(new ErrorService())
     fsService.loadIgnoreFile(projectRoot, workersDir)
 
-    expect(fsService.isIgnoredWorker('alpha')).to.equal(false)
-    expect(fsService.isIgnoredWorker('bravo')).to.equal(true)
-    expect(fsService.isIgnoredWorker('charlie')).to.equal(true)
+    expect(fsService.isIgnoredWorker('alpha')).toBe(false)
+    expect(fsService.isIgnoredWorker('bravo')).toBe(true)
+    expect(fsService.isIgnoredWorker('charlie')).toBe(true)
   })
 
   it('does nothing when .monocfignore does not exist', () => {
     const fsService = new FileService(new ErrorService())
     fsService.loadIgnoreFile(projectRoot, workersDir)
 
-    expect(fsService.isIgnoredWorker('alpha')).to.equal(false)
-    expect(fsService.isIgnoredWorker('bravo')).to.equal(false)
-    expect(fsService.isIgnoredWorker('charlie')).to.equal(false)
+    expect(fsService.isIgnoredWorker('alpha')).toBe(false)
+    expect(fsService.isIgnoredWorker('bravo')).toBe(false)
+    expect(fsService.isIgnoredWorker('charlie')).toBe(false)
   })
 })
