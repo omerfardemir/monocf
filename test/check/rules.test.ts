@@ -344,6 +344,21 @@ describe('ignored-stale', () => {
 })
 
 describe('missing-main', () => {
+  it('leaves an entry to a build command, which may generate it, also when an env sets one', () => {
+    const generated = {build: {command: 'node generate.js'}, main: 'dist/generated.js'}
+    expect(rule({...base, ...worker('a', generated)}, 'missing-main')).toEqual([])
+
+    const onlyStaging = {env: {production: {}, staging: {build: {command: 'node generate.js'}}}, main: 'dist/generated.js'}
+    const files = {...base, ...worker('a', onlyStaging)}
+    expect(rule(files, 'missing-main', 'staging')).toEqual([])
+    expect(rule(files, 'missing-main', 'production')).toHaveLength(1)
+  })
+
+  it('takes a site as an entry', () => {
+    const files = {'base.wrangler.jsonc': {...base['base.wrangler.jsonc'], main: undefined}, ...worker('a', {site: {bucket: './site'}})}
+    expect(rule(files, 'missing-main')).toEqual([])
+  })
+
   it('is an error when the file is not there', () => {
     expect(rule({...base, ...worker('a', {main: 'src/gone.ts'})}, 'missing-main')[0]).toMatchObject({
       level: 'error',

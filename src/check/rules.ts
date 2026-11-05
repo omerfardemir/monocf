@@ -289,8 +289,15 @@ const ignoredStale: Rule = ({directories, options, reader}) => {
     }))
 }
 
+function effectiveBuildCommand(config: RawConfig, env?: string): unknown {
+  const build = effectiveField(config, env, 'build')
+  return isPlainObject(build) ? build.command : undefined
+}
+
 const missingMain: Rule = (context) =>
   selectedWorkers(context).flatMap(({config, dir, env, path}) => {
+    // The build runs before wrangler looks for main, and it isn't run here, so a generated entry can't be there yet.
+    if (effectiveBuildCommand(config, env) !== undefined) return []
     const main = effectiveField(config, env, 'main')
     if (typeof main === 'string') {
       return context.reader.exists(join(path, main))
@@ -298,8 +305,8 @@ const missingMain: Rule = (context) =>
         : [{level: 'error' as const, message: `${dir}: the main file ${main} does not exist.`, rule: 'missing-main', worker: dir}]
     }
 
-    return effectiveField(config, env, 'assets') === undefined
-      ? [{level: 'error' as const, message: `${dir} has no main file and no assets.`, rule: 'missing-main', worker: dir}]
+    return effectiveField(config, env, 'assets') === undefined && effectiveField(config, env, 'site') === undefined
+      ? [{level: 'error' as const, message: `${dir} has no main file, no assets and no site.`, rule: 'missing-main', worker: dir}]
       : []
   })
 
