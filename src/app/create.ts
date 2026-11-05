@@ -60,10 +60,8 @@ export function createWorker(name: string, flags: OptionFlags): void {
   }
 
   const options = loadOptions(flags)
+  if (!existsSync(options.rootDir)) throw new ConfigError(`The root directory ${options.rootDir} doesn't exist.`)
   const workersDir = join(options.rootDir, options.workersDirName)
-  if (!existsSync(workersDir)) {
-    throw new ConfigError(`Workers directory not found at ${workersDir}. Please check the workers directory.`)
-  }
 
   const target = join(workersDir, name)
   if (existsSync(target)) throw new ConfigError(`${target} already exists.`)

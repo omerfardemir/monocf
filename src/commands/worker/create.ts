@@ -10,12 +10,13 @@ export default class WorkerCreate extends BaseCommand {
   static description = 'Create a new worker in the workers directory'
   static examples = ['<%= config.bin %> worker create my-worker']
   static flags = {
-    rootDir: Flags.string({char: 'r', description: 'Root directory of the project'}),
-    workersDirName: Flags.string({char: 'w', description: 'Workers directory name in monorepo'}),
+    // The camelCase spellings were the only ones before 0.3.0, so they still work.
+    'root-dir': Flags.string({aliases: ['rootDir'], char: 'r', description: 'Root directory of the project'}),
+    'workers-dir-name': Flags.string({aliases: ['workersDirName'], char: 'w', description: 'Workers directory name in monorepo'}),
   }
 
   async run(): Promise<void> {
     const {args, flags} = await this.parse(WorkerCreate)
-    createWorker(args.workerName, {rootDir: flags.rootDir, workersDirName: flags.workersDirName})
+    createWorker(args.workerName, {rootDir: flags['root-dir'], workersDirName: flags['workers-dir-name']})
   }
 }

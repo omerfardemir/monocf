@@ -48,6 +48,7 @@ monocf can now run a Cloudflare Workers monorepo from CI: a dependency graph, a 
 ### Deprecated
 
 - `monocf worker -c <action>`. It still works, and prints one line on stderr. Use `monocf <action>`.
+- `worker create --rootDir` and `--workersDirName`. They still work. Use `--root-dir` and `--workers-dir-name`, as every other command does.
 
 ### Fixed
 
@@ -57,3 +58,4 @@ monocf can now run a Cloudflare Workers monorepo from CI: a dependency graph, a 
 - Wrangler runs with no shell, so paths with spaces and messages with spaces work, and a message can't inject a command.
 - A signal stops wrangler and cleans up, rather than leaving a deploy running.
 - Debug output is gone from stdout.
+- `worker create` creates the workers directory when it doesn't exist yet, rather than failing.

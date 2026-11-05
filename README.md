@@ -792,8 +792,8 @@ ARGUMENTS
   WORKERNAME  Worker name
 
 FLAGS
-  -r, --rootDir=<value>         Root directory of the project
-  -w, --workersDirName=<value>  Workers directory name in monorepo
+  -r, --root-dir=<value>          Root directory of the project
+  -w, --workers-dir-name=<value>  Workers directory name in monorepo
 
 DESCRIPTION
   Create a new worker in the workers directory
@@ -1162,7 +1162,6 @@ Removing every cron is handled too: `apply` writes an explicit `"crons": []`, si
 - A cycle of bindings is an error in `check`, so it stops `plan` too. A cycle that only a queue closes is a warning, as a queue needs no order at deploy time.
 - A Python entry at the top of a worker's directory fails with wrangler's message about `python_modules`. Move the entry into a subdirectory.
 - `site` and containers follow wrangler's source, and haven't been run against real Cloudflare by this project's tests.
-- `worker create` spells its flags `--rootDir` and `--workersDirName`, unlike every other command. `-r` and `-w` work everywhere.
 - `dev -a` starts one wrangler process per worker, so memory grows with the number of workers.
 
 ## Migrating from 0.2

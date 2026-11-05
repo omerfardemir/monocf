@@ -82,12 +82,34 @@ describe('worker create', () => {
     expect(readFileSync(join(fixture.worker('orders'), 'src', 'index.ts'), 'utf8')).toContain("Response('orders')")
   })
 
-  it('fails when the workers directory does not exist', async () => {
+  it('creates the workers directory when it does not exist', async () => {
     const fixture = createFixture({monocfConfig: {workersDirName: 'services'}, workers: [{name: 'orders'}]})
 
     const result = await runCli(fixture, ['worker', 'create', 'billing'], {noCalls: true})
 
+    expect(result.exitCode, result.stderr).toBe(0)
+    expect(existsSync(join(fixture.root, 'services', 'billing', 'wrangler.jsonc'))).toBe(true)
+  })
+
+  it('fails when the root directory does not exist', async () => {
+    const fixture = createFixture({workers: [{name: 'orders'}]})
+
+    const result = await runCli(fixture, ['worker', 'create', 'billing', '--root-dir', 'missing'], {noCalls: true})
+
     expect(result.exitCode).toBe(2)
-    expect(result.stderr).toContain('Workers directory not found')
+    expect(result.stderr).toContain("doesn't exist")
+  })
+
+  it.each([
+    ['--root-dir', '--workers-dir-name'],
+    ['--rootDir', '--workersDirName'],
+    ['-r', '-w'],
+  ])('takes %s and %s', async (root, workers) => {
+    const fixture = createFixture({workers: [{name: 'orders'}]})
+
+    const result = await runCli(fixture, ['worker', 'create', 'billing', root, fixture.root, workers, 'apps'], {cwd: 'workers', noCalls: true})
+
+    expect(result.exitCode, result.stderr).toBe(0)
+    expect(existsSync(join(fixture.root, 'apps', 'billing', 'wrangler.jsonc'))).toBe(true)
   })
 })
