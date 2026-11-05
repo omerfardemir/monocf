@@ -130,6 +130,35 @@ export function dependenciesWithin(graph: Graph, members: string[]): Map<string,
   )
 }
 
+/**
+ * For each member, the members it waits for: the nearest ones along its edges. A worker that isn't a member is looked
+ * through, so an order that runs through it still holds, and a member ends the walk, since it waits for what lies behind
+ * it. Members of one cycle don't wait for each other, so the result has no cycle.
+ */
+export function nearestWithin(graph: Graph, members: string[]): Map<string, string[]> {
+  const callees = adjacency(graph, 'from', 'to')
+  const memberSet = new Set(members)
+  const reach = new Map(members.map((member) => [member, reachable(callees, member)]))
+  const nearest = (member: string): string[] => {
+    const found = new Set<string>()
+    const seen = new Set([member])
+    const queue = [member]
+    while (queue.length > 0) {
+      for (const callee of callees.get(queue.pop()!) ?? []) {
+        if (!seen.has(callee)) {
+          seen.add(callee)
+          if (memberSet.has(callee) && !reach.get(callee)!.has(member)) found.add(callee)
+          else queue.push(callee)
+        }
+      }
+    }
+
+    return [...found].sort()
+  }
+
+  return new Map(members.map((member) => [member, nearest(member)]))
+}
+
 /** The workers with an edge to this one, excluding itself. Sorted. */
 export function directCallers(graph: Graph, dir: string): string[] {
   return (adjacency(graph, 'to', 'from').get(dir) ?? []).filter((caller) => caller !== dir)

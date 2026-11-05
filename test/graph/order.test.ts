@@ -2,7 +2,7 @@ import {describe, expect, it} from 'vitest'
 
 import type {Graph} from '../../src/graph/graph.js'
 import type {ResolvedWorker} from '../../src/config/types.js'
-import {callers, computeOrder, dependenciesWithin, directCallers, serviceClosure} from '../../src/graph/order.js'
+import {callers, computeOrder, dependenciesWithin, directCallers, nearestWithin, serviceClosure} from '../../src/graph/order.js'
 
 function graphOf(nodes: string[], edges: [string, string][]): Graph {
   return {
@@ -227,5 +227,69 @@ describe('serviceClosure', () => {
     const workers = [worker('a', local('services', 'broken'))]
 
     expect(serviceClosure(workers, ['a']).unresolved).toEqual(['broken'])
+  })
+})
+
+describe('nearestWithin', () => {
+  it('waits for the nearest members only', () => {
+    const graph = graphOf(
+      ['a', 'b', 'c'],
+      [
+        ['a', 'b'],
+        ['b', 'c'],
+      ],
+    )
+
+    expect(nearestWithin(graph, ['a', 'b', 'c'])).toEqual(
+      new Map([
+        ['a', ['b']],
+        ['b', ['c']],
+        ['c', []],
+      ]),
+    )
+  })
+
+  it('looks through a worker that is not a member', () => {
+    const graph = graphOf(
+      ['a', 'b', 'c'],
+      [
+        ['a', 'b'],
+        ['b', 'c'],
+      ],
+    )
+
+    expect(nearestWithin(graph, ['a', 'c']).get('a')).toEqual(['c'])
+  })
+
+  it('finds every branch, sorted', () => {
+    const graph = graphOf(
+      ['a', 'b', 'c'],
+      [
+        ['a', 'c'],
+        ['a', 'b'],
+      ],
+    )
+
+    expect(nearestWithin(graph, ['a', 'b', 'c']).get('a')).toEqual(['b', 'c'])
+  })
+
+  it('has members of a cycle wait for what lies behind each other, not for each other', () => {
+    const graph = graphOf(
+      ['a', 'b', 'c'],
+      [
+        ['a', 'b'],
+        ['b', 'a'],
+        ['b', 'c'],
+      ],
+    )
+
+    const result = nearestWithin(graph, ['a', 'b', 'c'])
+
+    expect(result.get('a')).toEqual(['c'])
+    expect(result.get('b')).toEqual(['c'])
+  })
+
+  it('ignores a worker bound to itself', () => {
+    expect(nearestWithin(graphOf(['a'], [['a', 'a']]), ['a']).get('a')).toEqual([])
   })
 })
