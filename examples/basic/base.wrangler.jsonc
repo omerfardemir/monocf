@@ -1,0 +1,22 @@
+// Every worker starts from this file. See "Base config" in the monocf README.
+{
+  "name": "{workerName}",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-09-01",
+  "vars": {
+    "GREETING": "{greeting}"
+  },
+  // Wrangler doesn't inherit vars or bindings into an env, so each env states its own.
+  "env": {
+    "staging": {
+      "vars": {
+        "GREETING": "{greeting} from staging"
+      }
+    },
+    "production": {
+      "vars": {
+        "GREETING": "{greeting}"
+      }
+    }
+  }
+}

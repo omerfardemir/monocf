@@ -1,6 +1,6 @@
 {
   "name": "monocf",
-  "description": "MonoCF for manage Cloudflare Workers in monorepo",
+  "description": "Plan, deploy and roll back a monorepo of Cloudflare Workers from CI, in dependency order",
   "version": "0.2.1",
   "author": "Omer Demir",
   "bin": {
@@ -61,7 +61,8 @@
     "posttest": "npm run lint",
     "prepack": "oclif manifest",
     "test": "vitest run",
-    "format": "prettier --write \"(src|test)/**/*.{ts,tsx,js,jsx}\""
+    "format": "prettier --write \"(src|test)/**/*.{ts,tsx,js,jsx}\"",
+    "readme": "oclif readme --no-aliases"
   },
   "peerDependencies": {
     "wrangler": ">=4.151.0"

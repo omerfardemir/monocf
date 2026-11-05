@@ -3,7 +3,7 @@
 **/.DS_Store
 /.idea
 /dist
-/tmp
+.monocf/
 /node_modules
 oclif.manifest.json
 

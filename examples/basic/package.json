@@ -1,0 +1,12 @@
+{
+  "name": "monocf-example-basic",
+  "private": true,
+  "scripts": {
+    "check": "monocf check --all-envs",
+    "dev": "monocf dev -a"
+  },
+  "devDependencies": {
+    "monocf": "^0.3.0",
+    "wrangler": "^4.151.0"
+  }
+}
