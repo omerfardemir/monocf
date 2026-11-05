@@ -10,11 +10,14 @@ import {readOutputFile, type WranglerOutput} from './output.js'
  * - `inherit`: straight to the terminal, for an interactive `dev` or a result such as `whoami`.
  * - `stderr`: stdout joins stderr, so stdout carries only monocf's results.
  * - `capture`: stdout comes back in the result, and stderr passes through as well as coming back.
+ * - `quiet`: both come back and nothing passes through, for a read whose expected failures aren't news.
  * - `{prefix}`: both streams to stderr with a label on each line, for several processes at once.
  */
-export type OutputMode = 'capture' | 'inherit' | 'stderr' | {prefix: string}
+export type OutputMode = 'capture' | 'inherit' | 'quiet' | 'stderr' | {prefix: string}
 
 export interface RunOptions {
+  /** A worker's own account_id. A read by name has no config for wrangler to find it in. */
+  accountId?: string
   cwd: string
   mode: OutputMode
   /** Per spawn, so that parallel processes can't mix their results. */
@@ -62,15 +65,16 @@ function collect(child: ChildProcess, mode: OutputMode): () => {stderr: string; 
     })
     child.stderr?.on('data', (chunk) => {
       stderr += chunk
-      process.stderr.write(chunk)
+      if (mode !== 'quiet') process.stderr.write(chunk)
     })
   }
 
   return () => ({stderr, stdout})
 }
 
-function environmentFor(outputFile?: string): NodeJS.ProcessEnv {
+function environmentFor(outputFile?: string, accountId?: string): NodeJS.ProcessEnv {
   const environment = {...process.env}
+  if (accountId !== undefined) environment.CLOUDFLARE_ACCOUNT_ID = accountId
   delete environment.WRANGLER_OUTPUT_FILE_DIRECTORY
   if (outputFile === undefined) delete environment.WRANGLER_OUTPUT_FILE_PATH
   else environment.WRANGLER_OUTPUT_FILE_PATH = outputFile
@@ -78,11 +82,15 @@ function environmentFor(outputFile?: string): NodeJS.ProcessEnv {
 }
 
 /** Spawns wrangler's entry with no shell, so a signal reaches the process doing the work and arguments stay intact. */
-export function spawnWrangler(wrangler: Wrangler, argv: string[], {cwd, mode, outputFile}: RunOptions): RunningWrangler {
+export function spawnWrangler(
+  wrangler: Wrangler,
+  argv: string[],
+  {accountId, cwd, mode, outputFile}: RunOptions,
+): RunningWrangler {
   // The same flag bin/wrangler.js adds.
   const child = spawn(process.execPath, ['--no-warnings', wrangler.cli, ...argv], {
     cwd,
-    env: environmentFor(outputFile),
+    env: environmentFor(outputFile, accountId),
     shell: false,
     stdio: stdioFor(mode),
   })

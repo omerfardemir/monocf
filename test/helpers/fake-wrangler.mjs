@@ -1,5 +1,6 @@
 // Stand-in for the wrangler CLI. A fixture installs a stub at node_modules/wrangler/wrangler-dist/cli.js that imports
 // this file. Every invocation appends one JSON line to FAKE_WRANGLER_LOG; behaviour comes from FAKE_WRANGLER_RULES.
+// What Cloudflare holds comes from the JSON file at FAKE_WRANGLER_CF, which a rule for the same command overrides.
 import {spawn} from 'node:child_process'
 import {appendFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync} from 'node:fs'
 import {basename, dirname, join, resolve} from 'node:path'
@@ -51,7 +52,7 @@ const configPath = configPaths[0]
 const config = configs[0] ?? null
 
 const envName = flagValues(['--env', '-e'])[0]
-const deployedName = (envName && config?.env?.[envName]?.name) || config?.name
+const deployedName = flagValues(['--name'])[0] || (envName && config?.env?.[envName]?.name) || config?.name
 const workerDir = configPath ? basename(dirname(configPath)) : undefined
 
 const devVarsPath = configPath && join(dirname(configPath), '.dev.vars')
@@ -96,6 +97,61 @@ const rule =
       startsWithCommand(candidate.command) &&
       (candidate.worker === undefined || candidate.worker === workerDir || candidate.worker === deployedName),
   ) ?? {}
+
+// The messages and codes are the ones the Cloudflare spike saw from real wrangler. API errors quote a URL with the account.
+function apiError(detail) {
+  const url = '/accounts/0123456789abcdef0123456789abcdef/workers/services'
+  return `✘ [ERROR] A request to the Cloudflare API (${url}) failed.\n\n  ${detail}\n`
+}
+
+function deploymentsAnswer(state, name) {
+  const worker = state.workers?.[name]
+  if (!worker) return {exitCode: 1, stderr: apiError('This Worker does not exist on your account. [code: 10007]')}
+  const versions = worker.active.map(([id, percentage]) => ({percentage, version_id: id}))
+  return {stdout: JSON.stringify({annotations: {}, id: 'deployment', source: 'wrangler', strategy: 'percentage', versions})}
+}
+
+function versionAnswer(state, name, id) {
+  const worker = state.workers?.[name]
+  if (!worker) return {exitCode: 1, stderr: apiError('This Worker does not exist on your account. [code: 10007]')}
+  if (!worker.tags || !(id in worker.tags)) return {exitCode: 1, stderr: apiError('Unknown version. [code: 100146]')}
+  const tag = worker.tags[id]
+  return {stdout: JSON.stringify({annotations: tag === null ? {} : {'workers/tag': tag}, id, metadata: {}, resources: {}})}
+}
+
+function r2Answer(state, path) {
+  if (startsWithCommand('r2 bucket info')) {
+    return state.buckets?.[argv[3]]
+      ? {stdout: `name: ${argv[3]}\n`}
+      : {exitCode: 1, stderr: apiError('The specified bucket does not exist. [code: 10006]')}
+  }
+
+  const [bucket, ...rest] = argv[3].split('/')
+  const key = rest.join('/')
+  if (startsWithCommand('r2 object get')) {
+    // As real wrangler: a missing bucket reads the same as a missing key.
+    const body = state.buckets?.[bucket]?.[key]
+    return body === undefined ? {exitCode: 1, stderr: '✘ [ERROR] The specified key does not exist.\n'} : {stdout: body}
+  }
+
+  if (!state.buckets?.[bucket]) return {exitCode: 1, stderr: apiError('The specified bucket does not exist. [code: 10006]')}
+  state.buckets[bucket][key] = readFileSync(resolve(flagValues(['--file'])[0]), 'utf8')
+  writeFileSync(path, JSON.stringify(state))
+  return {stdout: 'Upload complete.\n'}
+}
+
+function cloudflareAnswer() {
+  const name = flagValues(['--name'])[0]
+  const isRead = name !== undefined && (startsWithCommand('deployments status') || startsWithCommand('versions view'))
+  if (!isRead && !startsWithCommand('r2')) return null
+  const path = process.env.FAKE_WRANGLER_CF
+  if (!path) return {exitCode: 1, stderr: 'fake wrangler: this test set no Cloudflare state\n'}
+  const state = JSON.parse(readFileSync(path, 'utf8'))
+  if (startsWithCommand('r2')) return r2Answer(state, path)
+  return startsWithCommand('versions view') ? versionAnswer(state, name, argv[2]) : deploymentsAnswer(state, name)
+}
+
+const cloudflare = Object.keys(rule).length === 0 ? cloudflareAnswer() : null
 
 function writeOutputEntry(value) {
   if (process.env.WRANGLER_OUTPUT_FILE_PATH) {
@@ -145,14 +201,15 @@ function defaultStdout() {
 }
 
 if (rule.stdoutAfterExit === undefined) {
-  process.stdout.write(rule.stdout ?? defaultStdout())
+  process.stdout.write(rule.stdout ?? cloudflare?.stdout ?? defaultStdout())
 } else {
   // A descendant that keeps the pipe open and writes once this process is gone, as wrangler's own children can.
   const script = `setTimeout(() => process.stdout.write(${JSON.stringify(rule.stdoutAfterExit)}), 500)`
   spawn(process.execPath, ['-e', script], {detached: true, stdio: ['ignore', 1, 2]}).unref()
 }
 
-if (rule.stderr) process.stderr.write(rule.stderr)
+const stderrText = rule.stderr ?? cloudflare?.stderr
+if (stderrText) process.stderr.write(stderrText)
 
 if (rule.signal) {
   process.kill(process.pid, rule.signal)
@@ -161,7 +218,7 @@ if (rule.signal) {
   })
 }
 
-const exitCode = rule.exitCode ?? 0
+const exitCode = rule.exitCode ?? cloudflare?.exitCode ?? 0
 if (exitCode === 0 && !rule.noOutputEntry) {
   const uploaded = {version_id: `version-of-${workerDir}`, worker_name: deployedName}
   if (startsWithCommand('deploy') && !argv.includes('--dry-run')) writeOutputEntry({type: 'deploy', ...uploaded})

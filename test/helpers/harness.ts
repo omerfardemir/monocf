@@ -233,7 +233,17 @@ export function createFixture(options: FixtureOptions): Fixture {
   return {root, usesFake: wrangler === 'fake', worker: (name) => join(root, 'workers', name)}
 }
 
+/** What the fake wrangler answers reads with, as Cloudflare would. */
+export interface FakeCloudflare {
+  /** Bucket name to its objects by key. */
+  buckets?: Record<string, Record<string, string>>
+  /** By deployed name. A worker that isn't here doesn't exist. */
+  workers?: Record<string, {active: [versionId: string, percentage: number][]; tags?: Record<string, null | string>}>
+}
+
 export interface RunOptions {
+  /** Set to serve reads. Without it, every read fails, so a test can't reach one by accident. */
+  cloudflare?: FakeCloudflare
   /** Directory to run from, relative to the fixture root. Defaults to the root. */
   cwd?: string
   env?: Record<string, string>
@@ -287,11 +297,18 @@ export interface RunningCli {
   stdout(): string
 }
 
+/** Whoami, the state store, and reads by name are the calls that need no worker's config. */
+function isConfigFree(argv: string[]): boolean {
+  return argv[0] === 'whoami' || argv[0] === 'r2' || (argv.includes('--name') && ['deployments', 'versions'].includes(argv[0]))
+}
+
 export function startCli(fixture: Fixture, args: string[], options: RunOptions = {}): RunningCli {
   const stateDir = makeTempDir()
   const logPath = join(stateDir, 'calls.ndjson')
   const rulesPath = join(stateDir, 'rules.json')
   writeJson(rulesPath, options.rules ?? [])
+  const cloudflarePath = join(stateDir, 'cloudflare.json')
+  if (options.cloudflare) writeJson(cloudflarePath, options.cloudflare)
 
   const child = spawn(process.execPath, [join(repoRoot, 'bin', 'run.js'), ...args], {
     cwd: options.cwd ? join(fixture.root, options.cwd) : fixture.root,
@@ -299,6 +316,7 @@ export function startCli(fixture: Fixture, args: string[], options: RunOptions =
       ...isolatedEnvironment(stateDir),
       FAKE_WRANGLER_LOG: logPath,
       FAKE_WRANGLER_RULES: rulesPath,
+      ...(options.cloudflare && {FAKE_WRANGLER_CF: cloudflarePath}),
       NO_COLOR: '1',
       WRANGLER_SEND_METRICS: 'false',
       ...options.env,
@@ -326,7 +344,7 @@ export function startCli(fixture: Fixture, args: string[], options: RunOptions =
       }
 
       // Wrangler falls back to looking for a config in its working directory, so a missing flag can go unnoticed.
-      const withoutConfig = calls.find((call) => call.config === null && call.argv[0] !== 'whoami')
+      const withoutConfig = calls.find((call) => call.config === null && !isConfigFree(call.argv))
       if (withoutConfig) {
         reject(new Error(`wrangler ${withoutConfig.argv.join(' ')} was called with no config`))
         return

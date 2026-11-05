@@ -24,13 +24,18 @@ export function createSink(json: boolean): EventSink {
 }
 
 const COMMAND_NAMES: Record<Step['action'], string> = {
+  'active-version': 'deployments status',
   build: 'deploy --dry-run',
   deploy: 'deploy',
   'deployment-status': 'deployments status',
   dev: 'dev',
   preview: 'versions upload',
+  'r2-bucket-info': 'r2 bucket info',
+  'r2-get': 'r2 object get',
+  'r2-put': 'r2 object put',
   'secret-bulk': 'secret bulk',
   'triggers-deploy': 'triggers deploy',
+  'version-view': 'versions view',
   'versions-deploy': 'versions deploy',
   'versions-list': 'versions list',
   whoami: 'whoami',
@@ -79,6 +84,20 @@ export async function runStep(context: RunContext, {argvOptions, mode, step, wor
   return result
 }
 
+/**
+ * One read or small write, from the run directory, with no config. Nothing reaches the terminal, and a failure comes back
+ * for the caller to judge, since some failures here are answers.
+ */
+export async function callWrangler(context: RunContext, step: Step, accountId?: string): Promise<WranglerResult> {
+  const {interrupts, runDir, wrangler} = context
+  interrupts.throwIfInterrupted()
+  const running = spawnWrangler(wrangler, buildArgv(step), {accountId, cwd: runDir.path, mode: 'quiet'})
+  interrupts.track(running.child)
+  const result = await running.done
+  interrupts.throwIfInterrupted()
+  return result
+}
+
 /** Wraps one worker's work in its events. A failure is reported here and carries on upward. */
 export async function reportStep(
   {emit}: Pick<RunContext, 'emit'>,
@@ -113,8 +132,10 @@ function failureFrom(failed: FailedStep[]): Error {
   const errors = failed.map(({error}) => error as Error & {exitCode?: number})
   if (errors.length === 1) return errors[0]
   const killed = errors.find(({exitCode}) => exitCode !== undefined && exitCode > 128)
+  // Every worker failing the same way, such as no credentials, says more than "workers failed".
+  const shared = errors.every(({exitCode}) => exitCode === errors[0].exitCode) ? errors[0].exitCode : undefined
   const lines = errors.map(({message}) => `  ${message}`).join('\n')
-  return new MonocfError(`${errors.length} workers failed:\n${lines}`, killed?.exitCode ?? EXIT_FAILED)
+  return new MonocfError(`${errors.length} workers failed:\n${lines}`, killed?.exitCode ?? shared ?? EXIT_FAILED)
 }
 
 /**
@@ -172,8 +193,11 @@ export interface RunSetup {
   wrangler: Wrangler
 }
 
-/** Everything around a run: reporting, the run directory, and the signal handler. They end together on every path. */
-export async function withRun(setup: RunSetup, work: (context: RunContext) => Promise<void>): Promise<void> {
+/**
+ * Everything around a run: reporting, the run directory, and the signal handler. They end together on every path. The work
+ * can return an exit code, for a result that isn't success and has no error to raise.
+ */
+export async function withRun(setup: RunSetup, work: (context: RunContext) => Promise<number | void>): Promise<void> {
   const {action, env, json, notices, rootDir, workers, wrangler} = setup
   const sink = createSink(json)
   const runDir = createRunDir(rootDir)
@@ -183,8 +207,8 @@ export async function withRun(setup: RunSetup, work: (context: RunContext) => Pr
   for (const notice of notices) sink({...notice, type: 'notice'})
 
   try {
-    await work({emit: sink, interrupts, json, runDir, wrangler})
-    sink({exitCode: EXIT_OK, status: 'ok', type: 'run-finished'})
+    const exitCode = (await work({emit: sink, interrupts, json, runDir, wrangler})) ?? EXIT_OK
+    sink({exitCode, status: exitCode === EXIT_OK ? 'ok' : 'failed', type: 'run-finished'})
   } catch (error) {
     if (error instanceof MonocfError) {
       const status = interrupts.received ? 'interrupted' : 'failed'

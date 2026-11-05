@@ -1,0 +1,83 @@
+import {isPlainObject} from '../config/types.js'
+import {EXIT_ENVIRONMENT, MonocfError} from '../errors.js'
+import type {Triggers} from '../fingerprint/fingerprint.js'
+
+export const STATE_SCHEMA_VERSION = 1
+
+/** What was last deployed for a worker, by a run that saw it through. */
+export interface StateWorker {
+  bundleHash: string
+  commit: string
+  configHash: string
+  deployedAt: string
+  deployedName: string
+  doHash: string
+  fingerprint: string
+  triggers: Triggers
+  triggersHash: string
+  version?: string
+  versionId: string
+}
+
+export interface StateManifest {
+  env: string
+  schemaVersion: number
+  updatedAt: string
+  workers: Record<string, StateWorker>
+}
+
+export function manifestKey(env: string): string {
+  return `${env}/manifest.json`
+}
+
+export function runKey(env: string, runId: string): string {
+  return `${env}/runs/${runId}.json`
+}
+
+const REQUIRED_TEXT = [
+  'bundleHash',
+  'commit',
+  'configHash',
+  'deployedAt',
+  'deployedName',
+  'doHash',
+  'fingerprint',
+  'triggersHash',
+  'versionId',
+] as const
+
+function unusable(message: string): MonocfError {
+  return new MonocfError(`The state manifest ${message}`, EXIT_ENVIRONMENT)
+}
+
+function assertWorker(name: string, entry: unknown): void {
+  if (!isPlainObject(entry)) throw unusable(`has an entry for ${name} that isn't an object.`)
+  const missing = REQUIRED_TEXT.find((field) => typeof entry[field] !== 'string')
+  if (missing !== undefined) throw unusable(`has no ${missing} for ${name}.`)
+  if (!isPlainObject(entry.triggers)) throw unusable(`has no triggers for ${name}.`)
+}
+
+/**
+ * Reads a stored manifest. Anything that can't be trusted stops the run instead of counting as empty, because empty state
+ * plans a redeploy of everything.
+ */
+export function parseStateManifest(body: string, env: string): StateManifest {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(body)
+  } catch (error) {
+    throw unusable(`is not valid JSON: ${(error as Error).message}`)
+  }
+
+  if (!isPlainObject(parsed)) throw unusable('is not an object.')
+  const {schemaVersion, workers} = parsed
+  if (typeof schemaVersion !== 'number' || !Number.isInteger(schemaVersion)) throw unusable('has no valid schemaVersion.')
+  if (schemaVersion > STATE_SCHEMA_VERSION) {
+    throw unusable(`has schemaVersion ${schemaVersion}, and this monocf reads up to ${STATE_SCHEMA_VERSION}. Upgrade monocf.`)
+  }
+
+  if (parsed.env !== env) throw unusable(`is for env ${String(parsed.env)}, not ${env}.`)
+  if (!isPlainObject(workers)) throw unusable('has no workers.')
+  for (const [name, entry] of Object.entries(workers)) assertWorker(name, entry)
+  return parsed as unknown as StateManifest
+}

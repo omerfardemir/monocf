@@ -119,6 +119,26 @@ describe('buildArgv', () => {
     ],
     ['triggers deploy', {action: 'triggers-deploy', configPath}, {env: 'e'}, ['triggers', 'deploy', '--env', 'e', ...config]],
     ['whoami', {action: 'whoami'}, {env: 'ignored'}, ['whoami']],
+    ['active version', {action: 'active-version', name: 'n'}, {env: 'ignored'}, ['deployments', 'status', '--name', 'n', '--json']],
+    [
+      'version view',
+      {action: 'version-view', name: 'n', versionId: 'v1'},
+      {},
+      ['versions', 'view', 'v1', '--name', 'n', '--json'],
+    ],
+    ['r2 bucket info', {action: 'r2-bucket-info', bucket: 'b'}, {}, ['r2', 'bucket', 'info', 'b']],
+    [
+      'r2 object get',
+      {action: 'r2-get', bucket: 'b', key: 'p/k.json'},
+      {},
+      ['r2', 'object', 'get', 'b/p/k.json', '--remote', '--pipe'],
+    ],
+    [
+      'r2 object put',
+      {action: 'r2-put', bucket: 'b', file: '/t.json', key: 'p/k.json'},
+      {},
+      ['r2', 'object', 'put', 'b/p/k.json', '--remote', '--file', '/t.json', '--content-type', 'application/json'],
+    ],
   ]
 
   it.each(cases)('%s', (_, step, options, expected) => {

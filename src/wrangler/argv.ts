@@ -1,4 +1,9 @@
 export type Step =
+  | {action: 'active-version'; name: string}
+  | {action: 'r2-bucket-info'; bucket: string}
+  | {action: 'r2-get'; bucket: string; key: string}
+  | {action: 'r2-put'; bucket: string; file: string; key: string}
+  | {action: 'version-view'; name: string; versionId: string}
   | {action: 'build'; configPath: string; outdir: string}
   | {action: 'deploy' | 'preview'; configPath: string; secretsFile?: string}
   | {action: 'deployment-status' | 'triggers-deploy' | 'versions-list'; configPath: string}
@@ -83,6 +88,37 @@ export function buildArgv(step: Step, options: ArgvOptions = {}): string[] {
 
     case 'deployment-status': {
       return ['deployments', 'status', '--json', ...envFlag, ...config(step.configPath)]
+    }
+
+    case 'active-version': {
+      return ['deployments', 'status', '--name', step.name, '--json']
+    }
+
+    case 'version-view': {
+      return ['versions', 'view', step.versionId, '--name', step.name, '--json']
+    }
+
+    // --pipe, not --file: on a miss --file leaves a 0-byte file behind.
+    case 'r2-get': {
+      return ['r2', 'object', 'get', `${step.bucket}/${step.key}`, '--remote', '--pipe']
+    }
+
+    case 'r2-put': {
+      return [
+        'r2',
+        'object',
+        'put',
+        `${step.bucket}/${step.key}`,
+        '--remote',
+        '--file',
+        step.file,
+        '--content-type',
+        'application/json',
+      ]
+    }
+
+    case 'r2-bucket-info': {
+      return ['r2', 'bucket', 'info', step.bucket]
     }
 
     case 'versions-list': {
