@@ -160,6 +160,39 @@ describe('apply, with new code', () => {
     expect(ordersStart).toBeGreaterThan(billingDone)
   })
 
+  it('runs one step at a time with --concurrency 1', async () => {
+    const fixture = deployFixture()
+    const cloudflare = await firstRun(fixture)
+    await planFor(fixture, cloudflare, {rules: newCode('billing', 'reports')})
+
+    const result = await applyPlan(fixture, cloudflare, {flags: ['--json', '--concurrency', '1'], rules: [{command: 'versions upload', delayMs: 500}]})
+
+    expect(result.exitCode, result.stderr).toBe(0)
+    const uploads = eventsOf(result).filter(({action}) => action === 'upload').map(({type}) => type)
+    expect(uploads).toEqual(['step-started', 'step-finished', 'step-started', 'step-finished'])
+  })
+
+  it('minifies what it uploads and deploys when the project says so', async () => {
+    const fixture = deployFixture({monocfConfig: {minify: true}})
+    await planFor(fixture, {}, {flags: ['--first-run']})
+    const created = await applyPlan(fixture, {})
+    expect(callsOf(created.calls, 'deploy billing')[0].argv).toContain('--minify')
+    await planFor(fixture, created.cloudflare!, {rules: newCode('billing')})
+
+    const result = await applyPlan(fixture, created.cloudflare!)
+
+    expect(callsOf(result.calls, 'upload billing')[0].argv).toContain('--minify')
+  })
+
+  it('leaves minifying off when the project does not ask for it', async () => {
+    const fixture = deployFixture()
+    await planFor(fixture, {}, {flags: ['--first-run']})
+
+    const {calls} = await applyPlan(fixture, {})
+
+    expect(callsOf(calls, 'deploy billing')[0].argv).not.toContain('--minify')
+  })
+
   it('promotes the uploaded version, verifies it and records it', async () => {
     const fixture = deployFixture()
     const cloudflare = await firstRun(fixture)
