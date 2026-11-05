@@ -178,6 +178,22 @@ describe('monocf check', () => {
     expect(strict.exitCode).toBe(2)
   })
 
+  it('passes --strict with a cycle that only a queue closes, and says so as a note', async () => {
+    const fixture = createFixture({
+      base: false,
+      workers: [
+        {config: {queues: {consumers: [{queue: 'to-a'}], producers: [{binding: 'Q', queue: 'to-b'}]}}, name: 'a'},
+        {config: {queues: {consumers: [{queue: 'to-b'}], producers: [{binding: 'Q', queue: 'to-a'}]}}, name: 'b'},
+      ],
+    })
+
+    const result = await offline(fixture, ['check', '--strict'])
+
+    expect(result.exitCode, result.stdout).toBe(0)
+    expect(result.stdout).toContain('note cycle: Binding cycle through a queue')
+    expect(result.stdout).toContain('0 errors, 0 warnings, 1 notes')
+  })
+
   it('exits 2 with an error, and prints the findings as one JSON document', async () => {
     const fixture = createFixture({
       environments,
@@ -194,6 +210,7 @@ describe('monocf check', () => {
       envs: ['dev'],
       errors: 1,
       findings: [{env: 'dev', level: 'error', message: 'Binding cycle: a -> b -> a', rule: 'cycle', worker: 'a'}],
+      notes: 0,
       schemaVersion: 1,
       warnings: 0,
     })

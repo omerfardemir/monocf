@@ -9,7 +9,8 @@ import type {FileReader} from '../project/load.js'
 import type {Options} from '../project/options.js'
 import {IGNORE_FILE, matchesDirectory, negationsWithNothingToUndo, readIgnoreLines, unknownEnvProblems} from '../project/workers.js'
 
-export type FindingLevel = 'error' | 'warning'
+/** A note says something worth knowing that's fine as it is, so `--strict` doesn't count it. */
+export type FindingLevel = 'error' | 'note' | 'warning'
 
 export interface Finding {
   env?: string
@@ -132,7 +133,7 @@ function cycleFinding(members: string[], edges: Edge[], level: FindingLevel, not
 
 /**
  * A cycle of bindings is an error. A queue edge is only a logical order, and two workers can send to each other's
- * queues with no trouble at deploy time, so a cycle that needs a queue edge to close is a warning.
+ * queues with no trouble at deploy time, so a cycle that needs a queue edge to close is a note.
  */
 const cycle: Rule = (context) => {
   const graph = selectedGraph(context)
@@ -143,7 +144,7 @@ const cycle: Rule = (context) => {
     ...hard.map((members) => cycleFinding(members, direct.edges, 'error', '')),
     ...multiMemberCycles(graph)
       .filter((members) => !members.some((member) => hardMembers.has(member)))
-      .map((members) => cycleFinding(members, graph.edges, 'warning', ' through a queue')),
+      .map((members) => cycleFinding(members, graph.edges, 'note', ' through a queue')),
   ]
 }
 

@@ -84,14 +84,14 @@ describe('cycle', () => {
     expect(rule({...base, ...worker('a', services('a'))}, 'cycle')).toEqual([])
   })
 
-  it('is a warning when only a queue edge closes it, as queues need no order at deploy time', () => {
+  it('is a note when only a queue edge closes it, as queues need no order at deploy time', () => {
     const queueLoop = {
       ...base,
       ...worker('a', {queues: {consumers: [{queue: 'to-a'}], producers: [{binding: 'Q', queue: 'to-b'}]}}),
       ...worker('b', {queues: {consumers: [{queue: 'to-b'}], producers: [{binding: 'Q', queue: 'to-a'}]}}),
     }
     expect(rule(queueLoop, 'cycle')).toEqual([
-      expect.objectContaining({level: 'warning', message: expect.stringContaining('through a queue')}),
+      expect.objectContaining({level: 'note', message: expect.stringContaining('through a queue')}),
     ])
   })
 })

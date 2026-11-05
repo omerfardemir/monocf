@@ -852,7 +852,7 @@ Each worker goes to one account, for reads and writes alike. monocf works it out
 ### Pull requests
 
 ```sh
-monocf check --all-envs --strict     # exit 2 on any error or warning
+monocf check --all-envs --strict     # exit 2 on any error or warning, but not on a note
 monocf plan -e staging --state r2://my-monocf-state/monocf --markdown plan.md --out plan.json
 ```
 
@@ -1160,7 +1160,7 @@ Removing every cron is handled too: `apply` writes an explicit `"crons": []`, si
 - Removing a worker's last route takes a person, and so does deleting a Workflow a worker no longer defines.
 - `plan` and `apply` don't handle secrets, and `secrets.required` can make `apply` fail: see [Secrets](#secrets).
 - A provider recreated by hand needs its callers redeployed by hand.
-- A cycle of bindings is an error in `check`, so it stops `plan` too. A cycle that only a queue closes is a warning, as a queue needs no order at deploy time.
+- A cycle of bindings is an error in `check`, so it stops `plan` too. A cycle that only a queue closes is a note, which `--strict` doesn't count, as a queue needs no order at deploy time.
 - A Python entry at the top of a worker's directory fails with wrangler's message about `python_modules`. Move the entry into a subdirectory.
 - `site` and containers follow wrangler's source, and haven't been run against real Cloudflare by this project's tests.
 - `dev -a` starts one wrangler process per worker, so memory grows with the number of workers.

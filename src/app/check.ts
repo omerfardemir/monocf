@@ -55,14 +55,14 @@ export function runCheck(flags: CheckFlags): void {
       return true
     })
 
-  const errors = findings.filter(({level}) => level === 'error').length
-  const warnings = findings.length - errors
+  const count = (level: Finding['level']) => findings.filter((finding) => finding.level === level).length
+  const [errors, warnings, notes] = [count('error'), count('warning'), count('note')]
   if (flags.json) {
-    const result = {envs: envs.map((env) => env ?? null), errors, findings, schemaVersion: SCHEMA_VERSION, warnings}
+    const result = {envs: envs.map((env) => env ?? null), errors, findings, notes, schemaVersion: SCHEMA_VERSION, warnings}
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
   } else {
     process.stdout.write(findings.map((finding) => formatFinding(finding)).join(''))
-    process.stdout.write(`${errors} errors, ${warnings} warnings\n`)
+    process.stdout.write(`${errors} errors, ${warnings} warnings${notes > 0 ? `, ${notes} notes` : ''}\n`)
   }
 
   // Not an exception: the findings are the result, so stdout must stay exactly what was printed above.

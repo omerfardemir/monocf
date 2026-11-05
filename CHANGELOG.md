@@ -40,6 +40,7 @@ monocf can now run a Cloudflare Workers monorepo from CI: a dependency graph, a 
 - `monocf build`, `deploy`, `preview` and `dev`, over the same code as `monocf worker -c`.
 - `dev <worker>` also starts the workers it reaches through a Durable Object or Workflow binding with a `script_name`, gives every worker in the session `RELEASE`, and says when a queue consumer or tail consumer it sends to isn't in the session.
 - `--json` on every command that runs workers, with a `schemaVersion`.
+- A `note` level in `check`, which `--strict` doesn't count. A cycle that only a queue closes is a note, as it's fine at deploy time, so it no longer fails `check --strict`. `check --json` has a `notes` count.
 - `--no-` forms of `--deploy-bindings`, `--deploy-secrets` and `--minify`.
 - `--concurrency` on `build`, `deploy` and `preview`.
 - Bindings to workers outside the monorepo pass through, with a notice.

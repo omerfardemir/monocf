@@ -16,7 +16,7 @@ export type ReportEvent =
       worker: string
     }
   | {message: string; type: 'notice'; worker?: string}
-  | {env?: string; level: 'error' | 'warning'; message: string; rule: string; type: 'finding'; worker?: string}
+  | {env?: string; level: 'error' | 'note' | 'warning'; message: string; rule: string; type: 'finding'; worker?: string}
   | {manifest: object; path: string; type: 'bundle-written'}
   | {path: string; plan: object; type: 'plan'}
   | {extra?: string[]; missing?: string[]; note?: string; present?: string[]; type: 'secrets-check'; worker: string}
