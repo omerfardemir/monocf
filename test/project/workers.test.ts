@@ -249,7 +249,8 @@ describe('findIgnoredWorkers with a scope', () => {
 describe('where the workers directory is written', () => {
   const reader = memoryReader({...workerFiles, '.monocfignore': 'workers/orders\nbilling in dev\n'})
 
-  it.each(['workers', './workers', 'workers/.', String.raw`.\workers`])('takes %s the same way', (workersDirName) => {
+  // A backslash separates directories on Windows only. Elsewhere it's part of the name.
+  it.each(['workers', './workers', 'workers/.', ...(process.platform === 'win32' ? [String.raw`.\workers`] : [])])('takes %s the same way', (workersDirName) => {
     expect(findIgnoredWorkers({rootDir: projectRoot, workersDirName, env: 'dev'}, all, reader)).toEqual(['billing', 'orders'])
   })
 
