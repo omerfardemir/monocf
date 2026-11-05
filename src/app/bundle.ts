@@ -117,7 +117,7 @@ function exportsOf({config, dir}: ResolvedWorker, out: string, env: string): str
 }
 
 /** Reports a service binding naming an entrypoint that its provider's bundle doesn't export. */
-function checkEntrypoints({emit}: Pick<RunContext, 'emit'>, workers: ResolvedWorker[], out: string, env: string): number {
+function findBadEntrypoints({emit}: Pick<RunContext, 'emit'>, workers: ResolvedWorker[], out: string, env: string): number {
   const bundled = new Map(workers.map((worker) => [worker.dir, worker]))
   let errors = 0
   for (const {bindings, dir} of workers) {
@@ -140,8 +140,79 @@ function checkEntrypoints({emit}: Pick<RunContext, 'emit'>, workers: ResolvedWor
   return errors
 }
 
+/** A manifest exists at this point, so a failure here leaves one behind, unlike a failed build. */
+export function checkEntrypoints(context: Pick<RunContext, 'emit'>, workers: ResolvedWorker[], out: string, env: string): void {
+  const errors = findBadEntrypoints(context, workers, out, env)
+  if (errors > 0) throw new MonocfError(`${errors} service bindings name an entrypoint that doesn't exist.`, EXIT_FAILED)
+}
+
 function compareNames(a: string, b: string): number {
   return a < b ? -1 : Number(a > b)
+}
+
+export interface BundleJob {
+  commit: string
+  concurrency?: number
+  env: string
+  out: string
+  rootDir: string
+  workers: ResolvedWorker[]
+}
+
+/** The manifest an earlier bundle left in this directory, or undefined when there is none to read. */
+export function readBundleManifest(out: string): BundleManifest | undefined {
+  try {
+    return JSON.parse(readFileSync(join(out, MANIFEST_FILE), 'utf8'))
+  } catch {
+    return undefined
+  }
+}
+
+/** Builds inside a run that is already going, and returns the manifest it wrote. */
+export async function buildBundle(context: RunContext, job: BundleJob): Promise<BundleManifest> {
+  const {commit, concurrency, env, out, rootDir, workers} = job
+  assertSafeOut(out, workers, rootDir)
+  const manifestPath = join(out, MANIFEST_FILE)
+
+  // Only a complete run writes a manifest, so an old one must not outlive a failed run.
+  rmSync(manifestPath, {force: true})
+  mkdirSync(out, {recursive: true})
+
+  const described = new Map<string, ManifestWorker>()
+  await runWorkerSteps(context, {
+    action: 'bundle',
+    concurrency: concurrency ?? defaultBuildConcurrency(),
+    steps: workers.map((worker) => ({
+      dependsOn: [],
+      async run(mode) {
+        const outdir = join(out, worker.dir)
+        rmSync(outdir, {force: true, maxRetries: 3, recursive: true, retryDelay: 100})
+        await runStep(context, {
+          argvOptions: {env},
+          mode,
+          step: {
+            action: 'build',
+            configPath: materialiseConfig({...worker, config: withoutMinify(worker.config)}, context.runDir),
+            outdir,
+          },
+          worker: worker.dir,
+        })
+        described.set(worker.dir, describeWorker(worker, outdir, env))
+      },
+      worker: worker.dir,
+    })),
+  })
+
+  const manifest: BundleManifest = {
+    commit,
+    env,
+    schemaVersion: SCHEMA_VERSION,
+    workers: Object.fromEntries([...described].sort(([a], [b]) => compareNames(a, b))),
+    wrangler: context.wrangler.version,
+  }
+  writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
+  context.emit({manifest, path: manifestPath, type: 'bundle-written'})
+  return manifest
 }
 
 /** `monocf bundle`: a dry-run build of each worker in parallel, and a manifest of what would be uploaded. */
@@ -158,7 +229,6 @@ export async function runBundle(names: string[], flags: BundleFlags): Promise<vo
   const workers = project.workers.filter(({dir}) => selected.includes(dir))
 
   const out = flags.out ? resolve(flags.out) : join(rootDir, '.monocf', 'bundle', env)
-  assertSafeOut(out, workers, rootDir)
   const wrangler = locateWrangler(rootDir)
 
   const notices: {message: string; worker?: string}[] = project.notices
@@ -167,51 +237,11 @@ export async function runBundle(names: string[], flags: BundleFlags): Promise<vo
   const commit = resolveCommit(rootDir, (message) => {
     notices.push({message})
   })
-  const manifestPath = join(out, MANIFEST_FILE)
   const json = flags.json === true
 
   await withRun({action: 'bundle', env, json, notices, rootDir, workers: selected, wrangler}, async (context) => {
-    // Only a complete run writes a manifest, so an old one must not outlive a failed run.
-    rmSync(manifestPath, {force: true})
-    mkdirSync(out, {recursive: true})
-
-    const described = new Map<string, ManifestWorker>()
-    await runWorkerSteps(context, {
-      action: 'bundle',
-      concurrency: flags.concurrency ?? defaultBuildConcurrency(),
-      steps: workers.map((worker) => ({
-        dependsOn: [],
-        async run(mode) {
-          const outdir = join(out, worker.dir)
-          rmSync(outdir, {force: true, maxRetries: 3, recursive: true, retryDelay: 100})
-          await runStep(context, {
-            argvOptions: {env},
-            mode,
-            step: {
-              action: 'build',
-              configPath: materialiseConfig({...worker, config: withoutMinify(worker.config)}, context.runDir),
-              outdir,
-            },
-            worker: worker.dir,
-          })
-          described.set(worker.dir, describeWorker(worker, outdir, env))
-        },
-        worker: worker.dir,
-      })),
-    })
-
-    const manifest: BundleManifest = {
-      commit,
-      env,
-      schemaVersion: SCHEMA_VERSION,
-      workers: Object.fromEntries([...described].sort(([a], [b]) => compareNames(a, b))),
-      wrangler: wrangler.version,
-    }
-    writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
-    context.emit({manifest, path: manifestPath, type: 'bundle-written'})
-    if (!json) process.stdout.write(`${manifestPath}\n`)
-
-    const errors = checkEntrypoints(context, workers, out, env)
-    if (errors > 0) throw new MonocfError(`${errors} service bindings name an entrypoint that doesn't exist.`, EXIT_FAILED)
+    await buildBundle(context, {commit, concurrency: flags.concurrency, env, out, rootDir, workers})
+    if (!json) process.stdout.write(`${join(out, MANIFEST_FILE)}\n`)
+    checkEntrypoints(context, workers, out, env)
   })
 }
