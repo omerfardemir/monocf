@@ -72,6 +72,10 @@ function bindingProject() {
   }
 }
 
+function manifest(result: {stdout: string}) {
+  return JSON.parse(readFileSync(result.stdout.trim(), 'utf8'))
+}
+
 describe('real wrangler, with no Cloudflare', {timeout: 180_000}, () => {
   describe('build', () => {
     it('finds every relative path through the rebased config', async () => {
@@ -101,7 +105,57 @@ export default {fetch: () => new Response(shim)}
       const added = Object.keys(snapshotTree(fixture.root)).filter((path) => !(path in before))
       expect(added.filter((path) => !path.startsWith('workers/orders/dist/'))).toEqual([])
     })
+  })
 
+  describe('bundle', () => {
+    const bundled = {
+      environments: ['dev'],
+      files: {
+        'workers/billing/src/index.ts': `import {WorkerEntrypoint} from 'cloudflare:workers'
+import {rate} from './rate'
+export class Api extends WorkerEntrypoint {
+  amount() {
+    return rate
+  }
+}
+export default {fetch: () => new Response('billing')}
+`,
+        'workers/billing/src/rate.ts': `export const rate = 'a-rate-that-stays-readable'\n`,
+      },
+      wrangler: 'real' as const,
+      workers: [
+        {
+          config: {
+            env: {dev: {services: [{binding: 'BILLING', entrypoint: 'Api', service: 'billing'}]}},
+            minify: true,
+          },
+          name: 'orders',
+        },
+        {config: {minify: true}, name: 'billing'},
+      ],
+    }
+
+    it('gives one fingerprint across run directories and output directories, unminified', async () => {
+      const fixture = createFixture(bundled)
+
+      const first = await runCli(fixture, ['bundle', '-e', 'dev'])
+      const second = await runCli(fixture, ['bundle', '-e', 'dev', '--out', 'other/place'])
+
+      expect(first.exitCode, first.stderr).toBe(0)
+      expect(second.exitCode, second.stderr).toBe(0)
+      expect(manifest(second).workers).toEqual(manifest(first).workers)
+      expect(manifest(first).wrangler).toBe('4.151.0')
+
+      const source = readFileSync(join(fixture.root, '.monocf', 'bundle', 'dev', 'billing', 'index.js'), 'utf8')
+      expect(source).toContain('var rate = "a-rate-that-stays-readable"')
+      // A module path comment runs from the config in the run directory, whose random part it never names.
+      expect(source).toMatch(/^\/\/ .*workers\/billing\/src\/rate\.ts$/m)
+      expect(source).not.toContain('.monocf')
+      expect(source).not.toContain('runs/')
+    })
+
+    // Each env has its own output directory. `worker -c build` shares `dist`, where wrangler reading a source map the
+    // other process is writing can fail with "Unexpected end of JSON input".
     it('runs two envs at once without either seeing the other', async () => {
       const fixture = createFixture({
         environments: ['dev', 'staging'],
@@ -111,13 +165,27 @@ export default {fetch: () => new Response(shim)}
       })
 
       const [dev, staging] = await Promise.all([
-        startCli(fixture, ['worker', 'orders', '-c', 'build', '-e', 'dev']).done,
-        startCli(fixture, ['worker', 'orders', '-c', 'build', '-e', 'staging']).done,
+        startCli(fixture, ['bundle', '-e', 'dev']).done,
+        startCli(fixture, ['bundle', '-e', 'staging']).done,
       ])
 
       expect(dev.exitCode, dev.stderr).toBe(0)
       expect(staging.exitCode, staging.stderr).toBe(0)
-      expect(existsSync(join(fixture.root, '.monocf'))).toBe(false)
+      expect(manifest(dev).workers.orders.deployedName).toBe('orders-v1-dev')
+      expect(manifest(staging).workers.orders.deployedName).toBe('orders-v1-staging')
+      expect(existsSync(join(fixture.root, '.monocf', 'runs'))).toBe(false)
+    })
+
+    it('reads the exports of real output, and catches a wrong entrypoint', async () => {
+      const good = await runCli(createFixture(bundled), ['bundle', '-e', 'dev'])
+      expect(good.stderr).not.toContain('unknown-entrypoint')
+
+      const bad = structuredClone(bundled)
+      bad.workers[0].config.env = {dev: {services: [{binding: 'BILLING', entrypoint: 'Typo', service: 'billing'}]}}
+      const result = await runCli(createFixture(bad), ['bundle', '-e', 'dev'])
+
+      expect(result.exitCode).toBe(1)
+      expect(result.stderr).toContain('error unknown-entrypoint: orders: binding BILLING names entrypoint Typo')
     })
   })
 

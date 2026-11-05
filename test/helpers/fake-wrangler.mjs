@@ -125,7 +125,10 @@ const outdir = flagValues(['--outdir'])[0]
 if (startsWithCommand('deploy') && argv.includes('--dry-run') && outdir) {
   const target = resolve(outdir)
   mkdirSync(target, {recursive: true})
-  writeFileSync(join(target, 'index.js'), `export default {} // ${deployedName}\n`)
+  writeFileSync(join(target, 'index.js'), rule.bundle ?? `export default {} // ${deployedName}\n`)
+  // As real wrangler: a timestamp in README.md. A source map differs here too, as one does across line endings.
+  writeFileSync(join(target, 'README.md'), `Generated at ${Date.now()}-${process.pid}\n`)
+  writeFileSync(join(target, 'index.js.map'), `{"id":"${Date.now()}-${process.pid}"}\n`)
 }
 
 function defaultStdout() {

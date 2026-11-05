@@ -83,6 +83,8 @@ export interface Fixture {
 export interface WranglerRule {
   command: string
   worker?: string
+  /** What a dry run writes as index.js. */
+  bundle?: string
   exitCode?: number
   /** The code of the `command-failed` entry written to the output file. */
   failCode?: number

@@ -127,15 +127,24 @@ Deploys go by level, callees first. **Callers are used for PR warnings and smoke
 ## Fingerprint
 
 ```
-sha256( canonical(resolved config minus RELEASE) + sorted(path + bytes of each bundled module) )
+bundleHash  = sha256( sorted (path, bytes) of the output directory, pnpm store directories normalised )
+configHash  = sha256( canonical JSON of the resolved config, this env only, minus RELEASE )
+fingerprint = sha256( bundleHash + "\n" + configHash )
 ```
 
-- The bundle is produced by `wrangler deploy --dry-run --outdir <dir>` **without** `--minify`. Minifier output changes across workers when an unrelated, tree-shaken export changes, which would cause false redeploys. Measured on a 30-worker monorepo: 26 of 30 minified bundles changed from one unused export; 0 of 30 unminified bundles did.
+- The bundle is produced by `wrangler deploy --dry-run --outdir <dir>` **without** `--minify`, and with `minify` removed from the config it reads. Minifier output changes across workers when an unrelated, tree-shaken export changes, which would cause false redeploys. Measured on a 30-worker monorepo: 26 of 30 minified bundles changed from one unused export; 0 of 30 unminified bundles did.
 - Deploy artifacts are still minified when configured. The fingerprint is a comparison key, not a description of the upload.
 - `VERSION` stays in the config, so a version bump causes a deploy.
-- `README.md` in the output directory holds a timestamp, and `.map` files change with line endings, so both are excluded. `index.js` was byte-identical across Windows and Linux, checkout path, working directory and Node version.
+- Only the selected env's section is hashed, so a change to another env's values doesn't redeploy this one. The top level stays in, since an env can inherit from it. A top-level field the env overrides can therefore cause a redeploy with no effect, which is the safe direction.
+- `README.md` at the top of the output directory holds a timestamp, `.map` files change with line endings, and `wrangler.json*` at the top is the config, hashed on its own. All are excluded.
+- pnpm cuts long `.pnpm/<dir>` names at a limit that differs per platform, and esbuild writes module paths into comments and `__commonJS` keys. Measured on a 30-worker monorepo: 14 of 30 bundles differed between Windows and Linux, in those paths only. So `bundleHash` reads every `node_modules/.pnpm/<dir>/node_modules/` in a script as one spelling. A package whose code changes still changes the hash.
+- Module path comments in the bundle run from the config's directory in the run directory. The random run ID is one path segment, so the `../` count doesn't depend on it and it never appears. `--out` doesn't matter either.
 - The bundle differs between wrangler versions, so wrangler must be pinned. Upgrading it redeploys everything.
-- Each upload is tagged `monocf:<fingerprint>`. A tag allows up to 100 characters; a longer one fails the upload.
+- Each upload is tagged `monocf:<fingerprint>`, 64 hex characters. A tag allows up to 100 characters; a longer one fails the upload.
+- `triggersHash` covers the effective `triggers.crons`, `routes` or `route`, `workers_dev` and `preview_urls`. All four inherit from the top level. `crons` is `null` when the config doesn't set it, because wrangler then leaves the deployed crons alone, unlike an explicit `[]`. `workersDev` follows wrangler's default: true when there are no routes.
+- `doHash` covers the effective `migrations` and `exports`. A binding alone isn't a class lifecycle change.
+
+`monocf bundle` writes these to `<out>/manifest.json` only when every worker built. A run that fails leaves no manifest, so an old one can't be taken for this run's. Two runs at once must use different output directories, which the default `.monocf/bundle/<env>` does for different envs. `worker -c build` shares the worker's `dist`, so running it for two envs at once can fail: wrangler may read a source map the other process is writing.
 
 ## State
 
@@ -203,8 +212,8 @@ A caller sees a new callee version without being redeployed, for both RPC and fe
 ## Commands
 
 ```
-monocf graph    [-e env] [--json | --mermaid]
-monocf check    [-e env | --all-envs] [--json]
+monocf graph    [-e env] [--json | --mermaid] [--callers worker]
+monocf check    [-e env | --all-envs] [--strict] [--json]
 monocf bundle   [workers...] -e env [--out dir] [--concurrency n] [--json]
 monocf plan     -e env --state <url> [--out plan.json] [--markdown file] [--on-drift warn|fail] [--json]
 monocf apply    <plan.json> [--concurrency n] [--expect-branch-tip ref] [--summary-file path] [--json]
@@ -212,7 +221,9 @@ monocf rollback -e env --state <url> (--to-run <id> | <worker> --to <version-id>
 monocf secrets check -e env [--json]
 ```
 
-`monocf worker -c <action>` keeps working on top of the same core.
+`monocf worker -c <action>` keeps working on top of the same core. `build` takes `--concurrency`, with the CPU count up to 8 as its default, and a failed build holds no other back. `deploy` and `preview` take it too, with a default of 1, in graph order, and a failure skips the worker's transitive callers while independent workers carry on. A wrangler killed by a signal from outside stops new steps. Windows can't tell such a kill from exit 1.
+
+`graph`, `check` and `bundle` need no credentials, and the first two need no wrangler. `check` exits 2 on any error, and on any warning with `--strict`. A cycle that only a queue edge closes is a warning, as queues need no order at deploy time. A failure to resolve that isn't an unknown placeholder is reported under the rule `resolve-failed`. `bundle` also reports `unknown-entrypoint`, an error that exits 1, since Cloudflare never rejects a wrong entrypoint and it can fall through to the default handler.
 
 A plan records the commit and wrangler version it was made for. `apply` refuses to run on any other. `--expect-branch-tip` stops a re-run of an old pipeline from deploying an old commit over a newer one.
 

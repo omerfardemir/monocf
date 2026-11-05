@@ -64,7 +64,12 @@ describe('the source tree stays as it was', () => {
     expect(result.exitCode).toBe(0)
     const after = snapshotTree(fixture.root)
     const added = Object.keys(after).filter((path) => !(path in before))
-    expect(added).toEqual(['workers/gateway/dist/', 'workers/gateway/dist/index.js'])
+    expect(added).toEqual([
+      'workers/gateway/dist/',
+      'workers/gateway/dist/index.js',
+      'workers/gateway/dist/index.js.map',
+      'workers/gateway/dist/README.md',
+    ])
     for (const path of Object.keys(before)) expect(after[path]).toBe(before[path])
   })
 
