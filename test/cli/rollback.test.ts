@@ -95,6 +95,19 @@ describe('rollback --to-run', () => {
     expect(lastRunRecord(fixture).workers.billing).toMatchObject({changed: true, previousVersionId: later})
   })
 
+  it("doesn't say a restore Cloudflare refused may have changed what is live", async () => {
+    const {cloudflare, fixture, plan, runId} = await deployedTwice(['billing'])
+    const later = activeOf(cloudflare, stepOf(plan, 'billing'))
+    const refused = {command: 'versions deploy', exitCode: 1, stderr: '✘ [ERROR] A request to the Cloudflare API failed. The version depends on a migration that is not applied [code: 10210]\n'}
+
+    const result = await rollback(fixture, ['--to-run', runId], {cloudflare, rules: [refused]})
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).not.toContain('may have changed what is live')
+    expect(activeOf(result.cloudflare, stepOf(plan, 'billing'))).toBe(later)
+    expect(lastRunRecord(fixture).workers.billing).toMatchObject({changed: false, result: 'failed'})
+  })
+
   it('does not promote what is already active', async () => {
     const {before, cloudflare, fixture, plan, runId} = await deployedTwice(['billing'])
     cloudflare.workers![stepOf(plan, 'billing').deployedName].active = [[before.billing.versionId, 100]]
