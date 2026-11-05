@@ -90,7 +90,7 @@ const STATUS_MAX_BUFFER = 256 * 1024 * 1024
 
 /**
  * What differs from the commit across the whole repository, as a worker can import from outside `rootDir`, apart from
- * `excluded`. Absolute paths, or undefined when git can't say.
+ * `excluded`. Paths from the root, or undefined when git can't say.
  */
 export function dirtyPaths(rootDir: string, excluded: string[]): string[] | undefined {
   const git = (...args: string[]): string => execFileSync('git', args, {cwd: rootDir, encoding: 'utf8', maxBuffer: STATUS_MAX_BUFFER, shell: false, stdio: ['ignore', 'pipe', 'ignore']})
@@ -108,7 +108,9 @@ export function dirtyPaths(rootDir: string, excluded: string[]): string[] | unde
       }
     }
 
-    return paths.filter((path) => !skipped.some((skip) => isSameOrWithin(skip, path)))
+    // Git answers with the real path, and the root may not be one: a link, or a short name such as RUNNER~1 on Windows.
+    const root = realPath(rootDir)
+    return paths.filter((path) => !skipped.some((skip) => isSameOrWithin(skip, path))).map((path) => relative(root, path).replaceAll('\\', '/'))
   } catch {
     return undefined
   }

@@ -1,6 +1,6 @@
 import {execFileSync} from 'node:child_process'
 import {appendFileSync, mkdirSync, readFileSync} from 'node:fs'
-import {dirname, join, relative, resolve} from 'node:path'
+import {dirname, join, resolve} from 'node:path'
 
 import {effectiveField, readProjectInputs, resolveProject} from '../config/resolve.js'
 import {ConfigError, isPlainObject, type ResolvedWorker} from '../config/types.js'
@@ -119,7 +119,7 @@ function assertCleanCheckout(plan: Plan, {location, planPath, rootDir, summaryFi
   ])
   if (paths === undefined) throw new ConfigError("git can't say whether this checkout has changes, so nothing says that the plan describes it.")
   if (paths.length === 0) return
-  const named = paths.slice(0, MAX_NAMED_PATHS).map((path) => relative(rootDir, path).replaceAll('\\', '/'))
+  const named = paths.slice(0, MAX_NAMED_PATHS)
   const more = paths.length > MAX_NAMED_PATHS ? `, and ${paths.length - MAX_NAMED_PATHS} more` : ''
   throw new ConfigError(`This checkout has changes the plan doesn't include: ${named.join(', ')}${more}. Commit them and plan again, or remove them.`)
 }

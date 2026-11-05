@@ -1,5 +1,5 @@
 import {execFileSync} from 'node:child_process'
-import {mkdirSync, writeFileSync} from 'node:fs'
+import {mkdirSync, symlinkSync, unlinkSync, writeFileSync} from 'node:fs'
 import {join} from 'node:path'
 import {describe, expect, it} from 'vitest'
 
@@ -43,6 +43,20 @@ describe('apply, against what is on disk (WP6-1)', () => {
     for (const name of ['a', 'b', 'c', 'd', 'e', 'f', 'g']) writeFileSync(join(fixture.root, `${name}.txt`), name)
 
     await refuses(fixture, /a\.txt, b\.txt, c\.txt, d\.txt, e\.txt, and 2 more/)
+  })
+
+  it('names a path from the root when the root is not a real path, as a short name on a Windows runner is not', async () => {
+    const fixture = deployFixture()
+    await planFor(fixture, {}, {flags: ['--first-run']})
+    writeFileSync(join(fixture.root, 'a.txt'), 'a')
+    const link = join(fixture.root, '..', 'linked')
+    symlinkSync(fixture.root, link, 'junction')
+
+    try {
+      await refuses(fixture, /doesn't include: a\.txt\. Commit/, ['--root-dir', link])
+    } finally {
+      unlinkSync(link)
+    }
   })
 
   it('refuses a new file beside the workers, as a worker can import it', async () => {
