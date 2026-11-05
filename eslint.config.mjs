@@ -8,7 +8,7 @@ const gitignorePath = path.resolve(path.dirname(fileURLToPath(import.meta.url)),
 
 export default [
   {
-    ignores: ["**/dist", "**/build", "**/docs", "**/*.md", "**/templates", "**/examples"]
+    ignores: ["**/dist", "**/build", "**/docs", "**/*.md", "**/examples"]
   },
   includeIgnoreFile(gitignorePath), 
   ...oclif, 
