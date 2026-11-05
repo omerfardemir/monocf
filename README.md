@@ -1059,7 +1059,9 @@ A run that failed or was interrupted can be rolled back too. `apply` reads what'
 
 Its limits:
 
-- **Triggers.** Code, vars and secrets follow a version. Crons and routes don't, so monocf restores them separately, for `--to-run` only. `--to` leaves them as they are.
+- **Triggers.** Code, vars and secrets follow a version. Crons, routes, queue consumers, Workflows and tail consumers don't, so monocf restores them separately, for `--to-run` only. It runs `triggers deploy` with the earlier crons, routes, consumers and Workflows, promotes with the earlier tail consumers, and detaches a queue consumer the run added that the earlier triggers don't hold. `--to` leaves them as they are.
+- **A Workflow the run registered** stays registered, as nothing in wrangler deletes one and deleting it deletes its instances. The rollback says so. To delete it, run `wrangler workflows delete <name>`.
+- **A queue consumer whose handler the run removed.** If the run dropped a consumer and the worker's `queue()` handler with it, the rollback can't attach the consumer again. Cloudflare refuses with 11001, "Queue handler is missing", though the version put back has a handler. It appears to check the worker's latest upload. That worker fails with exit 1, and running the rollback again doesn't help. If the run moved the consumer to another worker, the rollback still detaches it there, so the queue has no consumer until an `apply` attaches one. Messages wait in the queue meanwhile.
 - **Durable Objects.** Cloudflare refuses a rollback across a class addition, and takes one across a class deletion with exit 0, leaving the class broken. So monocf refuses any rollback across a Durable Object change. `--force` accepts that risk.
 - **Retained versions.** Cloudflare keeps a limited number of versions. A version it no longer has fails that worker with exit 1.
 - **Workers the run created** have nothing to go back to. They're skipped with a note, and stay deployed.
@@ -1143,7 +1145,7 @@ When in doubt, a file counts: a false "changed" costs one redeploy, and a false 
 
 `upload` can also carry `drift`, `split`, `baseline`, `secret-changed` or `provider-recreated`, as the sections above describe.
 
-**A worker gone from the repository** gets an `orphan` note while the state knows it. monocf never deletes a worker, so the note stays while the worker is live. Delete it yourself with `wrangler delete <deployed name>`. The next `plan` reads it, finds it gone, and notes `orphan-gone`, and that plan's `apply` drops its entry from the state, which clears the note. The read uses `CLOUDFLARE_ACCOUNT_ID`, and only when that's the account the entry recorded, as another account would say any worker is gone.
+**A worker gone from the repository** gets an `orphan` note while the state knows it. monocf never deletes a worker, so the note stays while the worker is live. Delete it yourself with `wrangler delete <deployed name>`. The next `plan` reads it, finds it gone, and notes `orphan-gone`, and that plan's `apply` drops its entry from the state, which clears the note. The read uses `CLOUDFLARE_ACCOUNT_ID`, and only when that's the account the entry recorded, as another account would say any worker is gone. So an orphan that deployed to another account through its own `account_id` never clears by itself: once it's deleted, remove its entry from the state manifest by hand.
 
 Removing every cron is handled too: `apply` writes an explicit `"crons": []`, since wrangler leaves deployed crons alone when the key is absent.
 
