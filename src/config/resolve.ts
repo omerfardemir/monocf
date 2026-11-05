@@ -121,6 +121,12 @@ export function effectiveField(config: RawConfig, env: string | undefined, field
   return envSection(config, env)[field] ?? config[field]
 }
 
+/** A worker's own account. Wrangler ignores a blank one, with a warning, and goes by the environment. */
+export function accountIdOf(config: RawConfig, env: string | undefined): string | undefined {
+  const field = effectiveField(config, env, 'account_id')
+  return typeof field === 'string' && field.trim() !== '' ? field : undefined
+}
+
 /** Replaces every character a worker name can't hold with a dash. Uppercase letters aren't lowercased. */
 export function sanitizeWorkerName(name: string): string {
   return name.replaceAll(/[^a-z0-9-]/g, '-')

@@ -2,7 +2,7 @@ import {rmSync} from 'node:fs'
 import {join, resolve} from 'node:path'
 
 import {runRules, type Finding} from '../check/rules.js'
-import {effectiveField, readProjectInputs, resolveProject} from '../config/resolve.js'
+import {accountIdOf, readProjectInputs, resolveProject} from '../config/resolve.js'
 import {ConfigError, type ResolvedWorker} from '../config/types.js'
 import {EXIT_ENVIRONMENT, EXIT_FAILED, EXIT_OK, MonocfError} from '../errors.js'
 import {buildGraph} from '../graph/graph.js'
@@ -113,8 +113,7 @@ async function readActiveVersions(
     steps: workers.map(({config, deployedName, dir}) => ({
       dependsOn: [],
       async run() {
-        const accountField = effectiveField(config, env, 'account_id')
-        const accountId = typeof accountField === 'string' ? accountField : undefined
+        const accountId = accountIdOf(config, env)
         const call: WranglerCall = withReadRetries(
           (step, account) => callWrangler(context, step, {accountId: account, worker: dir}),
           context.interrupts.signal,
