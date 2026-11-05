@@ -260,7 +260,7 @@ async function triggersOnlyRun() {
   return {cloudflare: applied.cloudflare!, fixture, plan, runId: lastRunRecord(fixture).runId as string}
 }
 
-describe('rollback of a run that only changed triggers (R1)', () => {
+describe('rollback of a run that only changed triggers', () => {
   it('records what was live, though it restores no version', async () => {
     const {cloudflare, fixture, plan, runId} = await triggersOnlyRun()
     const live = activeOf(cloudflare, stepOf(plan, 'reports'))

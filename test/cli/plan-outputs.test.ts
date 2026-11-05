@@ -12,7 +12,7 @@ function project(): Fixture {
 
 const outputs = ['--out', 'old-plan.json', '--markdown', 'old-plan.md']
 
-describe('--markdown inside something wrangler uploads (R11)', () => {
+describe('--markdown inside something wrangler uploads', () => {
   it.each([
     ['assets', {assets: {directory: './public'}}, 'workers/billing/public/plan.md'],
     ['a directory under assets', {assets: {directory: './public'}}, 'workers/billing/public/reports/plan.md'],

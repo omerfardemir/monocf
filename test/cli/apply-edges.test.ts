@@ -9,7 +9,7 @@ const broke = '✘ [ERROR] Something broke\n'
 const unreadableAfterFirstRead = (name: string): WranglerRule => ({command: 'deployments status', exitCode: 1, skip: 1, stderr: broke, worker: name})
 const readState = (fixture: Fixture) => (existsSync(join(fixture.root, 'state', 'staging', 'manifest.json')) ? manifestOf(fixture) : undefined)
 
-describe('live moved between plan and apply (M01)', () => {
+describe('live moved between plan and apply', () => {
   // billing takes the upload path, and reports, with a site, a deploy.
   it.each([
     ['billing', 'upload'],
@@ -34,7 +34,7 @@ describe('live moved between plan and apply (M01)', () => {
   })
 })
 
-describe('an unknown result across a Durable Object change (M04)', () => {
+describe('an unknown result across a Durable Object change', () => {
   it('refuses to roll back without --force, though the state still has the old classes', async () => {
     const fixture = deployFixture({workers: [{name: 'reports'}]})
     const cloudflare = await firstRun(fixture)
@@ -61,7 +61,7 @@ describe('an unknown result across a Durable Object change (M04)', () => {
   })
 })
 
-describe('the "Uploaded and not promoted" line (M08)', () => {
+describe('the "Uploaded and not promoted" line', () => {
   const LINE = 'Uploaded and not promoted: billing'
 
   it('is left out when the promote may have taken effect, as the read after it failed', async () => {
@@ -114,7 +114,7 @@ async function aboutToAdopt() {
   return {cloudflare, fixture, step}
 }
 
-describe('a step that writes no version, when live moved after the plan (R8)', () => {
+describe('a step that writes no version, when live moved after the plan', () => {
   it.each([
     ['triggers', aboutToApplyTriggers],
     ['adopt', aboutToAdopt],
@@ -149,7 +149,7 @@ describe('a step that writes no version, when live moved after the plan (R8)', (
   })
 })
 
-describe('a retried deploy, when another version went live meanwhile (M10)', () => {
+describe('a retried deploy, when another version went live meanwhile', () => {
   it("doesn't take that version for its own, as its tag isn't this run's", async () => {
     const fixture = deployFixture({workers: [{config: {site: {bucket: './site'}}, name: 'reports'}]})
     const cloudflare = await firstRun(fixture)

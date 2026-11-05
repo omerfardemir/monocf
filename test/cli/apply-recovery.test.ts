@@ -15,7 +15,7 @@ async function live(fixture: Fixture): Promise<FakeCloudflare> {
   return cloudflare
 }
 
-describe('apply, retrying a deploy that took effect (WP6-2)', () => {
+describe('apply, retrying a deploy that took effect', () => {
   it('applies the triggers it may not have reached, and deploys once', async () => {
     const fixture = deployFixture()
     await planFor(fixture, {}, {flags: ['--first-run']})
@@ -55,7 +55,7 @@ async function marked() {
   return {cloudflare: without, fixture, name: stepOf(plan, 'gateway').deployedName, old: activeOf(cloudflare, stepOf(plan, 'gateway'))}
 }
 
-describe('apply, retrying the full deploy of a marked caller (WP6-3)', () => {
+describe('apply, retrying the full deploy of a marked caller', () => {
   it("doesn't take the old version for the new one, and deploys again", async () => {
     const {cloudflare, fixture, name, old} = await marked()
 
@@ -80,7 +80,7 @@ describe('apply, retrying the full deploy of a marked caller (WP6-3)', () => {
   })
 })
 
-describe('apply, recovering what a crash left live (WP6-7)', () => {
+describe('apply, recovering what a crash left live', () => {
   it('runs triggers deploy on adopt for a worker with no crons or routes, as workers_dev goes that way', async () => {
     const fixture = deployFixture()
     const cloudflare = await live(fixture)
@@ -128,7 +128,7 @@ describe('apply, recovering what a crash left live (WP6-7)', () => {
   })
 })
 
-describe('apply, and the marker (WP6-12, WP6-17)', () => {
+describe('apply, and the marker', () => {
   it('marks a caller in .monocfignore when its provider is recreated, and acts once it is selected', async () => {
     const fixture = deployFixture()
     const cloudflare = await live(fixture)
@@ -171,7 +171,7 @@ describe('apply, and the marker (WP6-12, WP6-17)', () => {
   })
 })
 
-describe('apply, a marked caller that needed adopt (WP6-11)', () => {
+describe('apply, a marked caller that needed adopt', () => {
   it('gets a new version, and the triggers an adopt would have run', async () => {
     const fixture = deployFixture()
     const cloudflare = await live(fixture)

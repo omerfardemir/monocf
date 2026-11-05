@@ -16,7 +16,7 @@ describe('findConfigFile', () => {
 })
 
 describe('parseJsonc', () => {
-  it('accepts one leading BOM, as wrangler does (F3)', () => {
+  it('accepts one leading BOM, as wrangler does', () => {
     expect(parseJsonc('\uFEFF{"a": 1}', 'f')).toEqual({a: 1})
   })
 

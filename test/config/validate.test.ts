@@ -87,7 +87,7 @@ describe('validateSelection', () => {
     expect(() => validateSelection(['orders', 'billing'], options, inputs, project)).toThrow('Unknown environment')
   })
 
-  it('reads an env key after placeholders are replaced (R13)', () => {
+  it('reads an env key after placeholders are replaced', () => {
     const withPlaceholder: ProjectInputs = {
       base: {config: {env: {'{stage}': {}}}, path: 'b'},
       failures: [],

@@ -21,7 +21,7 @@ function project(files: Record<string, string>): {root: string; worker: string} 
   return {root, worker}
 }
 
-describe('serializeDevVars (F02)', () => {
+describe('serializeDevVars', () => {
   it.each([
     ['a hash', 'value # not a comment'],
     ['a leading hash', '#value'],
@@ -59,7 +59,7 @@ describe('serializeDevVars (F02)', () => {
   })
 })
 
-describe('requireSecretsFile (R9)', () => {
+describe('requireSecretsFile', () => {
   it('passes with the file in the worker, in the root, or in both', () => {
     const both = project({'.dev.vars.e': '', 'workers/orders/.dev.vars.e': ''})
     const inRoot = project({'.dev.vars.e': ''})

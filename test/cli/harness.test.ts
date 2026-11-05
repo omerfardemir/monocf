@@ -7,7 +7,7 @@ import {afterEach, describe, expect, it, vi} from 'vitest'
 
 import {createFixture, runCli} from '../helpers/harness.js'
 
-describe('test harness (R6)', () => {
+describe('test harness', () => {
   afterEach(() => {
     vi.unstubAllEnvs()
   })

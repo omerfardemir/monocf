@@ -37,7 +37,7 @@ function withIgnoredAssets(): Fixture {
 }
 
 describe('plan --bundle-dir', () => {
-  it('builds again when a gitignored input changed after the bundle, and plans the change (WP6-8)', async () => {
+  it('builds again when a gitignored input changed after the bundle, and plans the change', async () => {
     const fixture = withIgnoredAssets()
     await bundled(fixture)
     writeFileSync(join(fixture.worker('orders'), 'public', 'index.html'), 'two')

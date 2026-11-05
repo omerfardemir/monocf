@@ -28,7 +28,7 @@ async function aboutToDeploy() {
   return {cloudflare, fixture, name: step.deployedName as string, old, step}
 }
 
-describe('a step that changed what is live, and then failed (WP6-6)', () => {
+describe('a step that changed what is live, and then failed', () => {
   it('records what is live, and the next plan under fail does not read it as drift', async () => {
     const {cloudflare, fixture, name, old, step} = await aboutToDeploy()
 
@@ -156,7 +156,7 @@ describe('a step that changed what is live, and then failed (WP6-6)', () => {
   })
 })
 
-describe('rollback to a version the state entry does not describe (WP6-4)', () => {
+describe('rollback to a version the state entry does not describe', () => {
   it('records an unknown entry for a manual hotfix it restores, so the next plan looks again', async () => {
     const fixture = deployFixture()
     const cloudflare = await firstRun(fixture)
@@ -222,7 +222,7 @@ async function failedWithReportsUntouched() {
   return {cloudflare: failed.cloudflare!, fixture, old, plan, runId: record.runId as string}
 }
 
-describe('a worker in a failed run that has left the checkout (R6)', () => {
+describe('a worker in a failed run that has left the checkout', () => {
   it('skips one the run left unchanged, says so, and restores the rest', async () => {
     const {cloudflare, fixture, old, plan, runId} = await failedWithReportsUntouched()
     rmSync(fixture.worker('reports'), {force: true, recursive: true})
@@ -265,7 +265,7 @@ async function recreatedAndApplied() {
   return {cloudflare: applied.cloudflare!, fixture, runId: lastRunRecord(fixture).runId as string, step: stepOf(next, 'orders')}
 }
 
-describe('rollback across a recreated provider (WP6-5)', () => {
+describe('rollback across a recreated provider', () => {
   it('refuses without --force, says why and what next, and changes nothing', async () => {
     const {cloudflare, fixture, runId, step} = await recreatedAndApplied()
     const live = activeOf(cloudflare, step)
@@ -407,7 +407,7 @@ describe('a rollback that fails (reads what is live, as apply does)', () => {
   })
 })
 
-describe('rollback across a recreated provider, of a caller with its own full-deploy (R4)', () => {
+describe('rollback across a recreated provider, of a caller with its own full-deploy', () => {
   const withDo = {
     durable_objects: {bindings: [{class_name: 'Counter', name: 'COUNTER'}]},
     env: {staging: {services: [{binding: 'BILLING', service: 'billing'}]}},
@@ -469,7 +469,7 @@ describe('rollback across a recreated provider, of a caller with its own full-de
   })
 })
 
-describe('rollback across an added route (WP6-15)', () => {
+describe('rollback across an added route', () => {
   const routes = ['example.com/*']
 
   it('says the route stays, and the state says so too', async () => {

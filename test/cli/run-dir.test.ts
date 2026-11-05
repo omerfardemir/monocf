@@ -298,7 +298,7 @@ describe('dev', () => {
     expect(fromRoot(fixture, flagValue(result.calls[0], '--persist-to')!)).toBe('workers/gateway/.wrangler/state')
   })
 
-  it('writes the merged env file next to the config and leaves the source files alone (F03)', async () => {
+  it('writes the merged env file next to the config and leaves the source files alone', async () => {
     const fixture = project()
 
     const result = await runCli(fixture, ['worker', 'gateway', '-c', 'dev', '-e', 'staging'])
@@ -307,7 +307,7 @@ describe('dev', () => {
     expect(readFileSync(join(fixture.worker('gateway'), '.dev.vars.staging'), 'utf8')).toBe('KEY=gateway-staging')
   })
 
-  it('round-trips values that a plain KEY=value file would break (F02)', async () => {
+  it('round-trips values that a plain KEY=value file would break', async () => {
     const value = {
       BACKTICK: 'a`b',
       EQUALS: 'a=b=c',

@@ -233,7 +233,7 @@ export default {fetch: () => new Response('billing')}
   })
 
   describe('dev', () => {
-    it('hands the worker its env values unchanged, from a file outside the source tree (F02, F03)', async () => {
+    it('hands the worker its env values unchanged, from a file outside the source tree', async () => {
       const values = {
         EQUALS: 'a=b=c',
         HASH: 'value # not a comment',
@@ -301,7 +301,7 @@ export default {fetch: () => new Response('billing')}
       }
     })
 
-    it.skipIf(isWindows)('fails when the process running wrangler is killed (F04)', async () => {
+    it.skipIf(isWindows)('fails when the process running wrangler is killed', async () => {
       const fixture = createFixture({
         files: {'workers/orders/src/index.ts': `export default {fetch: () => new Response('up')}\n`},
         wrangler: 'real',

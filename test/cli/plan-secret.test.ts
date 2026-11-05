@@ -38,7 +38,7 @@ function rotations(cloudflare: FakeCloudflare, name: string, count: number): Fak
   return state
 }
 
-describe('plan --on-drift fail, with a version a secret command made (WP6-9)', () => {
+describe('plan --on-drift fail, with a version a secret command made', () => {
   it('takes a rotation on known code as routine', async () => {
     const {cloudflare, fixture, name} = await deployed()
 
@@ -86,7 +86,7 @@ describe('plan --on-drift fail, with a version a secret command made (WP6-9)', (
     expect(actionsOf(readPlan(fixture)).billing).toBe('blocked')
   })
 
-  describe('and the 10 versions wrangler lists (R5)', () => {
+  describe('and the 10 versions wrangler lists', () => {
     it('still sees the upload after 9 rotations, as the list holds 10', async () => {
       const {cloudflare, fixture, name} = await deployed()
 

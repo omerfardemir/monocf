@@ -45,7 +45,7 @@ describe('single worker', () => {
     expect(existsSync(join(fixture.worker('orders'), 'dist', 'index.js'))).toBe(true)
   })
 
-  it('build writes no config next to the bundle (F39)', async () => {
+  it('build writes no config next to the bundle', async () => {
     const fixture = createFixture(options)
 
     await runCli(fixture, ['worker', 'orders', '-c', 'build'])

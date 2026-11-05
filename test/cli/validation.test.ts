@@ -32,7 +32,7 @@ function secretCalls(result: CliResult) {
 
 const environments = ['staging', 'production']
 
-describe('-e (F07)', () => {
+describe('-e', () => {
   it.each(['build', 'deploy', 'preview', 'dev'])('%s fails for an env defined nowhere', async (command) => {
     const fixture = createFixture({environments, workers: [{name: 'orders'}]})
 
@@ -125,7 +125,7 @@ describe('-e (F07)', () => {
   })
 })
 
-describe('named workers (F08)', () => {
+describe('named workers', () => {
   it.each(['build', 'deploy', 'preview', 'dev'])('%s fails for a worker that does not exist', async (command) => {
     const fixture = createFixture({workers: [{name: 'orders'}]})
 
@@ -182,7 +182,7 @@ describe('named workers (F08)', () => {
   })
 })
 
-describe('secrets files (F05, F34)', () => {
+describe('secrets files', () => {
   describe('deploy -s', () => {
     it('uploads exactly the file of the env', async () => {
       const fixture = createFixture({
@@ -217,7 +217,7 @@ describe('secrets files (F05, F34)', () => {
       expectRejected(result, '.dev.vars.production')
     })
 
-    it('passes when only the root has the file of the env (R9)', async () => {
+    it('passes when only the root has the file of the env', async () => {
       const fixture = createFixture({
         environments,
         files: {'.dev.vars.production': 'ROOT=production'},
@@ -230,7 +230,7 @@ describe('secrets files (F05, F34)', () => {
       expect(secretCalls(result)[0].secretFile?.vars).toEqual({ROOT: 'production'})
     })
 
-    it('names both paths when neither the worker nor the root has the file (R9)', async () => {
+    it('names both paths when neither the worker nor the root has the file', async () => {
       const fixture = createFixture({environments, workers: [{name: 'orders'}]})
 
       const result = await runRejected(fixture, ['worker', 'orders', '-c', 'deploy', '-e', 'production', '-s'])
@@ -241,7 +241,7 @@ describe('secrets files (F05, F34)', () => {
       expect(flat).toContain(join(fixture.root, '.dev.vars.production').replaceAll(/\s+/g, ''))
     })
 
-    it('never uses the root file of another env (R9)', async () => {
+    it('never uses the root file of another env', async () => {
       const fixture = createFixture({
         environments,
         files: {'.dev.vars.staging': 'ROOT=staging'},
@@ -515,7 +515,7 @@ describe('secrets files (F05, F34)', () => {
   })
 })
 
-describe('flag combinations (F11, F23)', () => {
+describe('flag combinations', () => {
   const workers = [{name: 'orders'}]
 
   it('-F requires -f', async () => {
@@ -562,7 +562,7 @@ describe('flag combinations (F11, F23)', () => {
     expectRejected(await runRejected(fixture, args), 'Deploying from a version works for one named worker')
   })
 
-  it('-f works when deployBindings is set in monocf.config.json: flags beat config (R11)', async () => {
+  it('-f works when deployBindings is set in monocf.config.json: flags beat config', async () => {
     const fixture = createFixture({monocfConfig: {deployBindings: true}, workers})
 
     const result = await runCli(fixture, ['worker', 'orders', '-c', 'deploy', '-f', '-F', 'abc123'])
@@ -698,7 +698,7 @@ describe('-c', () => {
   })
 })
 
-describe('-a with an inferred worker (F47)', () => {
+describe('-a with an inferred worker', () => {
   it('runs for all workers from inside a worker directory', async () => {
     const fixture = createFixture({workers: [{name: 'billing'}, {name: 'orders'}]})
 

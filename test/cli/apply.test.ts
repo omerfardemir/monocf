@@ -608,7 +608,7 @@ describe('apply, and accounts', () => {
     expect(readFileSync(join(fixture.root, 'state', 'staging', 'manifest.json'), 'utf8')).not.toContain(ACCOUNT)
   })
 
-  it('keeps the stored hash when the account can no longer be determined (WP6-13)', async () => {
+  it('keeps the stored hash when the account can no longer be determined', async () => {
     const fixture = deployFixture()
     const cloudflare = await firstRun(fixture)
     const {accountHash} = manifestOf(fixture).workers.billing
@@ -623,7 +623,7 @@ describe('apply, and accounts', () => {
     expect(manifestOf(fixture).workers.billing.accountHash).toBe(accountHash)
   })
 
-  it("lets a real CLOUDFLARE_ACCOUNT_ID beat a worker's .env, under either name (WP6-14)", async () => {
+  it("lets a real CLOUDFLARE_ACCOUNT_ID beat a worker's .env, under either name", async () => {
     const fixture = deployFixture()
     writeFileSync(join(fixture.worker('billing'), '.env'), `CF_ACCOUNT_ID=${ACCOUNT}\n`)
     writeFileSync(join(fixture.worker('orders'), '.env'), `CLOUDFLARE_ACCOUNT_ID=${ACCOUNT}\n`)
@@ -639,7 +639,7 @@ describe('apply, and accounts', () => {
     expect(manifestOf(fixture).workers.billing.accountHash).toBe(createHash('sha256').update(real).digest('hex'))
   })
 
-  it("takes a worker's .env when the real environment has no account, CLOUDFLARE_ACCOUNT_ID first (WP6-14)", async () => {
+  it("takes a worker's .env when the real environment has no account, CLOUDFLARE_ACCOUNT_ID first", async () => {
     const fixture = deployFixture()
     const other = 'ffff0000000000000000000000009999'
     writeFileSync(join(fixture.worker('billing'), '.env'), `CF_ACCOUNT_ID=${other}\nCLOUDFLARE_ACCOUNT_ID=${ACCOUNT}\n`)
@@ -651,7 +651,7 @@ describe('apply, and accounts', () => {
     expect(accountOfCall(callsOf(result.calls, 'deploy billing')[0])).toBe(ACCOUNT)
   })
 
-  it('reads a padded account as the account, not as another one (WP6-19)', async () => {
+  it('reads a padded account as the account, not as another one', async () => {
     const fixture = deployFixture()
     const cloudflare = await firstRun(fixture)
     const {accountHash} = manifestOf(fixture).workers.billing

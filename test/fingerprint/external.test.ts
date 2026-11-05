@@ -102,7 +102,7 @@ describe('externalHash', () => {
     })
   })
 
-  it('takes a file under .monocf among assets, as wrangler uploads it (WP6-18)', () => {
+  it('takes a file under .monocf among assets, as wrangler uploads it', () => {
     const root = tree({'a.txt': 'x', '.monocf/page.html': 'one'})
     const before = externalHash([assets(root)])
 
@@ -111,7 +111,7 @@ describe('externalHash', () => {
     expect(externalHash([assets(root)])).not.toBe(before)
   })
 
-  it("leaves out the project's own .monocf, even from an input that holds it (WP6-18)", () => {
+  it("leaves out the project's own .monocf, even from an input that holds it", () => {
     const root = tree({'public/a.txt': 'x'})
     const worker = {config: {assets: {directory: '..'}}, path: join(root, 'public')}
     const before = workerExternalHash(worker, undefined, root)

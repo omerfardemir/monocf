@@ -27,7 +27,7 @@ function runRejected(fixture: Fixture, args: string[]): Promise<CliResult> {
   return runCli(fixture, args, {noCalls: true})
 }
 
-describe('blank flag values (R1, R2)', () => {
+describe('blank flag values', () => {
   const workers = [{name: 'orders'}]
 
   it.each([
@@ -69,7 +69,7 @@ describe('blank flag values (R1, R2)', () => {
   })
 })
 
-describe('worker names (R4)', () => {
+describe('worker names', () => {
   it.each(['orders/', './orders', '../workers/orders', 'ORDERS', 'Orders'])(
     'rejects %s, which only resembles a directory name',
     async (name) => {
@@ -104,7 +104,7 @@ function withoutConfig(fixture: Fixture): Fixture {
   return fixture
 }
 
-describe('without monocf.config.json (R5)', () => {
+describe('without monocf.config.json', () => {
   it('honours -e and -w', async () => {
     const fixture = withoutConfig(project())
 
@@ -135,7 +135,7 @@ describe('without monocf.config.json (R5)', () => {
   })
 })
 
-describe('what each wrangler call carries (R8)', () => {
+describe('what each wrangler call carries', () => {
   const versionWorkers = [{config: {env: {staging: {}}}, name: 'orders'}]
 
   it('-f -e keeps the env and the config on every call', async () => {
@@ -330,7 +330,7 @@ describe('what each wrangler call carries (R8)', () => {
   })
 })
 
-describe('failed secret uploads (R10)', () => {
+describe('failed secret uploads', () => {
   const options = {files: {'workers/orders/.dev.vars': 'KEY=1'}, workers: [{name: 'orders'}]}
 
   it('exits 1 for a failure', async () => {
@@ -439,7 +439,7 @@ describe('secrets deploy guards a missing worker', () => {
   })
 })
 
-describe('flags beat config (R11)', () => {
+describe('flags beat config', () => {
   it('--no-deploy-bindings overrides the project file', async () => {
     const fixture = createFixture({
       monocfConfig: {deployBindings: true},
@@ -471,7 +471,7 @@ describe('flags beat config (R11)', () => {
   })
 })
 
-describe('an env written with a placeholder (R13)', () => {
+describe('an env written with a placeholder', () => {
   it('is valid once its key resolves', async () => {
     const fixture = createFixture({
       monocfConfig: {variables: {stage: 'staging', version: 'v1'}},

@@ -27,7 +27,7 @@ function withIgnoredAssets(config: Record<string, unknown> = {}): Fixture {
   return fixture
 }
 
-describe('apply, against what is on disk (WP6-1)', () => {
+describe('apply, against what is on disk', () => {
   it('refuses an uncommitted config, naming the path', async () => {
     const fixture = deployFixture()
     const cloudflare = await firstRun(fixture)
@@ -99,7 +99,7 @@ describe('apply, against what is on disk (WP6-1)', () => {
     await refuses(fixture, /billing \(external inputs\)/)
   })
 
-  it('says how to get out when a CI step builds the inputs, as planning again cannot help (R9)', async () => {
+  it('says how to get out when a CI step builds the inputs, as planning again cannot help', async () => {
     const fixture = withIgnoredAssets()
     await planFor(fixture, {}, {flags: ['--first-run']})
     writeFileSync(join(fixture.worker('billing'), 'public', 'index.html'), 'two')
@@ -107,7 +107,7 @@ describe('apply, against what is on disk (WP6-1)', () => {
     await refuses(fixture, /give the worker a build\.command.*or bring the same files to this job/)
   })
 
-  it("doesn't offer that way out for anything else that differs (R9)", async () => {
+  it("doesn't offer that way out for anything else that differs", async () => {
     const fixture = deployFixture()
     await planFor(fixture, {}, {flags: ['--first-run']})
     const plan = readPlan(fixture)
@@ -120,7 +120,7 @@ describe('apply, against what is on disk (WP6-1)', () => {
     expect(result.stderr).not.toContain('build.command')
   })
 
-  describe('under a build command, the state says what was uploaded (R3)', () => {
+  describe('under a build command, the state says what was uploaded', () => {
     /** The first run is live, and the plan after it saw `one`. The apply job's build makes `two`. */
     async function appliedWithOtherContent(config: Record<string, unknown>, directory: string) {
       const fixture = withIgnoredAssets({build: {command: 'npm run build'}, ...config})
@@ -199,7 +199,7 @@ describe('apply, against what is on disk (WP6-1)', () => {
     expect(result.exitCode, result.stderr).toBe(0)
   })
 
-  it('refuses a staged rename into an exempt directory, which would hide the deletion (R10)', async () => {
+  it('refuses a staged rename into an exempt directory, which would hide the deletion', async () => {
     const fixture = deployFixture({files: {'workers/reports/src/unused.js': 'export const unused = 1\n'}})
     await planFor(fixture, {}, {flags: ['--first-run']})
     mkdirSync(join(fixture.root, '.monocf'), {recursive: true})
@@ -210,7 +210,7 @@ describe('apply, against what is on disk (WP6-1)', () => {
   })
 })
 
-describe('apply, and a linked root (R13, M18)', () => {
+describe('apply, and a linked root', () => {
   it("doesn't count the plan's own files when the root is reached through a link", async () => {
     const fixture = deployFixture()
     const link = join(fixture.root, '..', 'linked')
@@ -239,7 +239,7 @@ function withStateInTheOpen(options: Partial<Parameters<typeof deployFixture>[0]
 
 const planState = (state: string) => ['plan', '-e', 'staging', '--state', state, '--first-run', '--out', 'plan.json']
 
-describe('a file: state directory, and what it exempts (R2)', () => {
+describe('a file: state directory, and what it exempts', () => {
   it.each([
     ['file:.', /state directory .* holds the project root/],
     ['file:workers', /state directory .* holds the worker billing/],
@@ -334,7 +334,7 @@ describe('a file: state directory, and what it exempts (R2)', () => {
   })
 })
 
-describe('a reused --bundle-dir, and what it exempts (R2)', () => {
+describe('a reused --bundle-dir, and what it exempts', () => {
   it.each([
     ['workers', /bundle directory .* holds the worker billing/],
     ['.', /bundle directory .* holds the project root/],
@@ -369,7 +369,7 @@ describe('a reused --bundle-dir, and what it exempts (R2)', () => {
   })
 })
 
-describe('plan, when GITHUB_SHA is not what is checked out (WP6-1)', () => {
+describe('plan, when GITHUB_SHA is not what is checked out', () => {
   const plan = ['plan', '-e', 'staging', '--state', 'file:state', '--first-run', '--out', 'plan.json']
 
   it('plans for the real HEAD, says so, and gives a plan that can be applied', async () => {

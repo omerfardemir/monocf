@@ -74,7 +74,7 @@ describe('exit codes', () => {
     expect(result.stderr).toContain('exit code 4')
   })
 
-  it('parses output written after wrangler has exited, by a process that still holds the pipe (R12)', async () => {
+  it('parses output written after wrangler has exited, by a process that still holds the pipe', async () => {
     const fixture = createFixture({workers})
     const versions = JSON.stringify([{id: 'version-written-late'}])
 

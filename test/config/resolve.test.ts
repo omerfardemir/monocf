@@ -181,14 +181,14 @@ describe('placeholders', () => {
     expect(resolveFiles(files, 'staging').project.failures).toHaveLength(1)
   })
 
-  it('uses a variable value as the parsed string, with no second round of JSON escapes (F4)', () => {
+  it('uses a variable value as the parsed string, with no second round of JSON escapes', () => {
     const value = String.raw`l1\nl2 A "q"`
     const files = {...base, ...worker('orders', {vars: {A: '{v}'}})}
     const {project} = resolveFiles(files, undefined, {v: value, version: 'v1'})
     expect(project.workers[0].config.vars).toMatchObject({A: value})
   })
 
-  it('reports a misspelt placeholder form instead of deploying it as text (F7)', () => {
+  it('reports a misspelt placeholder form instead of deploying it as text', () => {
     const {project} = resolveFiles({...base, ...worker('orders', {vars: {A: '{ version }'}})})
     expect(project.failures[0].error.message).toContain('{ version }')
   })
@@ -319,7 +319,7 @@ describe('binding targets', () => {
     ])
   })
 
-  it('keeps a hardcoded name exactly as written, whichever env it belongs to (F8)', () => {
+  it('keeps a hardcoded name exactly as written, whichever env it belongs to', () => {
     for (const name of ['billing-v1-production', 'billing-v1-staging', 'billing-v1']) {
       const files = {...base, ...worker('orders', binding(name)), ...worker('billing')}
       const orders = resolved(files, 'orders', 'staging')
@@ -327,7 +327,7 @@ describe('binding targets', () => {
     }
   })
 
-  it('sanitizes the rewritten binding target, which the deployed name is not (F8)', () => {
+  it('sanitizes the rewritten binding target, which the deployed name is not', () => {
     const withEnv = {...base, 'base.wrangler.jsonc': {...base['base.wrangler.jsonc'], env: {my_env: {}}}}
     const section = {env: {my_env: {services: [{binding: 'B', service: 'billing'}]}}}
     const files = {...withEnv, ...worker('orders', section), ...worker('billing')}
@@ -336,7 +336,7 @@ describe('binding targets', () => {
     expect(resolved(files, 'billing', 'my_env').deployedName).toBe('billing-v1-my_env')
   })
 
-  it('lets the selected env win the name index when two envs give one name (F8)', () => {
+  it('lets the selected env win the name index when two envs give one name', () => {
     const files = {
       'base.wrangler.jsonc': {env: {'prod-staging': {}, staging: {}}, main: 'a.ts', name: '{workerName}'},
       ...worker('caller', {env: {staging: {services: [{binding: 'B', service: 'x-prod-staging'}]}}}),
@@ -346,7 +346,7 @@ describe('binding targets', () => {
     expect(resolved(files, 'caller', 'staging').bindings[0].target).toEqual({dir: 'x-prod', kind: 'local'})
   })
 
-  it('makes references from streaming tails and dispatch namespaces, without rewriting them (F1)', () => {
+  it('makes references from streaming tails and dispatch namespaces, without rewriting them', () => {
     const section = {
       dispatch_namespaces: [
         {binding: 'NS', namespace: 'n', outbound: {service: 'gateway'}},
@@ -363,7 +363,7 @@ describe('binding targets', () => {
     expect(envSection(orders.config, 'staging')).toMatchObject(section)
   })
 
-  it('reports these two references as external when they match no worker (F1)', () => {
+  it('reports these two references as external when they match no worker', () => {
     const section = {
       dispatch_namespaces: [{binding: 'NS', outbound: {service: 'elsewhere'}}],
       streaming_tail_consumers: [{service: 'other'}],
@@ -372,7 +372,7 @@ describe('binding targets', () => {
     expect(noticesOf(project.notices, 'external-binding').map(({name}) => name)).toEqual(['elsewhere', 'other'])
   })
 
-  it('does not inherit these two references from the top level (F1)', () => {
+  it('does not inherit these two references from the top level', () => {
     const top = {
       dispatch_namespaces: [{binding: 'NS', outbound: {service: 'billing'}}],
       streaming_tail_consumers: [{service: 'billing'}],
@@ -511,7 +511,7 @@ describe('failures', () => {
     expect(noticesOf(project.notices, 'external-binding')).toEqual([])
   })
 
-  it('treat an unreadable wrangler config as a failure of that worker alone (F10)', () => {
+  it('treat an unreadable wrangler config as a failure of that worker alone', () => {
     const files = {
       ...base,
       'workers/unreadable/package.json': {version: '1.0.0'},

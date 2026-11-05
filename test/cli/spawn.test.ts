@@ -41,7 +41,7 @@ describe('spawning wrangler', () => {
     expect(fromRoot(fixture, result.calls[0].cwd)).toMatch(/^\.monocf\/runs\/[\da-f]+\/orders$/)
   })
 
-  describe('without a usable wrangler in the project (R3)', () => {
+  describe('without a usable wrangler in the project', () => {
     it('exits 3 when the project has none, with no fallback to the one monocf was installed with', async () => {
       const fixture = createFixture({wrangler: 'none', workers: [{name: 'orders'}]})
 
@@ -88,7 +88,7 @@ describe('spawning wrangler', () => {
     })
   })
 
-  describe('-r (R3)', () => {
+  describe('-r', () => {
     it('takes a relative root and locates wrangler from it', async () => {
       const fixture = createFixture({workers: [{name: 'orders'}]})
 

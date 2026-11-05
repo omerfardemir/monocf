@@ -67,17 +67,17 @@ describe('resolveOptions', () => {
     expect(options.baseConfigPath).toBe(join(projectRoot, 'other.jsonc'))
   })
 
-  it.each(['', '   '])('treats a base config of %j in the file as unset, so it uses the default (F2)', (baseConfig) => {
+  it.each(['', '   '])('treats a base config of %j in the file as unset, so it uses the default', (baseConfig) => {
     const withBase = memoryReader({'base.wrangler.jsonc': {}})
     const options = resolveOptions({cwd: projectRoot, file: {baseConfig}, reader: withBase})
     expect(options.baseConfigPath).toBe(join(projectRoot, 'base.wrangler.jsonc'))
   })
 
-  it('has no base when the file value is empty and no default exists (F2)', () => {
+  it('has no base when the file value is empty and no default exists', () => {
     expect(resolveOptions({cwd: projectRoot, file: {baseConfig: ''}, reader}).baseConfigPath).toBeUndefined()
   })
 
-  it('anchors a rootDir flag at the cwd, not at the config directory (F8)', () => {
+  it('anchors a rootDir flag at the cwd, not at the config directory', () => {
     const cwd = resolve('/repo', 'workers', 'orders')
     const options = resolveOptions({configPath: resolve('/repo', 'monocf.config.json'), cwd, flags: {rootDir: '..'}, reader})
     expect(options.rootDir).toBe(resolve('/repo', 'workers'))

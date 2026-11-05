@@ -19,7 +19,7 @@ const clean = ({stderr, stdout}: CliResult) => {
 const env = {CLOUDFLARE_ACCOUNT_ID: ACCOUNT}
 const stderrRule = (command: string): WranglerRule => ({command, exitCode: 1, stderr: said})
 
-describe('the account ID, in what monocf forwards from wrangler (WP6-10)', () => {
+describe('the account ID, in what monocf forwards from wrangler', () => {
   it('stays out of apply, with several workers at once', async () => {
     const fixture = deployFixture()
     await planFor(fixture, {}, {flags: ['--first-run']})
@@ -52,7 +52,7 @@ describe('the account ID, in what monocf forwards from wrangler (WP6-10)', () =>
     expect(result.stdout).not.toContain('Your account')
   })
 
-  describe('on a terminal (R12)', () => {
+  describe('on a terminal', () => {
     const preload = join(dirname(fileURLToPath(import.meta.url)), '..', 'helpers', 'stderr-is-a-tty.cjs')
     const onTerminal = {...env, NODE_OPTIONS: `--require ${JSON.stringify(preload)}`}
     const run = async (extra: Record<string, string>) => {
