@@ -22,6 +22,18 @@ function portable({root}: Fixture, text: string): string {
     .replaceAll(/\.monocf\/runs\/[^/]+/g, '.monocf/runs/<id>')
 }
 
+/**
+ * Without what Node says about itself, which carries its PID. A prerelease Node, for one, gets a version warning from oclif in
+ * every process.
+ */
+function withoutProcessWarnings(stderr: string): string {
+  return stderr
+    .split(/\r?\n/)
+    .filter((line) => !/^\(node:\d+\) |^\(Use `node --trace-/.test(line))
+    .join('\n')
+    .trim()
+}
+
 /** What wrangler was asked to do, in an order that doesn't depend on timing. */
 function wranglerCalls(fixture: Fixture, result: CliResult): string[] {
   return result.calls
@@ -63,7 +75,10 @@ describe('monocf build, deploy, preview and dev', () => {
 
     expect(direct.exitCode).toBe(2)
     expect(old.exitCode).toBe(2)
-    expect(old.stderr).toContain(direct.stderr.trim())
+    const error = withoutProcessWarnings(direct.stderr)
+    expect(error).not.toBe('')
+    expect(withoutProcessWarnings(old.stderr)).toContain(error)
+    expect(old.stderr).toContain(`"monocf worker -c ${action}" is deprecated. Use "monocf ${action}".`)
   })
 
   it('makes wrangler calls at all, so the comparison above means something', async () => {

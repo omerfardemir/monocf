@@ -496,7 +496,7 @@ describe('monocf plan', () => {
 
       const result = await runCli(fixture, args, {cloudflare})
 
-      expect(result.exitCode).toBe(3)
+      expect(result.exitCode, result.stderr).toBe(3)
       expect(reads(result.calls, 'deployments status')).toEqual([])
     })
 
