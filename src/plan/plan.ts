@@ -79,10 +79,13 @@ export interface Plan {
   accounts?: string[]
   /** False when any step is blocked or the plan is refused, so `apply` refuses it too. */
   applicable: boolean
+  /** The real HEAD of the checkout. CI's variables can name another commit. */
   commit: string
   createdAt: string
   env: string
   notes: PlanNote[]
+  /** What the plan wrote or read beside the code, relative to the root. `apply` doesn't take these for changes to the checkout. */
+  outputs?: string[]
   /** Why this looks like the wrong account or state rather than a real plan, and which flag accepts it. Exit 3. */
   refused?: string
   schemaVersion: number

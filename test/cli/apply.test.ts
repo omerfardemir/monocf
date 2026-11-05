@@ -1,5 +1,5 @@
 import {createHash} from 'node:crypto'
-import {existsSync, readFileSync, rmSync, writeFileSync} from 'node:fs'
+import {appendFileSync, existsSync, readFileSync, rmSync, writeFileSync} from 'node:fs'
 import {join} from 'node:path'
 import {describe, expect, it} from 'vitest'
 
@@ -775,6 +775,8 @@ describe('apply, and its summary file', () => {
     const cloudflare = await firstRun(fixture)
     await planFor(fixture, cloudflare, {rules: newCode('billing')})
     const path = join('out', 'summary.md')
+    // A summary kept in the checkout has to be ignored by git, or the next apply refuses it as a change.
+    appendFileSync(join(fixture.root, '.git', 'info', 'exclude'), 'out\nexisting.md\n')
     writeFileSync(join(fixture.root, 'existing.md'), 'before\n')
 
     const first = await applyPlan(fixture, cloudflare, {flags: ['--summary-file', path]})
@@ -790,6 +792,7 @@ describe('apply, and its summary file', () => {
     const fixture = deployFixture()
     const cloudflare = await firstRun(fixture)
     await planFor(fixture, cloudflare)
+    appendFileSync(join(fixture.root, '.git', 'info', 'exclude'), 'taken\n')
     writeFileSync(join(fixture.root, 'taken'), '')
 
     const result = await applyPlan(fixture, cloudflare, {flags: ['--summary-file', join('taken', 'summary.md')], noCalls: true})

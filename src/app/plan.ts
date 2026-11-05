@@ -1,5 +1,5 @@
 import {rmSync} from 'node:fs'
-import {join, resolve} from 'node:path'
+import {isAbsolute, join, relative, resolve} from 'node:path'
 
 import {runRules, type Finding} from '../check/rules.js'
 import {readProjectInputs, resolveProject} from '../config/resolve.js'
@@ -93,7 +93,7 @@ function reusableBundle(
   const stale = expected.workers.find((worker) => !describesConfig(manifest.workers[worker.dir], worker, expected.env))
   if (stale) return {mismatch: `it doesn't describe ${stale.dir}`}
   // git status can't see a gitignored input, and built assets usually are.
-  const rebuilt = expected.workers.find((worker) => manifest.workers[worker.dir].externalHash !== workerExternalHash(worker, expected.env, expected.rootDir, dir))
+  const rebuilt = expected.workers.find((worker) => manifest.workers[worker.dir].externalHash !== workerExternalHash(worker, expected.env, expected.rootDir, [dir]))
   return rebuilt ? {mismatch: `the external inputs of ${rebuilt.dir} have changed since it was built`} : {manifest}
 }
 
@@ -101,13 +101,13 @@ async function bundleFor(
   context: RunContext,
   flags: PlanFlags,
   {commit, env, rootDir, workers}: {commit: string; env: string; rootDir: string; workers: ResolvedWorker[]},
-): Promise<BundleManifest> {
+): Promise<BundleManifest & {reusedFrom?: string}> {
   if (flags.bundleDir !== undefined) {
     const dir = resolve(flags.bundleDir)
     const found = reusableBundle(dir, {commit, env, rootDir, version: context.wrangler.version, workers})
     if ('manifest' in found) {
       checkEntrypoints(context, workers, dir, env)
-      return found.manifest
+      return {...found.manifest, reusedFrom: dir}
     }
 
     context.emit({message: `Not using the bundle in ${dir}, because ${found.mismatch}. Building again.`, type: 'notice'})
@@ -174,9 +174,17 @@ function exitCodeOf(plan: Plan): number {
   return plan.applicable ? EXIT_OK : EXIT_FAILED
 }
 
-function pickWorkers(bundle: BundleManifest, selected: string[]): PlanBundle {
+function pickWorkers(bundle: BundleManifest, selected: string[], head: string | undefined): PlanBundle {
   const workers = Object.fromEntries(Object.entries(bundle.workers).filter(([name]) => selected.includes(name)))
-  return {commit: bundle.commit, env: bundle.env, workers, wrangler: bundle.wrangler}
+  return {commit: head ?? bundle.commit, env: bundle.env, workers, wrangler: bundle.wrangler}
+}
+
+/** Relative to the root, as the plan may be applied from another clone. A path on another drive can't be a change to this one. */
+function outputsOf(rootDir: string, paths: (string | undefined)[]): string[] {
+  return paths.flatMap((path) => {
+    const inside = path === undefined ? '' : relative(rootDir, path).replaceAll('\\', '/')
+    return inside === '' || isAbsolute(inside) ? [] : [inside]
+  })
 }
 
 function reportFindings(findings: Finding[], json: boolean): void {
@@ -227,6 +235,9 @@ export async function runPlan(flags: PlanFlags): Promise<void> {
   const commit = resolveCommit(rootDir, (message) => {
     notices.push({message})
   })
+  // A plan for anything but what's checked out could never be applied, or would ship one commit's code under another's name.
+  const head = checkoutHead(rootDir)
+  if (head !== undefined && head !== commit) notices.push({message: `GITHUB_SHA says ${commit}, and ${head} is checked out. This plan is for ${head}.`})
 
   let plan: Plan | undefined
 
@@ -240,14 +251,18 @@ export async function runPlan(flags: PlanFlags): Promise<void> {
     const state = body === null ? null : parseStateManifest(body, env)
 
     const active = await readActiveVersions(context, workers, {env, state})
-    plan = createPlan(pickWorkers(bundle, selected), state, active, graph, {
-      createdAt: new Date().toISOString(),
-      guards: guardsFor(context, workers, env, flags),
-      ignored: {graph: buildGraph(project.workers), workers: ignored},
-      onDrift: flags.onDrift ?? 'warn',
-      repositoryWorkers: discoverWorkers(options),
-      state: store.describe(),
-    })
+    const outputs = outputsOf(rootDir, [bundle.reusedFrom, markdownPath])
+    plan = {
+      ...createPlan(pickWorkers(bundle, selected, head), state, active, graph, {
+        createdAt: new Date().toISOString(),
+        guards: guardsFor(context, workers, env, flags),
+        ignored: {graph: buildGraph(project.workers), workers: ignored},
+        onDrift: flags.onDrift ?? 'warn',
+        repositoryWorkers: discoverWorkers(options),
+        state: store.describe(),
+      }),
+      ...(outputs.length > 0 && {outputs}),
+    }
 
     // The plan comes last, so that it's there only when everything else is.
     if (markdownPath !== undefined) writeOutput(markdownPath, formatMarkdown(plan))

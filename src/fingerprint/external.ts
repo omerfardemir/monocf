@@ -130,7 +130,7 @@ interface InputFile {
   path: string
 }
 
-function isSameOrWithin(parent: string, child: string): boolean {
+export function isSameOrWithin(parent: string, child: string): boolean {
   const path = relative(parent, child)
   return path === '' || (!path.startsWith('..') && !isAbsolute(path))
 }
@@ -203,10 +203,10 @@ export function externalHash(inputs: ExternalInput[], outside: string[] = []): s
 
 /**
  * A worker's hash as a plan compares it. The project's own `.monocf` holds run directories with random names and the default
- * bundle, and `bundleDir` is the bundle's output, so neither counts even if an input is configured to contain it.
+ * bundle, and `outside` holds the bundle's output, so neither counts even if an input is configured to contain it.
  */
-export function workerExternalHash({config, path}: {config: RawConfig; path: string}, env: string | undefined, rootDir: string, bundleDir?: string): string {
-  return externalHash(externalInputs(config, env, path), [join(rootDir, '.monocf'), ...(bundleDir === undefined ? [] : [bundleDir])])
+export function workerExternalHash({config, path}: {config: RawConfig; path: string}, env: string | undefined, rootDir: string, outside: string[] = []): string {
+  return externalHash(externalInputs(config, env, path), [join(rootDir, '.monocf'), ...outside])
 }
 
 /** What `wrangler versions upload` can't carry, so that a change to it needs a plain `wrangler deploy`. */

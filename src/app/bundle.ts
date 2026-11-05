@@ -101,7 +101,7 @@ function describeWorker(worker: ResolvedWorker, out: string, {env, rootDir}: {en
   const bundle = bundleHash(readBundleFiles(join(out, worker.dir)))
   const hash = configHash(config, env)
   // After the dry run, because build.command can generate these inputs.
-  const external = workerExternalHash(worker, env, rootDir, out)
+  const external = workerExternalHash(worker, env, rootDir, [out])
   const triggers = triggersOf(config, env)
   const {vars} = envSection(config, env)
   const version = isPlainObject(vars) ? vars.VERSION : undefined

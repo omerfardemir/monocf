@@ -1,7 +1,9 @@
 import {execFileSync} from 'node:child_process'
+import {realpathSync} from 'node:fs'
 import {isAbsolute, relative, resolve} from 'node:path'
 
 import {ConfigError} from '../config/types.js'
+import {isSameOrWithin} from '../fingerprint/external.js'
 import {findConfigFile, loadProjectFile} from '../project/load.js'
 import {resolveOptions, type OptionFlags, type Options} from '../project/options.js'
 import {discoverWorkers, findIgnoredWorkers, inferWorker, selectWorkers} from '../project/workers.js'
@@ -73,6 +75,42 @@ export function isTreeDirty(rootDir: string, bundleDir: string): boolean {
     return status.trim() !== ''
   } catch {
     return true
+  }
+}
+
+function realPath(path: string): string {
+  try {
+    return realpathSync.native(path)
+  } catch {
+    return path
+  }
+}
+
+const STATUS_MAX_BUFFER = 256 * 1024 * 1024
+
+/**
+ * What differs from the commit across the whole repository, as a worker can import from outside `rootDir`, apart from
+ * `excluded`. Absolute paths, or undefined when git can't say.
+ */
+export function dirtyPaths(rootDir: string, excluded: string[]): string[] | undefined {
+  const git = (...args: string[]): string => execFileSync('git', args, {cwd: rootDir, encoding: 'utf8', maxBuffer: STATUS_MAX_BUFFER, shell: false, stdio: ['ignore', 'pipe', 'ignore']})
+  try {
+    const top = realPath(git('rev-parse', '--show-toplevel').trim())
+    const fields = git('status', '--porcelain=v1', '-z', '--untracked-files=all').split('\0')
+    const skipped = excluded.map((path) => realPath(path))
+    const paths: string[] = []
+    for (let index = 0; index < fields.length; index++) {
+      const field = fields[index]
+      if (field.length > 3) {
+        // A rename or a copy is followed by the name it came from.
+        if (field[0] === 'R' || field[0] === 'C' || field[1] === 'R' || field[1] === 'C') index++
+        paths.push(resolve(top, field.slice(3)))
+      }
+    }
+
+    return paths.filter((path) => !skipped.some((skip) => isSameOrWithin(skip, path)))
+  } catch {
+    return undefined
   }
 }
 

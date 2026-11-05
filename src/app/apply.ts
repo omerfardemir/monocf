@@ -1,19 +1,20 @@
 import {execFileSync} from 'node:child_process'
 import {appendFileSync, mkdirSync, readFileSync} from 'node:fs'
-import {dirname, resolve} from 'node:path'
+import {dirname, join, relative, resolve} from 'node:path'
 
-import {readProjectInputs, resolveProject} from '../config/resolve.js'
+import {effectiveField, readProjectInputs, resolveProject} from '../config/resolve.js'
 import {ConfigError, isPlainObject, type ResolvedWorker} from '../config/types.js'
 import {assertResolved} from '../config/validate.js'
 import {EXIT_FAILED, EXIT_OK} from '../errors.js'
-import type {Triggers} from '../fingerprint/fingerprint.js'
+import {workerExternalHash} from '../fingerprint/external.js'
+import {configHash, doHash, triggersHash, triggersOf, type Triggers} from '../fingerprint/fingerprint.js'
 import {PLAN_SCHEMA_VERSION, tagFor, type Plan, type PlanStep} from '../plan/plan.js'
 import type {OptionFlags, Options} from '../project/options.js'
 import {formatRunMarkdown, formatRunSummary} from '../report/run-summary.js'
 import {materialiseConfig} from '../runtime/materialise.js'
 import type {StateWorker} from '../state/manifest.js'
 import {RUN_RECORD_SCHEMA_VERSION, type RecordResult, type RunRecord} from '../state/run-record.js'
-import {openStateStore, parseStateUrl} from '../state/store.js'
+import {openStateStore, parseStateUrl, type StateLocation} from '../state/store.js'
 import type {ArgvOptions} from '../wrangler/argv.js'
 import {locateWrangler} from '../wrangler/locate.js'
 import {readActiveVersion, readVersionTag, type WranglerCall} from '../wrangler/read.js'
@@ -31,7 +32,7 @@ import {
   type DeployResult,
   type DeployStep,
 } from './deployment.js'
-import {checkoutHead, loadOptions} from './project.js'
+import {checkoutHead, dirtyPaths, loadOptions} from './project.js'
 import {accountOf, runStep, withRun, type RunContext} from './run.js'
 
 export interface ApplyFlags extends OptionFlags {
@@ -101,6 +102,51 @@ function assertCanApply(plan: Plan, {expectBranchTip, rootDir, wranglerVersion}:
     if (tip === undefined) throw new ConfigError(`--expect-branch-tip ${expectBranchTip} doesn't resolve to a commit.`)
     if (tip !== plan.commit) throw new ConfigError(`${expectBranchTip} is at ${tip}, and the plan is for ${plan.commit}, so a newer commit has taken over.`)
   }
+}
+
+const MAX_NAMED_PATHS = 5
+
+/** A change on disk would ship under the plan's fingerprint and leave the state saying that it hadn't happened. */
+function assertCleanCheckout(plan: Plan, {location, planPath, rootDir, summaryFile}: {location: StateLocation; planPath: string; rootDir: string; summaryFile?: string}): void {
+  const paths = dirtyPaths(rootDir, [
+    planPath,
+    ...(summaryFile === undefined ? [] : [resolve(summaryFile)]),
+    join(rootDir, '.monocf'),
+    ...(location.kind === 'file' ? [location.dir] : []),
+    ...(plan.outputs ?? []).map((path) => resolve(rootDir, path)),
+  ])
+  if (paths === undefined) throw new ConfigError("git can't say whether this checkout has changes, so nothing says that the plan describes it.")
+  if (paths.length === 0) return
+  const named = paths.slice(0, MAX_NAMED_PATHS).map((path) => relative(rootDir, path).replaceAll('\\', '/'))
+  const more = paths.length > MAX_NAMED_PATHS ? `, and ${paths.length - MAX_NAMED_PATHS} more` : ''
+  throw new ConfigError(`This checkout has changes the plan doesn't include: ${named.join(', ')}${more}. Commit them and plan again, or remove them.`)
+}
+
+/**
+ * What the plan says against the config and files here, all but the bundle, which only a build can show. `build.command` runs
+ * again at deploy and makes its inputs then, and a new CI job doesn't have them yet, so for that worker they can't refuse.
+ */
+function assertDescribes(plan: Plan, workers: Map<string, ResolvedWorker>, {notice, rootDir}: {notice: (message: string, worker: string) => void; rootDir: string}): void {
+  const {env} = plan
+  const outputs = (plan.outputs ?? []).map((path) => resolve(rootDir, path))
+  const stale: string[] = []
+  for (const step of plan.steps) {
+    const worker = workers.get(step.worker)!
+    const {config} = worker
+    const differences = [
+      ...(step.configHash === configHash(config, env) ? [] : ['config']),
+      ...(step.doHash === doHash(config, env) ? [] : ['Durable Objects']),
+      ...(step.triggersHash === triggersHash(triggersOf(config, env)) ? [] : ['triggers']),
+    ]
+    if (step.externalHash !== workerExternalHash(worker, env, rootDir, outputs)) {
+      if (effectiveField(config, env, 'build') === undefined) differences.push('external inputs')
+      else notice('Its external inputs differ from the plan. Its build command makes them again at deploy, so this goes ahead.', step.worker)
+    }
+
+    if (differences.length > 0) stale.push(`${step.worker} (${differences.join(', ')})`)
+  }
+
+  if (stale.length > 0) throw new ConfigError(`The plan doesn't describe this checkout: ${stale.join('; ')}. Plan again.`)
 }
 
 interface Target {
@@ -422,7 +468,8 @@ function writeSummaryFile(context: RunContext, path: string | undefined, body: s
  * what calls that worker, and independent branches carry on. State follows each step, and a run record ends the run.
  */
 export async function runApply(planPath: string, flags: ApplyFlags): Promise<void> {
-  const plan = readPlanFile(resolve(planPath))
+  const fullPlanPath = resolve(planPath)
+  const plan = readPlanFile(fullPlanPath)
   const options = loadOptions({...flags, env: plan.env})
   const {rootDir} = options
   const wrangler = locateWrangler(rootDir)
@@ -441,12 +488,16 @@ export async function runApply(planPath: string, flags: ApplyFlags): Promise<voi
     }
   }
 
+  assertCleanCheckout(plan, {location, planPath: fullPlanPath, rootDir, summaryFile: flags.summaryFile})
+  const notices: {message: string; worker?: string}[] = []
+  assertDescribes(plan, workers, {notice: (message, worker) => notices.push({message, worker}), rootDir})
+
   const runId = newRunId()
   const startedAt = new Date().toISOString()
   const json = flags.json === true
   let exitCode: number = EXIT_OK
 
-  await withRun({action: 'apply', env: plan.env, json, notices: [{message: `Run ${runId}.`}], resolved: project.workers, rootDir, workers: names, wrangler}, async (context) => {
+  await withRun({action: 'apply', env: plan.env, json, notices: [{message: `Run ${runId}.`}, ...notices], resolved: project.workers, rootDir, workers: names, wrangler}, async (context) => {
     const store = openStateStore(location, stateCall(context), context.runDir.path)
     await store.check()
     const manifest = await readManifest(store, plan.env)
