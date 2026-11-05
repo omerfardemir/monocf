@@ -12,6 +12,32 @@ function graphOf(nodes: string[], edges: [string, string][]): Graph {
   }
 }
 
+/** a binds to b, and b sends to a queue that a consumes. */
+const queueCycle: Graph = {
+  edges: [
+    {from: 'a', kind: 'services', to: 'b', via: 'B'},
+    {from: 'b', kind: 'queues', to: 'a', via: 'jobs'},
+  ],
+  external: [],
+  nodes: ['a', 'b'],
+}
+
+describe('a cycle that a queue edge closes', () => {
+  it('keeps the order of the binding, and still reports the cycle', () => {
+    expect(computeOrder(queueCycle)).toEqual({cycles: [['a', 'b']], levels: [['b'], ['a']]})
+  })
+
+  it('makes the caller wait for what it binds to', () => {
+    expect(dependenciesWithin(queueCycle, ['a', 'b'])).toEqual(new Map([['a', ['b']], ['b', []]]))
+    expect(nearestWithin(queueCycle, ['a', 'b'])).toEqual(new Map([['a', ['b']], ['b', []]]))
+  })
+
+  it('keeps the order of a queue edge outside any cycle', () => {
+    const graph: Graph = {edges: [{from: 'a', kind: 'queues', to: 'b', via: 'jobs'}], external: [], nodes: ['a', 'b']}
+    expect(computeOrder(graph).levels).toEqual([['b'], ['a']])
+  })
+})
+
 describe('computeOrder', () => {
   it('puts callees first', () => {
     const graph = graphOf(

@@ -2,9 +2,9 @@ import type {ResolvedWorker} from '../config/types.js'
 import type {Graph} from './graph.js'
 
 export interface Order {
-  /** Cycles, including a worker that targets itself. Ordering inside a cycle is undefined. */
+  /** Cycles through any edge, including a worker that targets itself. */
   cycles: string[][]
-  /** Groups that can run in parallel, callees first. Members of one cycle share a level. */
+  /** Groups that can run in parallel, callees first. Members of a cycle of bindings share a level. */
   levels: string[][]
 }
 
@@ -57,23 +57,35 @@ function stronglyConnectedComponents(nodes: string[], callees: Map<string, strin
   return components
 }
 
+/**
+ * The edges that decide an order. A queue edge needs no order at deploy time, so one that closes a cycle is left out, and
+ * the service bindings of that cycle keep theirs.
+ */
+function orderingGraph(graph: Graph): Graph {
+  const componentOf = new Map<string, string[]>()
+  for (const component of stronglyConnectedComponents(graph.nodes, adjacency(graph, 'from', 'to'))) {
+    for (const member of component) componentOf.set(member, component)
+  }
+
+  return {...graph, edges: graph.edges.filter(({from, kind, to}) => kind !== 'queues' || componentOf.get(from) !== componentOf.get(to))}
+}
+
 /** Orders a graph into levels and reports its cycles. Levels and their members are stable and sorted. */
 export function computeOrder(graph: Graph): Order {
-  const callees = adjacency(graph, 'from', 'to')
-  const components = stronglyConnectedComponents(graph.nodes, callees)
+  const allCallees = adjacency(graph, 'from', 'to')
+  const cycles = stronglyConnectedComponents(graph.nodes, allCallees).filter(
+    (component) => component.length > 1 || allCallees.get(component[0])?.includes(component[0]),
+  )
 
+  const callees = adjacency(orderingGraph(graph), 'from', 'to')
   const levelOf = new Map<string, number>()
   const levels: string[][] = []
-  const cycles: string[][] = []
-  for (const component of components) {
+  for (const component of stronglyConnectedComponents(graph.nodes, callees)) {
     const members = new Set(component)
     const outside = component.flatMap((member) => (callees.get(member) ?? []).filter((callee) => !members.has(callee)))
     const level = Math.max(-1, ...outside.map((callee) => levelOf.get(callee)!)) + 1
     for (const member of component) levelOf.set(member, level)
     levels[level] = [...(levels[level] ?? []), ...component]
-
-    const [first] = component
-    if (component.length > 1 || callees.get(first)?.includes(first)) cycles.push(component)
   }
 
   return {
@@ -120,7 +132,7 @@ function reachable(callees: Map<string, string[]>, start: string): Set<string> {
  * that isn't a member. Members of a cycle have no order between them, so they don't wait for each other.
  */
 export function dependenciesWithin(graph: Graph, members: string[]): Map<string, string[]> {
-  const callees = adjacency(graph, 'from', 'to')
+  const callees = adjacency(orderingGraph(graph), 'from', 'to')
   const reach = new Map(members.map((member) => [member, reachable(callees, member)]))
   return new Map(
     members.map((member) => [
@@ -136,7 +148,7 @@ export function dependenciesWithin(graph: Graph, members: string[]): Map<string,
  * it. Members of one cycle don't wait for each other, so the result has no cycle.
  */
 export function nearestWithin(graph: Graph, members: string[]): Map<string, string[]> {
-  const callees = adjacency(graph, 'from', 'to')
+  const callees = adjacency(orderingGraph(graph), 'from', 'to')
   const memberSet = new Set(members)
   const reach = new Map(members.map((member) => [member, reachable(callees, member)]))
   const nearest = (member: string): string[] => {
