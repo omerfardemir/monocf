@@ -76,6 +76,13 @@ describe('formatMarkdown', () => {
     expect(text).toContain('orphan: old (old-staging)')
   })
 
+  it('counts a worker it only adopts, without listing it as a deploy', () => {
+    const text = formatMarkdown(planOf([step('orders', 'adopt', {reasons: ['state-missing']})]))
+
+    expect(text).toContain('| adopt | 1 |')
+    expect(text).not.toContain('Workers to deploy')
+  })
+
   it('does not list a caller that deploys anyway as something to check', () => {
     const text = formatMarkdown(planOf([step('a', 'upload', {transitiveCallers: ['b']}), step('b', 'upload')]))
 

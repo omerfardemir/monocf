@@ -75,7 +75,8 @@ export function formatMarkdown(plan: Plan): string {
 
   lines.push('| Action | Workers |', '|---|---|', ...actionCounts(plan).map(([action, count]) => `| ${action} | ${count} |`), '')
 
-  const changed = plan.steps.filter((step) => step.action !== 'skip')
+  // Blocked stays in the table: a person has to look at it, and it would otherwise deploy.
+  const changed = plan.steps.filter((step) => step.action !== 'skip' && step.action !== 'adopt')
   if (changed.length > 0) {
     lines.push(
       '### Workers to deploy',
