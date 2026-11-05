@@ -6,16 +6,26 @@ Change `version` in `package.json` and merge to `main`. Merging releases nothing
 
 The repository stores no secrets. npm takes the job's OIDC token through trusted publishing, and the release uses `GITHUB_TOKEN`.
 
-## The setup on npmjs.com
+## Setup
 
-On npmjs.com, under the package's **Settings**, **Trusted publishing**, choose **GitHub Actions**:
+Only `main` can publish. The `publish` job runs in a GitHub environment named `npm` that accepts `main` only, and npm accepts a token only from that environment. So a branch with its own copy of `release.yml` can't publish, even if it drops the workflow's own check for `main`.
+
+### On GitHub
+
+Under the repository's **Settings**, **Environments**, create an environment named `npm`. Under **Deployment branches and tags**, choose **Selected branches and tags**, and add the branch rule `main`. Nothing else is needed: no secrets, and no reviewers.
+
+Create it before the first run. A run that names an environment that isn't there creates it, with no rules.
+
+### On npmjs.com
+
+Under the package's **Settings**, **Trusted publishing**, choose **GitHub Actions**:
 
 | Field | Value |
 |---|---|
 | Organization or user | `omerfardemir`, the GitHub name and not the npm one |
 | Repository | `monocf` |
 | Workflow filename | `release.yml`, the filename only |
-| Environment | Blank |
+| Environment | `npm` |
 | Allowed actions | Tick `npm publish` |
 
 - npm doesn't check these when you save, and they're case-sensitive. A mistake shows up as a failed `publish` job, before any tag exists.
@@ -29,7 +39,7 @@ Run the workflow again, or use **Re-run all jobs**. Both work out again what's m
 |---|---|
 | `check` | Read its error, and do what it says. It stops on any unclear answer from npm or GitHub, so an outage can't look like a new version. It also stops on a branch other than `main`, and when the tag has to be pushed by hand, as described below. |
 | `test` | The run stopped before publishing. Fix it, merge the fix, and run it again. |
-| `publish` | Search the log for `oidc`, as the step logs at verbose for this reason. Correct the setup above, and run it again. |
+| `publish` | If GitHub didn't start it, the `npm` environment doesn't accept `main`. Otherwise search the log for `oidc`, as the step logs at verbose for this reason. Correct the setup above, and run it again. |
 | `github-release` | npm already has the version. Run it again: it creates the release, or uploads the files the release is missing and keeps its notes. If the fix has to go in this workflow, merge it first. `check` will then ask you to push the tag by hand. |
 
 A re-run uses the workflow file and the commit of its first attempt. A new run uses `main` as it is now.

@@ -38,6 +38,7 @@ jobs:
         run: |
           # The run form lets anyone pick a branch. This stops a run started on another branch by
           # mistake. It's in the file being run, so a branch with its own copy could leave it out.
+          # What stops that branch publishing is the publish job's environment, below.
           if [ "$GITHUB_REF" != refs/heads/main ]; then
             echo "::error::Releases run from main, and this run is on $GITHUB_REF_NAME."
             exit 1
@@ -153,7 +154,10 @@ jobs:
       - run: npm test
 
   # npm trusted publishing: the registry takes this job's OIDC token, so no npm token is stored.
-  # On npmjs.com, the package's trusted publisher has to name this file and allow npm publish.
+  # On npmjs.com, the package's trusted publisher names this file and the npm environment, and
+  # allows npm publish. On GitHub, the npm environment accepts main only. So a branch with its own
+  # copy of this file can't publish: npm refuses a token from outside the environment, and GitHub
+  # won't start a job in it from another branch.
   # Needs npm 11.5.1 or later, which is why this job is on Node 24.
   # --ignore-scripts keeps dependencies' install scripts away from that token. --loglevel=verbose
   # is there because npm only says why a token exchange was refused at that level.
@@ -161,6 +165,7 @@ jobs:
     needs: [check, test]
     if: needs.check.outputs.publish == 'true'
     runs-on: ubuntu-latest
+    environment: npm
     permissions:
       contents: read
       id-token: write
