@@ -13,6 +13,7 @@ function step(worker: string, action: PlanStep['action'], overrides: Partial<Pla
     deployedName: `${worker}-staging`,
     doHash: 'hash-of-do',
     explicitEmptyCrons: false,
+    externalHash: 'hash-of-external',
     fingerprint: 'hash-of-all',
     previousVersionId: 'version-id-of-worker',
     reasons: action === 'skip' ? ['unchanged'] : ['bundle-changed'],

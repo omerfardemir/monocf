@@ -15,6 +15,8 @@ export type PlanReason =
   | 'config-changed'
   | 'do-changed'
   | 'drift'
+  | 'external-changed'
+  | 'needs-deploy'
   | 'new'
   | 'provider-recreated'
   | 'split'
@@ -34,6 +36,7 @@ export interface PlanStep {
   doHash: string
   /** WP6 writes `"crons": []` for this step: with the key absent, wrangler would leave the removed crons running. */
   explicitEmptyCrons: boolean
+  externalHash: string
   fingerprint: string
   /** The version Cloudflare serves now, or the largest share of a split rollout. Absent when the worker doesn't exist. */
   previousVersionId?: string
@@ -109,6 +112,7 @@ function compareToState(worker: ManifestWorker, entry: StateWorker): Decision {
   const reasons: PlanReason[] = [
     ...(worker.bundleHash === entry.bundleHash ? [] : (['bundle-changed'] as const)),
     ...(worker.configHash === entry.configHash ? [] : (['config-changed'] as const)),
+    ...(worker.externalHash === entry.externalHash ? [] : (['external-changed'] as const)),
   ]
   return {action: 'upload', notes: [], reasons, triggersChanged}
 }
@@ -218,6 +222,14 @@ function uploadCallersOfRecreated(decisions: Map<string, Decision>, recreated: s
   return notes
 }
 
+/** `versions upload` refuses a site, and it would leave a container's image behind with exit 0, so these take `deploy`. */
+function routeToDeploy(decision: Decision, worker: ManifestWorker): void {
+  if (decision.action === 'upload' && worker.needsDeploy?.length) {
+    decision.action = 'full-deploy'
+    decision.reasons = [...decision.reasons, 'needs-deploy']
+  }
+}
+
 function compareNotes(a: PlanNote, b: PlanNote): number {
   const key = (note: PlanNote) => `${note.kind}\n${note.worker}\n${note.message}`
   return key(a) < key(b) ? -1 : Number(key(a) > key(b))
@@ -266,6 +278,7 @@ export function createPlan(
   }
 
   notes.push(...uploadCallersOfRecreated(decisions, recreated, graph))
+  for (const name of names) routeToDeploy(decisions.get(name)!, bundle.workers[name])
 
   for (const [name, entry] of stored) {
     if (!repositoryWorkers.includes(name)) {
@@ -294,6 +307,7 @@ export function createPlan(
       fingerprint: worker.fingerprint,
       bundleHash: worker.bundleHash,
       configHash: worker.configHash,
+      externalHash: worker.externalHash,
       triggers: worker.triggers,
       triggersHash: worker.triggersHash,
       doHash: worker.doHash,

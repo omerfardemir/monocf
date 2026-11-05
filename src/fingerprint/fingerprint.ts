@@ -95,8 +95,8 @@ export function configHash(config: RawConfig, env?: string): string {
   return sha256(canonicalJson(canonicalConfig(config, env)))
 }
 
-export function fingerprintOf(bundle: string, config: string): string {
-  return sha256(`${bundle}\n${config}`)
+export function fingerprintOf(bundle: string, config: string, external: string): string {
+  return sha256(`${bundle}\n${config}\n${external}`)
 }
 
 /** What wrangler reads for these fields. All of them inherit, and workers_dev follows the routes unless it's set. */

@@ -79,7 +79,8 @@ function walk(node: unknown, segments: string[], field: string, rewrite: Rewrite
   return {...node, [key]: rewritten}
 }
 
-function isPathLikeImage(value: string, {exists = existsSync, from}: RebaseContext): boolean {
+/** A container's `image` is either a Dockerfile, relative to the worker, or an image in a registry. */
+export function isPathLikeImage(value: string, from: string, exists: (path: string) => boolean = existsSync): boolean {
   return value.startsWith('.') || exists(join(from, value))
 }
 
@@ -111,7 +112,7 @@ function rewriter(context: RebaseContext): Rewrite {
     if (Array.isArray(value)) return value.map((element) => rebase(element, field))
     if (typeof value !== 'string') return value
     if (field === 'alias.*' && !value.startsWith('.')) return rebasePackageAlias(value, context)
-    if (field === 'containers[].image' && !isPathLikeImage(value, context)) return value
+    if (field === 'containers[].image' && !isPathLikeImage(value, context.from, context.exists)) return value
     return rebasePath(value, context)
   }
 

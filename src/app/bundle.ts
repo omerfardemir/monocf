@@ -5,6 +5,7 @@ import {effectiveField, envSection, readProjectInputs, resolveProject} from '../
 import {ConfigError, isPlainObject, type RawConfig, type ResolvedWorker} from '../config/types.js'
 import {validateSelection} from '../config/validate.js'
 import {EXIT_FAILED, MonocfError} from '../errors.js'
+import {externalHash, externalInputs, fieldsNeedingDeploy} from '../fingerprint/external.js'
 import {
   bundleHash,
   configHash,
@@ -34,7 +35,10 @@ export interface ManifestWorker {
   configHash: string
   deployedName: string
   doHash: string
+  externalHash: string
   fingerprint: string
+  /** Fields `wrangler versions upload` can't carry, so that this worker only reaches Cloudflare by `wrangler deploy`. */
+  needsDeploy?: string[]
   triggers: Triggers
   triggersHash: string
   version?: string
@@ -86,19 +90,24 @@ function withoutMinify(config: RawConfig): RawConfig {
   return {...strip(config), ...(env && {env})}
 }
 
-function describeWorker(worker: ResolvedWorker, outdir: string, env: string): ManifestWorker {
-  const {config, deployedName} = worker
-  const bundle = bundleHash(readBundleFiles(outdir))
+function describeWorker(worker: ResolvedWorker, out: string, env: string): ManifestWorker {
+  const {config, deployedName, path} = worker
+  const bundle = bundleHash(readBundleFiles(join(out, worker.dir)))
   const hash = configHash(config, env)
+  // After the dry run, because build.command can generate these inputs.
+  const external = externalHash(externalInputs(config, env, path), [out])
   const triggers = triggersOf(config, env)
   const {vars} = envSection(config, env)
   const version = isPlainObject(vars) ? vars.VERSION : undefined
+  const needsDeploy = fieldsNeedingDeploy(config, env)
   return {
     bundleHash: bundle,
     configHash: hash,
     deployedName,
     doHash: doHash(config, env),
-    fingerprint: fingerprintOf(bundle, hash),
+    externalHash: external,
+    fingerprint: fingerprintOf(bundle, hash, external),
+    ...(needsDeploy.length > 0 && {needsDeploy}),
     triggers,
     triggersHash: triggersHash(triggers),
     ...(version !== undefined && {version: String(version)}),
@@ -197,7 +206,7 @@ export async function buildBundle(context: RunContext, job: BundleJob): Promise<
           },
           worker: worker.dir,
         })
-        described.set(worker.dir, describeWorker(worker, outdir, env))
+        described.set(worker.dir, describeWorker(worker, out, env))
       },
       worker: worker.dir,
     })),

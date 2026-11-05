@@ -148,9 +148,9 @@ describe('configHash', () => {
 
 describe('fingerprintOf', () => {
   it('is the hash of both hashes, on two lines', () => {
-    expect(fingerprintOf('a', 'b')).toBe(sha256('a\nb'))
-    expect(fingerprintOf('a', 'b')).toMatch(HEX_64)
-    expect(`monocf:${fingerprintOf('a', 'b')}`.length).toBeLessThanOrEqual(100)
+    expect(fingerprintOf('a', 'b', 'c')).toBe(sha256('a\nb\nc'))
+    expect(fingerprintOf('a', 'b', 'c')).toMatch(HEX_64)
+    expect(`monocf:${fingerprintOf('a', 'b', 'c')}`.length).toBeLessThanOrEqual(100)
   })
 })
 

@@ -10,6 +10,7 @@ const worker = {
   deployedAt: '2026-01-01T00:00:00.000Z',
   deployedName: 'orders-staging',
   doHash: 'd',
+  externalHash: 'e',
   fingerprint: 'f',
   triggers: {crons: null, previewUrls: null, routes: [], workersDev: true},
   triggersHash: 't',

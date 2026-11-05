@@ -133,10 +133,27 @@ Deploys go by level, callees first. **Callers are used for PR warnings and smoke
 ## Fingerprint
 
 ```
-bundleHash  = sha256( sorted (path, bytes) of the output directory, pnpm store directories normalised )
-configHash  = sha256( canonical JSON of the resolved config, this env only, minus RELEASE )
-fingerprint = sha256( bundleHash + "\n" + configHash )
+bundleHash   = sha256( sorted (path, bytes) of the output directory, pnpm store directories normalised )
+configHash   = sha256( canonical JSON of the resolved config, this env only, minus RELEASE )
+externalHash = sha256( sorted (label, relative path, bytes) of what wrangler uploads from outside the output directory )
+fingerprint  = sha256( bundleHash + "\n" + configHash + "\n" + externalHash )
 ```
+
+`externalHash` exists because wrangler writes only code to `--outdir`. These reach Cloudflare from the source, and `configHash` holds only their paths:
+
+- `assets.directory`, also for an assets-only worker, whose output is a fixed file.
+- `site.bucket`, `wasm_modules`, `text_blobs`, `data_blobs`, and the `unsafe.capnp` schema files.
+- For each `containers[]` entry with a local `image`, or named `images` with a `dockerfile`: the Dockerfile and its build context.
+
+Rules for it:
+
+- It uses the values for the env, and it runs after the dry run, since `build.command` can generate these inputs.
+- Each input has a label, so a file moving from one input to another changes the hash, and paths are relative to the input, so a checkout path doesn't.
+- **When in doubt, a file counts.** A false "changed" costs one redeploy, while a false "unchanged" never ships the change. So everything under a site bucket or a build context counts, and `include`, `exclude` and `.dockerignore` aren't read. `.git`, `.wrangler`, `.monocf` and the bundle's own output directory never count, as they change with no change to the worker.
+- Assets follow wrangler's `createAssetsIgnoreFunction`: a file `.assetsignore` names isn't uploaded, so it doesn't count. `_headers`, `_redirects` and `.assetsignore` always do. Wrangler leaves them out of the asset manifest, but it sends the first two as configuration, and the third decides what the rest is.
+- A configured input that's missing gets its absence hashed. Whether that's an error is wrangler's call, and the dry run has already made it.
+
+**What `versions upload` can't carry.** It takes assets and blobs the way `deploy` does. It refuses a `site` with exit 1. For a container with an `image`, it builds nothing and rolls nothing out, with exit 0 (`containers.standard.builtImages` stays empty on that path), so the image change would never ship. So a worker with `site` or `containers` reaches Cloudflare only by `deploy`: the manifest lists these under `needsDeploy`, and an `upload` for that worker becomes a `full-deploy` with the reason `needs-deploy`.
 
 - The bundle is produced by `wrangler deploy --dry-run --outdir <dir>` **without** `--minify`, and with `minify` removed from the config it reads. Minifier output changes across workers when an unrelated, tree-shaken export changes, which would cause false redeploys. Measured on a 30-worker monorepo: 26 of 30 minified bundles changed from one unused export; 0 of 30 unminified bundles did.
 - Deploy artifacts are still minified when configured. The fingerprint is a comparison key, not a description of the upload.
@@ -166,6 +183,7 @@ A `StateStore` holds a per-environment manifest:
       "deployedName": "orders-v1-staging",
       "bundleHash": "…",
       "configHash": "…",
+      "externalHash": "…",
       "fingerprint": "…",
       "triggers": {"crons": null, "previewUrls": null, "routes": [], "workersDev": true},
       "triggersHash": "…",
@@ -179,7 +197,7 @@ A `StateStore` holds a per-environment manifest:
 }
 ```
 
-Hashes are plain hex, as in the bundle manifest. `bundleHash` and `configHash` are required too, because they tell `bundle-changed` from `config-changed`. A manifest with a newer `schemaVersion`, for another env, or that can't be read stops the run with exit 3: treating it as empty would plan a redeploy of everything.
+Hashes are plain hex, as in the bundle manifest. `bundleHash`, `configHash` and `externalHash` are required too, because they tell `bundle-changed`, `config-changed` and `external-changed` apart. A manifest with a newer `schemaVersion`, for another env, or that can't be read stops the run with exit 3: treating it as empty would plan a redeploy of everything.
 
 Adapters: `file:<dir>` for tests and local use, written through a rename, and `r2://<bucket>/<prefix>` through `wrangler r2 object get|put --remote`, so CI needs no credentials beyond its Cloudflare token. Keys are `<env>/manifest.json` and `<env>/runs/<run-id>.json`, which rollback reads. Any other scheme is a usage error.
 
@@ -200,7 +218,7 @@ The active version comes from `wrangler deployments status --name <deployed-name
 | Exists, no manifest entry, another tag or none | `upload` with `--on-drift warn`, `blocked` with `fail` | `baseline`, or `drift` and `baseline` when blocked |
 | Manifest version is active, same fingerprint, same triggers | `skip` | `unchanged` |
 | Manifest version is active, same fingerprint, other triggers | `triggers` | `triggers-changed` |
-| Manifest version is active, other fingerprint, same DO hash | `upload`, with `triggersChanged` when they differ too | `bundle-changed`, `config-changed` |
+| Manifest version is active, other fingerprint, same DO hash | `upload`, with `triggersChanged` when they differ too | `bundle-changed`, `config-changed`, `external-changed` |
 | Other fingerprint, other DO hash | `full-deploy` | `do-changed` |
 | Another version is active, tag is `monocf:<manifest fingerprint>` | As if in sync, with the note `state-behind` | As above |
 | Another version is active, tag is `monocf:<this bundle's fingerprint>` | `skip`, or `triggers` when they differ from the manifest, with the note `state-behind`: a crashed run already deployed this | `unchanged`, `triggers-changed` |

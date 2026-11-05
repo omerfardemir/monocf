@@ -317,6 +317,7 @@ describe('monocf bundle', () => {
       configHash: expect.stringMatching(HEX_64),
       deployedName: 'orders-v1-dev',
       doHash: expect.stringMatching(HEX_64),
+      externalHash: expect.stringMatching(HEX_64),
       fingerprint: expect.stringMatching(HEX_64),
       triggers: {crons: null, previewUrls: null, routes: [], workersDev: true},
       triggersHash: expect.stringMatching(HEX_64),

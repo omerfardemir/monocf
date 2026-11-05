@@ -53,6 +53,7 @@ function writeState(fixture: Fixture, steps: Record<string, any>, change: Record
       deployedAt: '2026-01-01T00:00:00.000Z',
       deployedName: step.deployedName,
       doHash: step.doHash,
+      externalHash: step.externalHash,
       fingerprint: step.fingerprint,
       triggers: step.triggers,
       triggersHash: step.triggersHash,

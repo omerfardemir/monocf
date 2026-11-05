@@ -12,6 +12,7 @@ export interface StateWorker {
   deployedAt: string
   deployedName: string
   doHash: string
+  externalHash: string
   fingerprint: string
   triggers: Triggers
   triggersHash: string
@@ -41,6 +42,7 @@ const REQUIRED_TEXT = [
   'deployedAt',
   'deployedName',
   'doHash',
+  'externalHash',
   'fingerprint',
   'triggersHash',
   'versionId',
