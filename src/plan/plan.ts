@@ -35,7 +35,7 @@ export interface PlanStep {
   dependsOn: string[]
   deployedName: string
   doHash: string
-  /** WP6 writes `"crons": []` for this step: with the key absent, wrangler would leave the removed crons running. */
+  /** `apply` writes `"crons": []` for this step: with the key absent, wrangler would leave the removed crons running. */
   explicitEmptyCrons: boolean
   externalHash: string
   fingerprint: string

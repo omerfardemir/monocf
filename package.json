@@ -1,7 +1,7 @@
 {
   "name": "monocf",
   "description": "Plan, deploy and roll back a monorepo of Cloudflare Workers from CI, in dependency order",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "author": "Omer Demir",
   "bin": {
     "monocf": "./bin/run.js"
@@ -48,7 +48,15 @@
     "bin": "monocf",
     "commands": "./dist/commands",
     "dirname": "monocf",
-    "topicSeparator": " "
+    "topicSeparator": " ",
+    "topics": {
+      "secrets": {
+        "description": "Check and upload secrets"
+      },
+      "worker": {
+        "description": "Create a worker. The worker command itself is deprecated"
+      }
+    }
   },
   "repository": {
     "type": "git",

@@ -7,8 +7,8 @@ export default class SecretsDeploy extends BaseCommand {
   static args = {
     workerName: Args.string({description: 'Worker name', required: false}),
   }
-  static description = 'Deploy secrets for the worker'
-  static examples = ['<%= config.bin %> secrets deploy']
+  static description = 'Upload secrets from the exact .dev.vars files for the env, to a worker that already exists'
+  static examples = ['<%= config.bin %> secrets deploy orders -e production', '<%= config.bin %> secrets deploy -a -e production']
   static flags = {
     all: Flags.boolean({char: 'a', default: false, description: 'Run command for all workers'}),
     'base-config': Flags.string({char: 'b', description: 'Base wrangler config file'}),

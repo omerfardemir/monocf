@@ -18,13 +18,13 @@ export const workerFlags = {
   'deploy-bindings': Flags.boolean({
     allowNo: true,
     char: 'd',
-    description: 'Deploy service bindings for the worker before deploy main worker',
+    description: 'Also deploy or upload the workers it binds to, first',
   }),
   'deploy-from-version-id': Flags.string({
     char: 'F',
     description: 'Version ID to deploy instead of the latest uploaded version. Requires --from-version',
   }),
-  'deploy-secrets': Flags.boolean({allowNo: true, char: 's', description: 'Deploy secrets for the worker'}),
+  'deploy-secrets': Flags.boolean({allowNo: true, char: 's', description: 'Also upload secrets, from the exact .dev.vars files for the env'}),
   env: Flags.string({char: 'e', description: 'Environment to use (dev, production etc.)'}),
   'from-version': Flags.boolean({char: 'f', description: 'Deploy from an existing version or latest uploaded version'}),
   json: Flags.boolean({description: 'Print results as NDJSON on stdout'}),
