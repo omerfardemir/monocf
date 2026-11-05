@@ -845,4 +845,23 @@ describe.skipIf(process.platform === 'win32')('apply, on a signal', () => {
     const next = await planFor(fixture, result.cloudflare!, {rules: newCode('billing', 'orders')})
     expect(actionsOf(next).orders).toBe('upload')
   })
+
+  it('still reaches a remote state store after the signal, which stops everything else', async () => {
+    const fixture = deployFixture()
+    const cloudflare = await firstRun(fixture)
+    const manifest = readFileSync(join(fixture.root, 'state', 'staging', 'manifest.json'), 'utf8')
+    const remote = {...cloudflare, buckets: {'state-bucket': {'staging/manifest.json': manifest}}}
+    const planned = await runCli(fixture, ['plan', '-e', 'staging', '--state', 'r2://state-bucket', '--out', 'plan.json'], {cloudflare: remote, rules: newCode('billing')})
+    expect(planned.exitCode, planned.stderr).toBe(0)
+
+    const running = startCli(fixture, ['apply', 'plan.json'], {cloudflare: remote, rules: [{command: 'versions deploy', holdMs: 20_000, worker: 'billing'}]})
+    await waitForWrite(running, 'promote billing')
+    running.child.kill('SIGTERM')
+    const result = await running.done
+
+    expect(result.exitCode).toBe(143)
+    expect(result.stderr).not.toContain('was not written')
+    const stored = Object.keys(result.cloudflare!.buckets!['state-bucket'])
+    expect(stored.filter((key) => key.startsWith('staging/runs/'))).toHaveLength(1)
+  })
 })
