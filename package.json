@@ -4,7 +4,7 @@
   "version": "0.3.0",
   "author": "Omer Demir",
   "bin": {
-    "monocf": "./bin/run.js"
+    "monocf": "bin/run.js"
   },
   "bugs": "https://github.com/omerfardemir/monocf/issues",
   "dependencies": {
@@ -35,7 +35,8 @@
     "./bin",
     "./dist",
     "!dist/**/*.d.ts",
-    "./oclif.manifest.json"
+    "./oclif.manifest.json",
+    "./CHANGELOG.md"
   ],
   "homepage": "https://github.com/omerfardemir/monocf",
   "keywords": [

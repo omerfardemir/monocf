@@ -1,7 +1,8 @@
 name: release
 
 # Runs on every push to main, and does only what the version in package.json is still missing. So a
-# push with no new version does nothing, and a failed run can be re-run from where it stopped.
+# push with no new version does nothing, and "Re-run all jobs" picks a failed run up where it stopped.
+# docs/releasing.md has the setup on npmjs.com, and what to do when a run fails.
 #
 # Everything is in one workflow because a release made with GITHUB_TOKEN can't start another
 # workflow. This way the repository stores no secrets.
@@ -21,6 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.check.outputs.tag }}
+      commit: ${{ steps.check.outputs.commit }}
       publish: ${{ steps.check.outputs.publish }}
       release: ${{ steps.check.outputs.release }}
     steps:
@@ -50,7 +52,18 @@ jobs:
           publish=$(missing "https://registry.npmjs.org/$name/$version")
           release=$(missing "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/tags/v$version" --header "Authorization: Bearer $GH_TOKEN")
 
+          # A version already on npm gets its tag on the commit npm names, not on whatever this push is.
+          commit=$GITHUB_SHA
+          if [ "$publish" = false ] && [ "$release" = true ]; then
+            commit=$(npm view "$name@$version" gitHead)
+            if [ -z "$commit" ]; then
+              echo "::error::npm doesn't say which commit $name@$version came from, so its tag and release have to be made by hand."
+              exit 1
+            fi
+          fi
+
           echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
           echo "publish=$publish" >> "$GITHUB_OUTPUT"
           echo "release=$release" >> "$GITHUB_OUTPUT"
 
@@ -79,6 +92,8 @@ jobs:
   # npm trusted publishing: the registry takes this job's OIDC token, so no npm token is stored.
   # On npmjs.com, the package's trusted publisher has to name this file and allow npm publish.
   # Needs npm 11.5.1 or later, which is why this job is on Node 24.
+  # --ignore-scripts keeps dependencies' install scripts away from that token. --loglevel=verbose
+  # is there because npm only says why a token exchange was refused at that level.
   publish:
     needs: [check, test]
     if: needs.check.outputs.publish == 'true'
@@ -94,9 +109,9 @@ jobs:
         with:
           node-version: '24'
           registry-url: 'https://registry.npmjs.org'
-      - run: npm ci
+      - run: npm ci --ignore-scripts
       - run: npm run build
-      - run: npm publish
+      - run: npm publish --loglevel=verbose
 
   # After publish, so that a tag and a release only ever name a version that's on npm. Apart from
   # publish, so that its actions never run beside the token that can publish.
@@ -114,10 +129,11 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
+          ref: ${{ needs.check.outputs.commit }}
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: '22'
+          node-version: '24'
       - run: npm ci
       - run: npm run build
 
@@ -136,22 +152,18 @@ jobs:
           cd ./dist/unpacked/package
           zip -r ../../$filename.zip .
 
-      # Upload .tgz and .zip to GitHub Actions artifacts
-      - name: Upload npm artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: npm-packages
-          path: |
-            ./dist/*.tgz
-            ./dist/*.zip
-
+      # A failed upload has to turn the run red, because a later run sees the release and stops. The
+      # two update settings let a re-run finish a release that exists, and keep its notes.
       - name: Create the tag and the release
         uses: ncipollo/release-action@339a81892b84b4eeb0f6e744e4574d79d0d9b8dd # v1.21.0
         with:
           tag: ${{ needs.check.outputs.tag }}
           name: Release ${{ needs.check.outputs.tag }}
-          commit: ${{ github.sha }}
+          commit: ${{ needs.check.outputs.commit }}
           generateReleaseNotes: true
+          artifactErrorsFailBuild: true
+          allowUpdates: true
+          omitBodyDuringUpdate: true
           artifacts: |
             ./dist/*.tgz
             ./dist/*.zip
