@@ -174,6 +174,7 @@ describe('findIgnoredWorkers with a scope', () => {
     ['except production', '"except production" holds a space'],
     ['in dev', '"in dev" holds a space'],
     [String.raw`my\\ dir`, 'holds a space'],
+    [String.raw`\\ dir`, 'holds a space'],
     ['  billing', 'starts with whitespace'],
     ['\tbilling', 'starts with whitespace'],
     ['\u00A0billing', 'starts with whitespace'],
