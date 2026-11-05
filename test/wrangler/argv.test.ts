@@ -127,6 +127,13 @@ describe('buildArgv', () => {
       ['versions', 'view', 'v1', '--name', 'n', '--json'],
     ],
     ['r2 bucket info', {action: 'r2-bucket-info', bucket: 'b'}, {}, ['r2', 'bucket', 'info', 'b']],
+    ['queue consumers', {action: 'queue-consumers', queue: 'q'}, {env: 'staging'}, ['queues', 'consumer', 'worker', 'list', 'q', '--json']],
+    [
+      'queue consumer remove',
+      {action: 'queue-consumer-remove', queue: 'q', script: 'orders-staging'},
+      {env: 'staging'},
+      ['queues', 'consumer', 'remove', 'q', 'orders-staging'],
+    ],
     [
       'r2 object get',
       {action: 'r2-get', bucket: 'b', key: 'p/k.json'},

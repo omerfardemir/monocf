@@ -12,7 +12,7 @@ const worker = {
   doHash: 'd',
   externalHash: 'e',
   fingerprint: 'f',
-  triggers: {crons: null, previewUrls: null, routes: [], workersDev: true},
+  triggers: {consumers: [], crons: null, previewUrls: null, routes: [], streamingTailConsumers: null, tailConsumers: null, workersDev: true, workflows: []},
   triggersHash: 't',
   versionId: 'v',
 }

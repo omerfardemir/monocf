@@ -72,7 +72,7 @@ function describesConfig(described: ManifestWorker | undefined, {config, deploye
     described?.deployedName === deployedName &&
     described.configHash === configHash(config, env) &&
     described.doHash === doHash(config, env) &&
-    described.triggersHash === triggersHash(triggersOf(config, env))
+    described.triggersHash === triggersHash(triggersOf(config, env, deployedName))
   )
 }
 

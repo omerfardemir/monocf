@@ -164,7 +164,7 @@ Rules for it:
 - Text and data modules are hashed as bytes, like external inputs. A Windows checkout with `core.autocrlf=true` therefore gives a text module another `bundleHash` than CI does; esbuild hides this only for JavaScript. CI isn't affected and the error is in the safe direction, so line endings aren't normalised.
 - The bundle differs between wrangler versions, so wrangler must be pinned. Upgrading it can redeploy a worker, wherever its bytes change. The version isn't part of the fingerprint.
 - Each upload is tagged `monocf:<fingerprint>`, 64 hex characters. A tag allows up to 100 characters; a longer one fails the upload.
-- `triggersHash` covers the effective `triggers.crons`, `routes` or `route`, `workers_dev` and `preview_urls`. All four inherit from the top level. `crons` is `null` when the config doesn't set it, because wrangler then leaves the deployed crons alone, unlike an explicit `[]`. `workersDev` follows wrangler's default: true when there are no routes.
+- `triggersHash` covers what a new version doesn't carry, so that `versions deploy` alone can't change it: the effective `triggers.crons`, `routes` or `route`, `workers_dev` and `preview_urls`, which inherit from the top level, and `queues.consumers`, the Workflows the worker defines (no `script_name`, or its own deployed name), `tail_consumers` and `streaming_tail_consumers`, which don't, so an env reads its own section only. `crons` and the two tail consumer lists are `null` when the config doesn't set them, because wrangler then leaves the deployed ones alone, unlike an explicit `[]`. `workersDev` follows wrangler's default: true when there are no routes.
 - `doHash` covers the effective `migrations` and `exports`. A binding alone isn't a class lifecycle change.
 
 `monocf bundle` writes these to `<out>/manifest.json` only when every worker built. A run that fails leaves no manifest, so an old one can't be taken for this run's. Two runs at once must use different output directories, which the default `.monocf/bundle/<env>` does for different envs. `worker -c build` shares the worker's `dist`, and running it for two envs at once failed 8 times in 40 with "Unexpected end of JSON input", against 0 in 40 for `bundle`. The shared directory is the likely cause, but the exact read that fails has not been isolated.
@@ -185,7 +185,7 @@ A `StateStore` holds a per-environment manifest:
       "configHash": "…",
       "externalHash": "…",
       "fingerprint": "…",
-      "triggers": {"crons": null, "previewUrls": null, "routes": [], "workersDev": true},
+      "triggers": {"consumers": [], "crons": null, "previewUrls": null, "routes": [], "streamingTailConsumers": null, "tailConsumers": null, "workersDev": true, "workflows": []},
       "triggersHash": "…",
       "doHash": "…",
       "versionId": "…",
@@ -263,7 +263,7 @@ The older plan and markdown at the output paths are removed right after flag par
 Two phases, so a bad build can't leave half the chain updated:
 
 1. **Upload,** in parallel: `wrangler versions upload --tag … --message … --var RELEASE:<sha>`. Nothing receives traffic yet.
-2. **Promote,** callees first: `wrangler versions deploy <id>@100% --yes -c <config>`, then `wrangler triggers deploy` when the triggers hash changed.
+2. **Promote,** callees first: `wrangler versions deploy <id>@100% --yes -c <config>`, then `wrangler triggers deploy` when the triggers hash changed, then `wrangler queues consumer remove` for each queue in the step's `removedConsumers` that `queues consumer worker list --json` still shows this worker consuming. A `full-deploy` or `create` goes through the same removal after its `wrangler deploy`.
 
 Exceptions that need a plain `wrangler deploy`:
 
@@ -313,11 +313,18 @@ Behaviour this design has to work with:
 | Observability | `versions deploy` with the config present, or `deploy` |
 | Crons, routes, `workers_dev` | `triggers deploy` or `deploy` |
 | Removing all crons | An explicit `"crons": []`; an absent key changes nothing |
+| Adding or changing a queue consumer | `triggers deploy` or `deploy`; `versions deploy` doesn't |
+| Removing a queue consumer | Only `queues consumer remove`; no deploy does it, and Cloudflare refuses to delete a worker that's still a consumer |
+| Adding a Workflow | `triggers deploy` or `deploy`; until then, a version that binds it fails at its first call |
+| Removing a Workflow | Nothing in wrangler; `workflows delete` also deletes its instances |
+| Tail consumers | `versions deploy` or `deploy` sets a list the config names; an absent list changes nothing, an explicit `[]` clears it |
 | Durable Object class change | `deploy` |
 
 A caller sees a new callee version without being redeployed, for both RPC and fetch. The exception is a callee that was deleted and recreated: its callers stay broken until they get a new version, so the planner uploads them too.
 
-**Rollback** runs callers first. Code, vars and secrets follow the version; crons don't, so they are restored separately, through a config holding only the name and the triggers. Rolling back across a Durable Object class addition is refused by Cloudflare, but rolling back across a class deletion exits 0 and leaves the class broken, so monocf refuses any rollback across a DO change unless forced. A refused or failed worker skips the workers it calls.
+**Non-versioned settings,** checked on real Cloudflare with wrangler 4.151.0: none of `versions deploy`, `triggers deploy` or `wrangler deploy` removes a queue consumer, a Workflow or a tail consumer that a config drops. So the plan step carries `removedConsumers`, the queues the state entry's triggers consume and this config doesn't, and `explicitEmptyTails`, the tail consumer lists the entry had and this config leaves unset, which `apply` writes as `[]`, as it does `explicitEmptyCrons`. A Workflow the config drops gets the plan note `workflow-removed`, and stays: deleting it deletes its instances, so that's a person's call. What monocf didn't set, by the state, it leaves alone. A `triggers` or `adopt` step gives the live version again with `versions deploy` when the tail consumers may be behind (the entry's differ from the plan's, or there's no entry and the config sets some), as `triggers deploy` doesn't set them and a crashed promote may have gone live before it did.
+
+**Rollback** runs callers first. Code, vars and secrets follow the version; crons don't, so they are restored separately, through a config holding only the name and the triggers. That config holds the earlier consumers and Workflows too, and the rollback detaches a consumer the run attached that the earlier triggers don't hold. Its `versions deploy` takes the earlier tail consumers rather than this checkout's, with `[]` for a list the run set and the earlier entry didn't. A Workflow the run registered stays, and the record says so. Rolling back across a Durable Object class addition is refused by Cloudflare, but rolling back across a class deletion exits 0 and leaves the class broken, so monocf refuses any rollback across a DO change unless forced. A refused or failed worker skips the workers it calls.
 
 `--to-run` restores what that run changed, using its record, and skips with a report a worker that run created. State goes back to the earlier entry, so the next plan compares against what's really live, and a fresh run record, which names the version that was live even if only triggers went back, lets a later `--to-run` undo the rollback. That entry only speaks for the version it names: when what the run replaced was something else, such as a manual hotfix or what a crash left, the restored version gets an entry whose hashes match nothing, with the earlier entry's Durable Object hash and triggers, so the next plan uploads over it.
 

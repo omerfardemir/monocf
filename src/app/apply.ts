@@ -7,7 +7,7 @@ import {ConfigError, isPlainObject, type ResolvedWorker} from '../config/types.j
 import {assertResolved, definedEnvs} from '../config/validate.js'
 import {EXIT_FAILED, EXIT_OK, MonocfError} from '../errors.js'
 import {workerExternalHash} from '../fingerprint/external.js'
-import {configHash, doHash, triggersHash, triggersOf, type Triggers} from '../fingerprint/fingerprint.js'
+import {canonicalJson, configHash, doHash, triggersHash, triggersOf, type Triggers} from '../fingerprint/fingerprint.js'
 import {PLAN_SCHEMA_VERSION, tagFor, type Plan, type PlanStep} from '../plan/plan.js'
 import type {OptionFlags, Options} from '../project/options.js'
 import {discoverWorkers, IGNORE_FILE} from '../project/workers.js'
@@ -18,7 +18,7 @@ import {RUN_RECORD_SCHEMA_VERSION, type RecordResult, type RunRecord} from '../s
 import {openStateStore, parseStateUrl, type StateLocation} from '../state/store.js'
 import type {ArgvOptions} from '../wrangler/argv.js'
 import {locateWrangler} from '../wrangler/locate.js'
-import {readActiveVersion, readVersionTag, type WranglerCall} from '../wrangler/read.js'
+import {readActiveVersion, readQueueConsumers, readVersionTag, type WranglerCall} from '../wrangler/read.js'
 import {withReadRetries} from '../wrangler/retry.js'
 import {
   accountMarker,
@@ -46,7 +46,7 @@ export interface ApplyFlags extends OptionFlags {
 
 const SHORT_SHA_LENGTH = 7
 const MAX_MESSAGE_LENGTH = 999
-const NO_TRIGGERS: Triggers = {crons: null, previewUrls: null, routes: [], workersDev: false}
+const NO_TRIGGERS: Triggers = {consumers: [], crons: null, previewUrls: null, routes: [], streamingTailConsumers: null, tailConsumers: null, workersDev: false, workflows: []}
 /** Matches no real hash, so the next plan applies the triggers again. */
 const TRIGGERS_NOT_APPLIED = 'not-applied'
 
@@ -153,7 +153,7 @@ function assertDescribes(plan: Plan, workers: Map<string, ResolvedWorker>, {noti
     const differences = [
       ...(step.configHash === configHash(config, env) ? [] : ['config']),
       ...(step.doHash === doHash(config, env) ? [] : ['Durable Objects']),
-      ...(step.triggersHash === triggersHash(triggersOf(config, env)) ? [] : ['triggers']),
+      ...(step.triggersHash === triggersHash(triggersOf(config, env, worker.deployedName)) ? [] : ['triggers']),
     ]
     if (step.externalHash !== workerExternalHash(worker, env, rootDir, outputs)) {
       if (effectiveField(config, env, 'build') === undefined) differences.push('external inputs')
@@ -184,11 +184,22 @@ interface Target {
   worker: ResolvedWorker
 }
 
-function withEmptyCrons(worker: ResolvedWorker, env: string): ResolvedWorker {
+/** What wrangler leaves alone when a list is absent, written as empty so that it goes. */
+function withEmptyLists(worker: ResolvedWorker, env: string, {explicitEmptyCrons, explicitEmptyTails = []}: PlanStep): ResolvedWorker {
+  if (!explicitEmptyCrons && explicitEmptyTails.length === 0) return worker
   const envs = isPlainObject(worker.config.env) ? worker.config.env : {}
   const section = isPlainObject(envs[env]) ? envs[env] : {}
   const triggers = isPlainObject(section.triggers) ? section.triggers : {}
-  return {...worker, config: {...worker.config, env: {...envs, [env]: {...section, triggers: {...triggers, crons: []}}}}}
+  const emptied = {
+    ...section,
+    ...(explicitEmptyCrons && {triggers: {...triggers, crons: []}}),
+    ...Object.fromEntries(explicitEmptyTails.map((field) => [field, []])),
+  }
+  return {...worker, config: {...worker.config, env: {...envs, [env]: emptied}}}
+}
+
+function tailsOf(triggers: Partial<Triggers>): string {
+  return canonicalJson([triggers.tailConsumers ?? null, triggers.streamingTailConsumers ?? null])
 }
 
 /** Every worker a step waits for that's in `members`, looking through the ones that aren't. */
@@ -350,7 +361,7 @@ class Applier {
   private configOf({step, worker}: Target): string {
     let path = this.configPaths.get(worker.dir)
     if (path === undefined) {
-      path = materialiseConfig(step.explicitEmptyCrons ? withEmptyCrons(worker, this.env) : worker, this.context.runDir)
+      path = materialiseConfig(withEmptyLists(worker, this.env, step), this.context.runDir)
       this.configPaths.set(worker.dir, path)
     }
 
@@ -435,10 +446,44 @@ class Applier {
     }
   }
 
+  /** No deploy removes a consumer. Only one still attached is removed, so a retry or the next run can finish the job. */
+  private async detachRemovedConsumers(target: Target): Promise<void> {
+    const {deployedName, removedConsumers = []} = target.step
+    for (const queue of removedConsumers) {
+      const consumers = await readQueueConsumers(this.call(target), queue, target.accountId)
+      if (consumers.includes(deployedName)) await this.wrangler(target, {action: 'queue-consumer-remove', queue, script: deployedName}, {})
+    }
+  }
+
+  /**
+   * `triggers deploy` leaves tail consumers alone, and only `versions deploy` sets them. A step that uploads nothing gives the
+   * live version again for them when they may be behind: a crashed run went live before setting them, or nothing says.
+   */
+  private tailsBehind({record, step}: Target): boolean {
+    if ((step.explicitEmptyTails?.length ?? 0) > 0) return true
+    const previous = record.previous?.triggers
+    if (previous === undefined) return step.triggers.tailConsumers !== null || step.triggers.streamingTailConsumers !== null
+    return tailsOf(previous) !== tailsOf(step.triggers)
+  }
+
+  private async syncTails(target: Target): Promise<void> {
+    if (!this.tailsBehind(target)) return
+    const {env, message} = this.argvOptions(target)
+    const versionId = target.step.previousVersionId!
+    await this.wrangler(target, {action: 'versions-deploy', configPath: this.configOf(target), versionId}, {env, message})
+    await this.verify(target, versionId)
+  }
+
+  /** What the version doesn't carry: triggers, then the consumers that have to go. `deployed` says `wrangler deploy` did the first. */
+  private async applyNonVersioned(target: Target, {deployed = false}: {deployed?: boolean} = {}): Promise<void> {
+    if (!deployed) await this.wrangler(target, {action: 'triggers-deploy', configPath: this.configOf(target)}, {env: this.env})
+    await this.detachRemovedConsumers(target)
+  }
+
   /** If this fails, the entry says so with a hash that matches nothing, and the next plan gives `triggers`. */
-  private async applyTriggers(target: Target, versionId: string): Promise<void> {
+  private async applyTriggers(target: Target, versionId: string, options: {deployed?: boolean} = {}): Promise<void> {
     try {
-      await this.wrangler(target, {action: 'triggers-deploy', configPath: this.configOf(target)}, {env: this.env})
+      await this.applyNonVersioned(target, options)
     } catch (error) {
       const previous = target.record.previous?.triggers ?? NO_TRIGGERS
       this.writer.update(target.worker.dir, {...this.entryFor(target, versionId), triggers: previous, triggersHash: TRIGGERS_NOT_APPLIED}, {newVersion: true})
@@ -461,7 +506,7 @@ class Applier {
         target.record.newVersionId = versionId
         target.record.changed = true
         // Wrangler applies triggers after `Uploaded`, so a failure in between leaves them unapplied, and workers_dev off.
-        if (earlier !== undefined) await this.applyTriggers(target, versionId)
+        await this.applyTriggers(target, versionId, {deployed: earlier === undefined})
         this.writer.update(target.worker.dir, this.entryFor(target, versionId), {newVersion: true})
         return versionId
       },
@@ -526,7 +571,8 @@ class Applier {
       run: async (attempt) => {
         if (attempt === 1) await this.assertLiveAsPlanned(target)
         target.attempted = true
-        await this.wrangler(target, {action: 'triggers-deploy', configPath: this.configOf(target)}, {env: this.env})
+        await this.syncTails(target)
+        await this.applyNonVersioned(target)
         target.record.changed = true
         this.writer.update(target.worker.dir, this.entryFor(target, target.step.previousVersionId!))
       },
@@ -542,7 +588,8 @@ class Applier {
       run: async (attempt) => {
         if (attempt === 1) await this.assertLiveAsPlanned(target)
         target.attempted = true
-        await this.wrangler(target, {action: 'triggers-deploy', configPath: this.configOf(target)}, {env: this.env})
+        await this.syncTails(target)
+        await this.applyNonVersioned(target)
         this.writer.update(target.worker.dir, this.entryFor(target, target.step.previousVersionId!))
       },
       worker: target.worker.dir,

@@ -11,6 +11,8 @@ export type Step =
   | {action: 'dev'; configPaths: string[]; inspectorPort?: number; persistTo: string; port?: number}
   | {action: 'secret-bulk'; configPath: string; file: string}
   | {action: 'versions-deploy'; configPath: string; versionId: string}
+  | {action: 'queue-consumer-remove'; queue: string; script: string}
+  | {action: 'queue-consumers'; queue: string}
   | {action: 'whoami'}
 
 export interface ArgvOptions {
@@ -48,10 +50,56 @@ function upload(
   ]
 }
 
+type QueueStep = Extract<Step, {action: 'queue-consumer-remove' | 'queue-consumers'}>
+type R2Step = Extract<Step, {action: 'r2-bucket-info' | 'r2-get' | 'r2-put'}>
+
+function isQueueStep(step: Step): step is QueueStep {
+  return step.action.startsWith('queue-')
+}
+
+function isR2Step(step: Step): step is R2Step {
+  return step.action.startsWith('r2-')
+}
+
+function queueArgv(step: QueueStep): string[] {
+  return step.action === 'queue-consumers'
+    ? ['queues', 'consumer', 'worker', 'list', step.queue, '--json']
+    : ['queues', 'consumer', 'remove', step.queue, step.script]
+}
+
+function r2Argv(step: R2Step): string[] {
+  switch (step.action) {
+    // --pipe, not --file: on a miss --file leaves a 0-byte file behind.
+    case 'r2-get': {
+      return ['r2', 'object', 'get', `${step.bucket}/${step.key}`, '--remote', '--pipe']
+    }
+
+    case 'r2-put': {
+      return [
+        'r2',
+        'object',
+        'put',
+        `${step.bucket}/${step.key}`,
+        '--remote',
+        '--file',
+        step.file,
+        '--content-type',
+        'application/json',
+      ]
+    }
+
+    case 'r2-bucket-info': {
+      return ['r2', 'bucket', 'info', step.bucket]
+    }
+  }
+}
+
 /** Turns a step into wrangler's arguments. Pure, so every action and flag combination can be tested without a process. */
 export function buildArgv(step: Step, options: ArgvOptions = {}): string[] {
   const {env, message, minify, release} = options
   const envFlag = flag('--env', env)
+  if (isQueueStep(step)) return queueArgv(step)
+  if (isR2Step(step)) return r2Argv(step)
   switch (step.action) {
     case 'build': {
       return [
@@ -104,29 +152,6 @@ export function buildArgv(step: Step, options: ArgvOptions = {}): string[] {
 
     case 'versions-of': {
       return ['versions', 'list', '--name', step.name, '--json']
-    }
-
-    // --pipe, not --file: on a miss --file leaves a 0-byte file behind.
-    case 'r2-get': {
-      return ['r2', 'object', 'get', `${step.bucket}/${step.key}`, '--remote', '--pipe']
-    }
-
-    case 'r2-put': {
-      return [
-        'r2',
-        'object',
-        'put',
-        `${step.bucket}/${step.key}`,
-        '--remote',
-        '--file',
-        step.file,
-        '--content-type',
-        'application/json',
-      ]
-    }
-
-    case 'r2-bucket-info': {
-      return ['r2', 'bucket', 'info', step.bucket]
     }
 
     case 'versions-list': {

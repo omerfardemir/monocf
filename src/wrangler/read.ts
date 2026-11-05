@@ -159,3 +159,21 @@ export async function readVersionTag(
 ): Promise<string | undefined> {
   return (await readVersionOrigin(call, name, versionId, accountId)).tag
 }
+
+/** The workers that consume a queue, from `queues consumer worker list --json`. */
+export async function readQueueConsumers(call: WranglerCall, queue: string, accountId?: string): Promise<string[]> {
+  const result = await call({action: 'queue-consumers', queue}, accountId)
+  if (!isSuccessful(result)) throw readFailure(`The consumers of queue ${queue}`, result)
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(result.stdout)
+  } catch {
+    throw new MonocfError(`The consumers of queue ${queue}: wrangler's answer isn't JSON.`, EXIT_FAILED)
+  }
+
+  if (!Array.isArray(parsed)) throw new MonocfError(`The consumers of queue ${queue}: wrangler's answer isn't a list.`, EXIT_FAILED)
+  return parsed.flatMap((consumer) => {
+    const script = isPlainObject(consumer) ? (consumer.script ?? consumer.service) : undefined
+    return typeof script === 'string' ? [script] : []
+  })
+}

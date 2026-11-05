@@ -114,6 +114,8 @@ export interface WranglerRule {
   effectThenFail?: boolean
   /** Exits 0 and changes nothing on the fake Cloudflare. */
   noEffect?: boolean
+  /** A `versions deploy` that goes live without setting tail consumers, as one killed between the two does. */
+  noSettings?: boolean
   /** A version with this ID and no tag goes live on the fake Cloudflare, as a person's own deploy would. */
   otherDeploy?: string
 }
@@ -253,6 +255,10 @@ export function createFixture(options: FixtureOptions): Fixture {
 export interface FakeCloudflare {
   /** Bucket name to its objects by key. */
   buckets?: Record<string, Record<string, string>>
+  /** Queue name to its consumers, by deployed name. */
+  consumers?: Record<string, Record<string, {max_batch_size?: number; queue: string}>>
+  /** Registered Workflows by name. */
+  workflows?: Record<string, {className: string; script: string}>
   /** By deployed name. A worker that isn't here doesn't exist. */
   workers?: Record<
     string,
@@ -262,6 +268,8 @@ export interface FakeCloudflare {
       secrets?: string[]
       tags?: Record<string, null | string>
       triggeredBy?: Record<string, string>
+      streamingTailConsumers?: string[]
+      tailConsumers?: string[]
       triggers?: null | {crons?: string[]}
     }
   >
@@ -325,7 +333,7 @@ export interface RunningCli {
 
 /** Whoami, the state store, and reads by name are the calls that need no worker's config. */
 function isConfigFree(argv: string[]): boolean {
-  return argv[0] === 'whoami' || argv[0] === 'r2' || (argv.includes('--name') && ['deployments', 'versions'].includes(argv[0]))
+  return argv[0] === 'whoami' || argv[0] === 'r2' || argv[0] === 'queues' || (argv.includes('--name') && ['deployments', 'versions'].includes(argv[0]))
 }
 
 export function startCli(fixture: Fixture, args: string[], options: RunOptions = {}): RunningCli {

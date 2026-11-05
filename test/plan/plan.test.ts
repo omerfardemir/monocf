@@ -8,7 +8,7 @@ import {createPlan, needsTag, tagFor, type OnDrift, type Plan, type PlanStep} fr
 import type {StateManifest, StateWorker} from '../../src/state/manifest.js'
 import type {ActiveInfo} from '../../src/wrangler/read.js'
 
-const noCrons: Triggers = {crons: null, previewUrls: null, routes: [], workersDev: true}
+const noCrons: Triggers = {consumers: [], crons: null, previewUrls: null, routes: [], streamingTailConsumers: null, tailConsumers: null, workersDev: true, workflows: []}
 
 function bundled(name: string, overrides: Partial<ManifestWorker> = {}): ManifestWorker {
   return {
@@ -97,7 +97,7 @@ function one(worker: Partial<ManifestWorker>, entry: null | Partial<StateWorker>
 
 describe('a live worker with migrations and no state entry', () => {
   const graph = {edges: [], external: [], nodes: ['orders']}
-  const worker = {bundleHash: 'b', configHash: 'c', deployedName: 'orders-v1', doHash: 'd', externalHash: 'e', fingerprint: 'f', triggers: {crons: null, previewUrls: null, routes: [], workersDev: true}, triggersHash: 't'}
+  const worker = {bundleHash: 'b', configHash: 'c', deployedName: 'orders-v1', doHash: 'd', externalHash: 'e', fingerprint: 'f', triggers: {consumers: [], crons: null, previewUrls: null, routes: [], streamingTailConsumers: null, tailConsumers: null, workersDev: true, workflows: []}, triggersHash: 't'}
   const options = {createdAt: 'now', onDrift: 'warn' as const, repositoryWorkers: ['orders'], state: 'file:state'}
   const bundle = (extra: object) => ({commit: 'c', env: 'dev', workers: {orders: {...worker, ...extra}}, wrangler: '4'})
   const active = {orders: {state: 'active' as const, tag: 'monocf:other', versionId: 'live'}}

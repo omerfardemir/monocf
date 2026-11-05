@@ -319,7 +319,7 @@ describe('monocf bundle', () => {
       doHash: expect.stringMatching(HEX_64),
       externalHash: expect.stringMatching(HEX_64),
       fingerprint: expect.stringMatching(HEX_64),
-      triggers: {crons: null, previewUrls: null, routes: [], workersDev: true},
+      triggers: {consumers: [], crons: null, previewUrls: null, routes: [], streamingTailConsumers: null, tailConsumers: null, workersDev: true, workflows: []},
       triggersHash: expect.stringMatching(HEX_64),
       version: '1.0.0',
     })

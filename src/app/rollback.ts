@@ -2,7 +2,7 @@ import {mkdirSync, writeFileSync} from 'node:fs'
 import {join} from 'node:path'
 
 import {accountIdOf, readProjectInputs, resolveProject} from '../config/resolve.js'
-import {ConfigError, type ResolvedWorker} from '../config/types.js'
+import {ConfigError, isPlainObject, type ResolvedWorker} from '../config/types.js'
 import {assertResolved} from '../config/validate.js'
 import {EXIT_FAILED, EXIT_OK, MonocfError} from '../errors.js'
 import {doHash, triggersHash, triggersOf, type Triggers} from '../fingerprint/fingerprint.js'
@@ -18,7 +18,7 @@ import {runKey, type StateWorker} from '../state/manifest.js'
 import {parseRunRecord, RUN_RECORD_SCHEMA_VERSION, VALID_RUN_ID, type RecordResult, type RunRecord} from '../state/run-record.js'
 import {openStateStore, parseStateUrl, type StateStore} from '../state/store.js'
 import {locateWrangler} from '../wrangler/locate.js'
-import {readActiveVersion} from '../wrangler/read.js'
+import {readActiveVersion, readQueueConsumers} from '../wrangler/read.js'
 import {withReadRetries} from '../wrangler/retry.js'
 import {
   accountMarker,
@@ -63,6 +63,8 @@ interface Target {
   /** Why this worker stays as it is, unless forced. */
   refusal?: string
   restoreTriggers?: Triggers
+  /** What the run set or meant to set, so what it attached and the restored triggers don't hold can go. */
+  runTriggers?: Triggers
   /** A `versions deploy` has started and hasn't been verified, so what happened has to be read rather than assumed. */
   restoring?: boolean
   /** The run says it left this worker alone without finishing, so all that's left is to check that. */
@@ -103,6 +105,8 @@ function writeTriggersConfig(worker: ResolvedWorker, env: string, triggers: Trig
       ...(triggers.routes.length > 0 && {routes: triggers.routes}),
       triggers: {crons: triggers.crons ?? []},
       workers_dev: triggers.workersDev,
+      ...(triggers.consumers?.length && {queues: {consumers: triggers.consumers}}),
+      ...(triggers.workflows?.length && {workflows: triggers.workflows}),
     }),
   )
   return path
@@ -116,6 +120,43 @@ interface TargetInputs {
   manifest: Record<string, StateWorker>
   runId: string
   worker: ResolvedWorker
+}
+
+function namesOf(list: unknown[] | undefined, key: string): string[] {
+  return (list ?? []).flatMap((item) => (isPlainObject(item) && typeof item[key] === 'string' ? [item[key]] : []))
+}
+
+/** What the run attached that the restored triggers don't name. `triggers deploy` only adds. */
+function addedByRun(runTriggers: Triggers | undefined, restored: Triggers | undefined, field: 'consumers' | 'workflows', key: string): string[] {
+  if (restored === undefined) return []
+  const kept = new Set(namesOf(restored[field], key))
+  return namesOf(runTriggers?.[field], key).filter((name) => !kept.has(name))
+}
+
+const TAIL_FIELDS = [
+  ['tailConsumers', 'tail_consumers'],
+  ['streamingTailConsumers', 'streaming_tail_consumers'],
+] as const
+
+/**
+ * `versions deploy` sets the tail consumers its config names, so they're the earlier ones, not this checkout's. It leaves an
+ * absent list attached, so one the run attached goes as an empty list.
+ */
+function withEarlierTails(worker: ResolvedWorker, env: string, earlier: Triggers, runTriggers: Triggers | undefined): ResolvedWorker {
+  const envs = isPlainObject(worker.config.env) ? worker.config.env : {}
+  const section: Record<string, unknown> = {...(isPlainObject(envs[env]) ? envs[env] : {})}
+  for (const [key, field] of TAIL_FIELDS) {
+    const value = earlier[key] ?? null
+    if (value !== null) section[field] = value
+    else if ((runTriggers?.[key]?.length ?? 0) > 0) section[field] = []
+    else delete section[field]
+  }
+
+  return {...worker, config: {...worker.config, env: {...envs, [env]: section}}}
+}
+
+function workflowsNote(names: string[]): string {
+  return `This run registered the Workflow ${names.join(', ')}, and no deploy deletes one, so it stays. To delete it with its instances, run wrangler workflows delete.`
 }
 
 function refusalOf({dir}: ResolvedWorker, hasPrevious: boolean): string {
@@ -161,6 +202,11 @@ function versionToRestore({action, changed, newVersionId, previousVersionId}: Re
   return newVersionId !== undefined || (changed === 'unknown' && action !== 'triggers') ? previousVersionId : undefined
 }
 
+function targetNotes({keptRoutes, recreated, restoreTriggers, runTriggers}: {keptRoutes?: Triggers['routes']; recreated: boolean; restoreTriggers?: Triggers; runTriggers?: Triggers}): string[] {
+  const keptWorkflows = addedByRun(runTriggers, restoreTriggers, 'workflows', 'name')
+  return [...(recreated ? [NEEDS_NEW_VERSION] : []), ...(keptRoutes ? [routesNote(keptRoutes)] : []), ...(keptWorkflows.length > 0 ? [workflowsNote(keptWorkflows)] : [])]
+}
+
 function targetFor(entry: RecordEntry, {createdCallees, env, force, manifest, runId, worker}: TargetInputs): Target {
   const message = `rollback ${runId}`
   const {changed, previous, previousVersionId} = entry
@@ -172,7 +218,8 @@ function targetFor(entry: RecordEntry, {createdCallees, env, force, manifest, ru
   const versionId = versionToRestore(entry)
   const recreated = entry.reasons?.includes('provider-recreated') === true
   const refusals = refusalsFor(entry, {createdCallees, currentDoHash: current?.doHash ?? doHash(worker.config, env), recreated, worker})
-  const notes = [...(recreated ? [NEEDS_NEW_VERSION] : []), ...(keptRoutes ? [routesNote(keptRoutes)] : [])]
+  const runTriggers = entry.planned?.triggers ?? current?.triggers
+  const notes = targetNotes({keptRoutes, recreated, restoreTriggers, runTriggers})
   return {
     ...(previous && {earlier: previous}),
     ...(keptRoutes && {keptRoutes}),
@@ -183,6 +230,7 @@ function targetFor(entry: RecordEntry, {createdCallees, env, force, manifest, ru
     ...(notes.length > 0 && {notes}),
     ...(refusals.length > 0 && !force && {refusal: refusals.join(' ')}),
     ...(restoreTriggers && {restoreTriggers}),
+    ...(runTriggers && {runTriggers}),
     ...(versionId !== undefined && {versionId}),
     worker,
   }
@@ -249,12 +297,14 @@ function callersFirst(workers: ResolvedWorker[], names: string[]): Map<string, s
   return callers
 }
 
-function describeTarget({notes = [], refusal, restoreTriggers, verifyOnly, versionId, worker}: Target): string {
+function describeTarget({notes = [], refusal, restoreTriggers, runTriggers, verifyOnly, versionId, worker}: Target): string {
   if (refusal) return `would refuse: ${refusal}`
   if (verifyOnly) return `${worker.dir}: check that ${versionId} is still live, as this run didn't change it`
+  const detached = addedByRun(runTriggers, restoreTriggers, 'consumers', 'queue')
   const parts = [
     ...(versionId === undefined ? [] : [`versions deploy ${versionId}@100%`]),
     ...(restoreTriggers ? [`triggers deploy with crons ${JSON.stringify(restoreTriggers.crons ?? [])}`] : []),
+    ...(detached.length > 0 ? [`detach it from queue ${detached.join(', ')}`] : []),
   ]
   return [`${worker.dir}: ${parts.join(', then ') || 'nothing to do'}`, ...notes].join(' ')
 }
@@ -270,7 +320,7 @@ interface Execution {
 }
 
 function unknownEntry(worker: ResolvedWorker, env: string, current: StateWorker | undefined, versionId: string): StateWorker {
-  const triggers = triggersOf(worker.config, env)
+  const triggers = triggersOf(worker.config, env, worker.deployedName)
   return {
     commit: UNKNOWN,
     deployedName: worker.deployedName,
@@ -295,6 +345,22 @@ function restoredEntry({earlier, keptRoutes, knownEntry, restoreTriggers, worker
   // The state says what's really attached, so the next plan names it.
   const triggers = {...(restoreTriggers ?? entry.triggers), routes: keptRoutes}
   return {...entry, triggers, triggersHash: triggersHash(triggers)}
+}
+
+/** The worker as the version goes back, with the earlier tail consumers, which `versions deploy` sets. */
+function restoredWorker({earlier, restoreTriggers, runTriggers, worker}: Target, env: string): ResolvedWorker {
+  const tailsFrom = restoreTriggers ?? earlier?.triggers
+  return tailsFrom ? withEarlierTails(worker, env, tailsFrom, runTriggers) : worker
+}
+
+/** `triggers deploy` only adds, so a consumer the run attached and the earlier triggers don't hold is detached here. */
+async function detachAddedConsumers(context: RunContext, {restoreTriggers, runTriggers, worker}: Target, shared: {accountId?: string; mode: {prefix: string}; worker: string}): Promise<void> {
+  const call = workerCall(context, worker.dir)
+  for (const queue of addedByRun(runTriggers, restoreTriggers, 'consumers', 'queue')) {
+    if ((await readQueueConsumers(call, queue, shared.accountId)).includes(worker.deployedName)) {
+      await runStep(context, {...shared, argvOptions: {}, step: {action: 'queue-consumer-remove', queue, script: worker.deployedName}})
+    }
+  }
 }
 
 async function restore({context, env, runId, writer}: Execution, target: Target, attempt: number, record: RunRecord['workers'][string]) {
@@ -322,7 +388,7 @@ async function restore({context, env, runId, writer}: Execution, target: Target,
       await runStep(context, {
         ...shared,
         argvOptions: {env, message: `${message} ${runId}`},
-        step: {action: 'versions-deploy', configPath: materialiseConfig(worker, context.runDir), versionId},
+        step: {action: 'versions-deploy', configPath: materialiseConfig(restoredWorker(target, env), context.runDir), versionId},
       })
     }
 
@@ -336,6 +402,7 @@ async function restore({context, env, runId, writer}: Execution, target: Target,
     const configPath = writeTriggersConfig(worker, env, restoreTriggers, context.runDir)
     record.changed = 'unknown'
     await runStep(context, {...shared, argvOptions: {}, step: {action: 'triggers-deploy', configPath}})
+    await detachAddedConsumers(context, target, shared)
     record.changed = true
   }
 

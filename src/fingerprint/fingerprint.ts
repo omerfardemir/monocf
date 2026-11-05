@@ -1,6 +1,6 @@
 import {createHash} from 'node:crypto'
 
-import {effectiveField} from '../config/resolve.js'
+import {effectiveField, envSection} from '../config/resolve.js'
 import {isPlainObject, type RawConfig} from '../config/types.js'
 
 export interface BundleFile {
@@ -9,11 +9,24 @@ export interface BundleFile {
   path: string
 }
 
+/**
+ * What a new version doesn't carry, so `versions deploy` alone can't change it. `triggers deploy` sets crons, routes,
+ * workers_dev and preview_urls, adds and updates queue consumers, and registers Workflows. `versions deploy` sets the tail
+ * consumers it's given. Nothing in wrangler removes a consumer, a Workflow or an unset tail consumer list: `apply` does
+ * the first and the last itself, and `plan` names a Workflow left behind.
+ */
 export interface Triggers {
+  /** `queues.consumers`, settings and all. */
+  consumers: unknown[]
   /** Null when the config doesn't set them: wrangler then leaves the deployed crons alone, unlike an empty list. */
   crons: unknown[] | null
   previewUrls: boolean | null
   routes: unknown[]
+  /** Null when unset, which `versions deploy` leaves as it is, unlike an empty list. */
+  streamingTailConsumers: unknown[] | null
+  tailConsumers: unknown[] | null
+  /** The Workflows this worker defines, not ones it binds to in another worker. */
+  workflows: unknown[]
   workersDev: boolean
 }
 
@@ -105,9 +118,19 @@ export function fingerprintOf(bundle: string, config: string, external: string):
   return sha256(`${bundle}\n${config}\n${external}`)
 }
 
-/** What wrangler reads for these fields. All of them inherit, and workers_dev follows the routes unless it's set. */
-export function triggersOf(config: RawConfig, env?: string): Triggers {
+function listOrNull(value: unknown): unknown[] | null {
+  return Array.isArray(value) ? value : null
+}
+
+/**
+ * What wrangler reads for these fields. Crons, routes, workers_dev and preview_urls inherit, and workers_dev follows the
+ * routes unless it's set. Queues, Workflows and tail consumers don't inherit, so an env reads its own section only.
+ */
+export function triggersOf(config: RawConfig, env: string | undefined, deployedName: string): Triggers {
   const field = (name: string) => effectiveField(config, env, name)
+  const own = envSection(config, env)
+  const {queues} = own
+  const workflows = Array.isArray(own.workflows) ? own.workflows : []
   const triggers = field('triggers')
   const crons = isPlainObject(triggers) ? triggers.crons : undefined
   const routes = field('routes')
@@ -116,10 +139,14 @@ export function triggersOf(config: RawConfig, env?: string): Triggers {
   const workersDev = field('workers_dev')
   const previewUrls = field('preview_urls')
   return {
-    crons: Array.isArray(crons) ? crons : null,
+    consumers: isPlainObject(queues) && Array.isArray(queues.consumers) ? queues.consumers : [],
+    crons: listOrNull(crons),
     previewUrls: typeof previewUrls === 'boolean' ? previewUrls : null,
     routes: routeList,
+    streamingTailConsumers: listOrNull(own.streaming_tail_consumers),
+    tailConsumers: listOrNull(own.tail_consumers),
     workersDev: typeof workersDev === 'boolean' ? workersDev : routeList.length === 0,
+    workflows: workflows.filter((workflow) => !isPlainObject(workflow) || workflow.script_name === undefined || workflow.script_name === deployedName),
   }
 }
 

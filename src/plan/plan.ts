@@ -1,4 +1,5 @@
 import type {ManifestWorker} from '../app/bundle.js'
+import {isPlainObject} from '../config/types.js'
 import type {Triggers} from '../fingerprint/fingerprint.js'
 import type {Graph} from '../graph/graph.js'
 import {callers, computeOrder, directCallers, nearestWithin} from '../graph/order.js'
@@ -38,6 +39,8 @@ export interface PlanStep {
   doHash: string
   /** `apply` writes `"crons": []` for this step: with the key absent, wrangler would leave the removed crons running. */
   explicitEmptyCrons: boolean
+  /** Tail consumer lists `apply` writes as empty for this step: with the key absent, `versions deploy` leaves the old ones attached. */
+  explicitEmptyTails?: TailField[]
   externalHash: string
   fingerprint: string
   /** For a `create` of a worker the manifest knows: the callers `apply` marks in the manifest before this runs. */
@@ -47,6 +50,8 @@ export interface PlanStep {
   reasons: PlanReason[]
   /** A crashed run left this version live, so `apply` records it, and applies the triggers that run may not have reached. */
   recordState?: true
+  /** Queues this worker consumed and no longer does. No deploy removes a consumer, so `apply` detaches it. */
+  removedConsumers?: string[]
   transitiveCallers: string[]
   triggers: Triggers
   /** The triggers need applying: they changed, or nothing says what is live. */
@@ -55,6 +60,8 @@ export interface PlanStep {
   version?: string
   worker: string
 }
+
+export type TailField = 'streaming_tail_consumers' | 'tail_consumers'
 
 export type PlanNoteKind =
   | 'baseline'
@@ -68,6 +75,7 @@ export type PlanNoteKind =
   | 'routes-removed'
   | 'secret-changed'
   | 'state-behind'
+  | 'workflow-removed'
 
 export interface PlanNote {
   deployedName?: string
@@ -399,6 +407,39 @@ function leftBehindNotes(name: string, worker: ManifestWorker, entry: StateWorke
   return notes
 }
 
+function namesOf(list: unknown[], key: string): string[] {
+  return list.flatMap((item) => (isPlainObject(item) && typeof item[key] === 'string' ? [item[key]] : []))
+}
+
+function removedConsumers(worker: ManifestWorker, entry: StateWorker | undefined): string[] {
+  const kept = new Set(namesOf(worker.triggers.consumers, 'queue'))
+  return namesOf(entry?.triggers.consumers ?? [], 'queue').filter((queue) => !kept.has(queue))
+}
+
+function hasItems(list: unknown[] | null | undefined): boolean {
+  return (list?.length ?? 0) > 0
+}
+
+/** A list monocf set before and this config no longer sets. An empty list is what removes it. */
+function tailsToEmpty(worker: ManifestWorker, entry: StateWorker | undefined): TailField[] {
+  return [
+    ...(hasItems(entry?.triggers.streamingTailConsumers) && worker.triggers.streamingTailConsumers === null ? (['streaming_tail_consumers'] as const) : []),
+    ...(hasItems(entry?.triggers.tailConsumers) && worker.triggers.tailConsumers === null ? (['tail_consumers'] as const) : []),
+  ]
+}
+
+/** Nothing in wrangler deletes a Workflow, and deleting one deletes its instances, so it's a person's call. */
+function workflowNotes(name: string, worker: ManifestWorker, entry: StateWorker | undefined): PlanNote[] {
+  const kept = new Set(namesOf(worker.triggers.workflows, 'name'))
+  return namesOf(entry?.triggers.workflows ?? [], 'name')
+    .filter((workflow) => !kept.has(workflow))
+    .map((workflow) => ({
+      kind: 'workflow-removed' as const,
+      message: `It no longer defines the Workflow ${workflow}, and no deploy deletes one, so it stays registered to ${worker.deployedName}. To delete it with its instances, run wrangler workflows delete ${workflow}.`,
+      worker: name,
+    }))
+}
+
 function compareNotes(a: PlanNote, b: PlanNote): number {
   const key = (note: PlanNote) => `${note.kind}\n${note.worker}\n${note.message}`
   return key(a) < key(b) ? -1 : Number(key(a) > key(b))
@@ -438,7 +479,7 @@ export function createPlan(
     decisions.set(name, decision)
     notes.push(...decision.notes.map((note) => ({...note, worker: name})))
     if (decision.action === 'create' && entry) recreated.push(name)
-    notes.push(...leftBehindNotes(name, worker, entry, stored.get(name)))
+    notes.push(...leftBehindNotes(name, worker, entry, stored.get(name)), ...workflowNotes(name, worker, entry))
   }
 
   // A name gone from the repository needs nothing: the orphan note covers it.
@@ -466,6 +507,8 @@ export function createPlan(
     const worker = bundle.workers[name]
     const {action, reasons, recordState, triggersChanged} = decisions.get(name)!
     const previousVersionId = previousVersion(active[name])
+    const removed = removedConsumers(worker, entryOf(name))
+    const emptyTails = tailsToEmpty(worker, entryOf(name))
     return {
       worker: name,
       deployedName: worker.deployedName,
@@ -474,6 +517,8 @@ export function createPlan(
       ...(recordState && {recordState}),
       triggersChanged,
       explicitEmptyCrons: hasCrons(entryOf(name)?.triggers) && !hasCrons(worker.triggers),
+      ...(emptyTails.length > 0 && {explicitEmptyTails: emptyTails}),
+      ...(removed.length > 0 && {removedConsumers: removed}),
       fingerprint: worker.fingerprint,
       ...(recreated.includes(name) && {markCallers: callersToMark(graph, ignored, name)}),
       bundleHash: worker.bundleHash,

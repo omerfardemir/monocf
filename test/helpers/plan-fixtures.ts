@@ -5,7 +5,7 @@ import {createPlan, type Plan, type PlanOptions} from '../../src/plan/plan.js'
 import type {StateManifest, StateWorker} from '../../src/state/manifest.js'
 import type {ActiveInfo} from '../../src/wrangler/read.js'
 
-export const triggers = {crons: null, previewUrls: null, routes: [], workersDev: true}
+export const triggers = {consumers: [], crons: null, previewUrls: null, routes: [], streamingTailConsumers: null, tailConsumers: null, workersDev: true, workflows: []}
 
 export function bundled(name: string, change: Partial<ManifestWorker> = {}): ManifestWorker {
   return {bundleHash: `b-${name}`, configHash: 'c', deployedName: name, doHash: 'd', externalHash: 'e', fingerprint: `f-${name}`, triggers, triggersHash: 't', ...change}

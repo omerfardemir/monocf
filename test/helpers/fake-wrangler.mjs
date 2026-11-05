@@ -95,10 +95,6 @@ if (startsWithCommand('secret bulk')) {
   entry.secretFile = readSecretFile(resolve(secretsFile))
 }
 
-if (process.env.FAKE_WRANGLER_LOG) {
-  appendFileSync(process.env.FAKE_WRANGLER_LOG, `${JSON.stringify(entry)}\n`)
-}
-
 const rules = process.env.FAKE_WRANGLER_RULES ? JSON.parse(readFileSync(process.env.FAKE_WRANGLER_RULES, 'utf8')) : []
 // A rule with `times` applies that many times, and then the command behaves as if the rule weren't there.
 function timesUsed(index) {
@@ -206,15 +202,32 @@ function r2Answer(state, path) {
   return {stdout: 'Upload complete.\n'}
 }
 
+/** As real wrangler 4.151: a list of worker consumers, and `queues consumer remove` fails on one that isn't attached. */
+function queueAnswer(state, path) {
+  const queue = startsWithCommand('queues consumer worker list') ? argv[4] : argv[3]
+  const consumers = state.consumers?.[queue] ?? {}
+  if (startsWithCommand('queues consumer worker list')) {
+    return {stdout: JSON.stringify(Object.keys(consumers).map((script) => ({script, type: 'worker'})))}
+  }
+
+  const script = argv[4]
+  if (!(script in consumers)) return {exitCode: 1, stderr: `✘ [ERROR] No worker consumer '${script}' exists for queue ${queue}\n`}
+  delete consumers[script]
+  writeFileSync(path, JSON.stringify(state))
+  return {stdout: `Removed consumer from queue ${queue}.\n`}
+}
+
 function cloudflareAnswer() {
   const name = flagValues(['--name'])[0]
   const isRead = name !== undefined && (startsWithCommand('deployments status') || startsWithCommand('versions view') || startsWithCommand('versions list'))
-  if (!isRead && !startsWithCommand('r2')) return null
+  const isQueue = startsWithCommand('queues consumer worker list') || startsWithCommand('queues consumer remove')
+  if (!isRead && !isQueue && !startsWithCommand('r2')) return null
   const path = process.env.FAKE_WRANGLER_CF
   if (!path) return {exitCode: 1, stderr: 'fake wrangler: this test set no Cloudflare state\n'}
   return withCloudflareLock(path, () => {
     const state = JSON.parse(readFileSync(path, 'utf8'))
     if (startsWithCommand('r2')) return r2Answer(state, path)
+    if (isQueue) return queueAnswer(state, path)
     if (startsWithCommand('versions list')) return versionsAnswer(state, name)
     return startsWithCommand('versions view') ? versionAnswer(state, name, argv[2]) : deploymentsAnswer(state, name)
   })
@@ -238,6 +251,11 @@ if (rule.holdMs) {
   process.on('SIGHUP', () => received('SIGHUP'))
   process.on('SIGINT', () => received('SIGINT'))
   process.on('SIGTERM', () => received('SIGTERM'))
+}
+
+// Tests signal as soon as they see this line, so it's written only once the handlers above are in place.
+if (process.env.FAKE_WRANGLER_LOG) {
+  appendFileSync(process.env.FAKE_WRANGLER_LOG, `${JSON.stringify(entry)}\n`)
 }
 
 const delay = rule.delayMs ?? rule.holdMs
@@ -281,6 +299,33 @@ function effectiveTriggers() {
   return (envName && config?.env?.[envName]?.triggers) ?? config?.triggers ?? null
 }
 
+/** Queues, Workflows and tail consumers don't inherit: an env reads its own section only. */
+function ownSection() {
+  return (envName ? config?.env?.[envName] : config) ?? {}
+}
+
+/** `triggers deploy`, and `deploy` after its upload: consumers are added or updated and Workflows registered. Neither is ever removed. */
+function applyTriggerResources(state) {
+  const own = ownSection()
+  for (const consumer of own.queues?.consumers ?? []) {
+    state.consumers ??= {}
+    state.consumers[consumer.queue] = {...state.consumers[consumer.queue], [deployedName]: consumer}
+  }
+
+  for (const workflow of own.workflows ?? []) {
+    if (workflow.script_name === undefined || workflow.script_name === deployedName) {
+      state.workflows = {...state.workflows, [workflow.name]: {className: workflow.class_name, script: deployedName}}
+    }
+  }
+}
+
+/** `versions deploy` and `deploy` set a tail consumer list the config names, and leave an absent one as it is. */
+function applyTails(worker) {
+  const own = ownSection()
+  if (own.tail_consumers !== undefined) worker.tailConsumers = own.tail_consumers.map(({service}) => service)
+  if (own.streaming_tail_consumers !== undefined) worker.streamingTailConsumers = own.streaming_tail_consumers.map(({service}) => service)
+}
+
 /** What a real write leaves behind. Nothing happens without a Cloudflare to keep it in. */
 function cloudflareWrite() {
   const path = process.env.FAKE_WRANGLER_CF
@@ -308,6 +353,8 @@ function cloudflareWrite() {
     const versionId = nextVersion(worker)
     worker.active = [[versionId, 100]]
     worker.triggers = effectiveTriggers()
+    applyTriggerResources(state)
+    applyTails(worker)
     return save({versionId})
   }
 
@@ -316,6 +363,7 @@ function cloudflareWrite() {
   if (startsWithCommand('versions upload')) return save({versionId: nextVersion(worker)})
   if (startsWithCommand('triggers deploy')) {
     worker.triggers = effectiveTriggers()
+    applyTriggerResources(state)
     return save({})
   }
 
@@ -325,6 +373,7 @@ function cloudflareWrite() {
   }
 
   worker.active = [[versionId, 100]]
+  if (!rule.noSettings) applyTails(worker)
   return save({})
 }
 

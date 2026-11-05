@@ -35,6 +35,7 @@ monocf can now run a Cloudflare Workers monorepo from CI: a dependency graph, a 
 - `rollback --to-run` works on a run that failed or was interrupted: `apply` reads what's live when a step doesn't finish and records whether it changed. A worker it can't account for is refused, with exit 1, and not reported as fine. A rollback that fails reads what's live in the same way.
 - `apply` stops a `triggers` or `adopt` step, with nothing written, if what's live has moved since the plan. Under a `build.command`, the state records what was really uploaded, so a file going back to what the plan saw is a change.
 - `plan` refuses a `--markdown` path inside something a selected worker uploads, such as its assets directory.
+- `apply` sees a change to `queues.consumers`, the Workflows a worker defines, `tail_consumers` and `streaming_tail_consumers` on a live worker, and makes it reach Cloudflare: a promote alone never did, and `apply` exited 0 with the old settings live. It detaches a queue consumer the config dropped, and clears tail consumers the config dropped. A Workflow the config dropped stays registered, as nothing in wrangler deletes one, and `plan` says so with a `workflow-removed` note. `rollback` puts all of these back too.
 - With `CI` set, wrangler's output is piped and has the account ID taken out even on a terminal, as a CI can allocate a pty.
 - `monocf build`, `deploy`, `preview` and `dev`, over the same code as `monocf worker -c`.
 - `--json` on every command that runs workers, with a `schemaVersion`.

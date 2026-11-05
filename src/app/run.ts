@@ -40,6 +40,8 @@ const COMMAND_NAMES: Record<Step['action'], string> = {
   'deployment-status': 'deployments status',
   dev: 'dev',
   preview: 'versions upload',
+  'queue-consumer-remove': 'queues consumer remove',
+  'queue-consumers': 'queues consumer worker list',
   'r2-bucket-info': 'r2 bucket info',
   'r2-get': 'r2 object get',
   'r2-put': 'r2 object put',

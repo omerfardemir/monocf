@@ -102,7 +102,7 @@ function describeWorker(worker: ResolvedWorker, out: string, {env, rootDir}: {en
   const hash = configHash(config, env)
   // After the dry run, because build.command can generate these inputs.
   const external = workerExternalHash(worker, env, rootDir, [out])
-  const triggers = triggersOf(config, env)
+  const triggers = triggersOf(config, env, deployedName)
   const {vars} = envSection(config, env)
   const version = isPlainObject(vars) ? vars.VERSION : undefined
   const needsDeploy = fieldsNeedingDeploy(config, env)

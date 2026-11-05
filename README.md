@@ -868,6 +868,14 @@ monocf apply plan.json --expect-branch-tip origin/main --summary-file "$GITHUB_S
 2. Everything else is uploaded with `wrangler versions upload`, in parallel. Nothing receives traffic yet.
 3. Promotes run callees first: `wrangler versions deploy`, then `wrangler triggers deploy` when the triggers changed. A `full-deploy` runs `wrangler deploy` here instead.
 
+Here "triggers" means everything a new version doesn't carry, so that a promote alone can't change it: crons, routes, `workers_dev`, `preview_urls`, `queues.consumers`, the Workflows a worker defines, `tail_consumers` and `streaming_tail_consumers`. A change to any of them runs `triggers deploy` after the promote, which attaches and updates queue consumers and registers Workflows. Tail consumers are set by the promote itself. Wrangler never takes these away when a config drops them, not even `wrangler deploy`, so `apply` does what it can itself:
+
+- A queue consumer the config dropped is detached with `wrangler queues consumer remove`, if it's still attached.
+- Tail consumer lists the config dropped are written as empty lists, which is what clears them, as `"crons": []` does for crons.
+- A Workflow the config dropped stays registered, still pointing at the worker, as nothing in wrangler deletes one and deleting it deletes its instances. `plan` says so with a `workflow-removed` note that names the command, `wrangler workflows delete <name>`.
+
+When monocf didn't put a consumer or tail consumer there, as with one added by hand, it leaves it alone.
+
 If a worker fails, the workers that call it are skipped and independent ones carry on. The exit code is 1, and state records what finished, so the next run heals the rest.
 
 `apply` refuses a stale plan with exit 2, before doing anything: a plan marked not applicable, another commit, another wrangler version, a schema it doesn't know, a worker this checkout deploys under another name, a config or external input that differs from the plan, or uncommitted changes anywhere in the repository. The plan file, the plan's `--markdown` and `--bundle-dir`, the summary file, `.monocf/`, and the manifest and run records in a `file:` state directory don't count as changes. A state or bundle directory that contains the project root or a worker is refused, as it would hide a change to what gets deployed. Anything else your workflow writes into the checkout does, so send it to `$RUNNER_TEMP` or gitignore it. A worker with `build.command` only gets a notice for external inputs that differ, since its build makes them again at deploy, and the state records what was really uploaded. A worker without one whose gitignored assets a CI step builds needs a `build.command`, or the same files in the apply job. `--expect-branch-tip` also refuses when that ref has moved past the plan's commit, which stops a re-run of an old pipeline from deploying over something newer. Fetch the ref first, as in the sample below: on a re-run, `actions/checkout` points `origin/<branch>` at the old commit.
@@ -1127,7 +1135,7 @@ When in doubt, a file counts: a false "changed" costs one redeploy, and a false 
 |---|---|---|
 | `skip` | Nothing changed | `unchanged` |
 | `upload` | Code, config or external inputs changed | `bundle-changed`, `config-changed`, `external-changed`, and more below |
-| `triggers` | The code is live, and only crons, routes, `workers_dev` or `preview_urls` are behind, or a crash may have stopped short of them | `triggers-changed`, `state-behind` |
+| `triggers` | The code is live, and only its triggers are behind (see [Continuous deployment](#continuous-deployment)), or a crash may have stopped short of them. When its tail consumers may be behind, `apply` also gives the live version again with `versions deploy`, as only that sets them | `triggers-changed`, `state-behind` |
 | `full-deploy` | Durable Object classes or migrations changed, or `upload` can't carry the change | `do-changed`, `needs-deploy` |
 | `create` | The worker doesn't exist | `new` |
 | `adopt` | Live with the right tag, but no state entry. No new version: `apply` runs `triggers deploy` and records it | `state-missing` |
@@ -1146,7 +1154,7 @@ Removing every cron is handled too: `apply` writes an explicit `"crons": []`, si
 - Only `wrangler.jsonc` counts as a worker config, and a worker must be a direct child of the workers directory.
 - A worker can't remove what it inherits from the base config.
 - The state store has no lock, so CI has to allow one pipeline per environment.
-- Removing a worker's last route takes a person.
+- Removing a worker's last route takes a person, and so does deleting a Workflow a worker no longer defines.
 - `plan` and `apply` don't handle secrets, and `secrets.required` can make `apply` fail: see [Secrets](#secrets).
 - A provider recreated by hand needs its callers redeployed by hand.
 - A cycle of bindings is an error in `check`, so it stops `plan` too. A cycle that only a queue closes is a warning, as a queue needs no order at deploy time.

@@ -18,7 +18,7 @@ function step(worker: string, action: PlanStep['action'], overrides: Partial<Pla
     previousVersionId: 'version-id-of-worker',
     reasons: action === 'skip' ? ['unchanged'] : ['bundle-changed'],
     transitiveCallers: [],
-    triggers: {crons: null, previewUrls: null, routes: [], workersDev: true},
+    triggers: {consumers: [], crons: null, previewUrls: null, routes: [], streamingTailConsumers: null, tailConsumers: null, workersDev: true, workflows: []},
     triggersChanged: false,
     triggersHash: 'hash-of-triggers',
     worker,

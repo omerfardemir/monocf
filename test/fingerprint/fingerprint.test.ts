@@ -159,12 +159,12 @@ describe('fingerprintOf', () => {
 
 describe('triggersOf', () => {
   it('gives defaults with nothing set', () => {
-    expect(triggersOf({})).toEqual({crons: null, previewUrls: null, routes: [], workersDev: true})
+    expect(triggersOf({}, undefined, 'w')).toEqual({consumers: [], streamingTailConsumers: null, tailConsumers: null, workflows: [], crons: null, previewUrls: null, routes: [], workersDev: true})
   })
 
   it('tells an empty list of crons from none, as wrangler does', () => {
-    expect(triggersOf({triggers: {crons: []}}).crons).toEqual([])
-    expect(triggersOf({triggers: {}}).crons).toBeNull()
+    expect(triggersOf({triggers: {crons: []}}, undefined, 'w').crons).toEqual([])
+    expect(triggersOf({triggers: {}}, undefined, 'w').crons).toBeNull()
   })
 
   it('inherits every field from the top level', () => {
@@ -175,7 +175,8 @@ describe('triggersOf', () => {
       triggers: {crons: ['* * * * *']},
       workers_dev: true,
     }
-    expect(triggersOf(config, 'staging')).toEqual({
+    expect(triggersOf(config, 'staging', 'w')).toEqual({
+      consumers: [], streamingTailConsumers: null, tailConsumers: null, workflows: [],
       crons: ['* * * * *'],
       previewUrls: false,
       routes: ['a.com/*'],
@@ -191,20 +192,42 @@ describe('triggersOf', () => {
       triggers: {crons: ['* * * * *']},
       workers_dev: true,
     }
-    expect(triggersOf(config, 'staging')).toEqual({crons: [], previewUrls: true, routes: [], workersDev: false})
+    expect(triggersOf(config, 'staging', 'w')).toEqual({consumers: [], streamingTailConsumers: null, tailConsumers: null, workflows: [], crons: [], previewUrls: true, routes: [], workersDev: false})
+  })
+
+  it("reads queue consumers, owned Workflows and tail consumers from the env section only, as they don't inherit", () => {
+    const consumers = [{max_batch_size: 2, queue: 'jobs'}]
+    const workflows = [
+      {binding: 'FLOW', class_name: 'Flow', name: 'flow'},
+      {binding: 'MINE', class_name: 'Mine', name: 'mine', script_name: 'orders-staging'},
+      {binding: 'THEIRS', class_name: 'Theirs', name: 'theirs', script_name: 'billing-staging'},
+    ]
+    const top = {queues: {consumers}, tail_consumers: [{service: 'logs'}], workflows}
+    expect(triggersOf({...top, env: {staging: {}}}, 'staging', 'orders-staging')).toMatchObject({consumers: [], tailConsumers: null, workflows: []})
+    const config = {env: {staging: {...top, streaming_tail_consumers: []}}}
+    expect(triggersOf(config, 'staging', 'orders-staging')).toMatchObject({
+      consumers,
+      streamingTailConsumers: [],
+      tailConsumers: [{service: 'logs'}],
+      workflows: workflows.slice(0, 2),
+    })
   })
 
   it('reads a single route, and turns workers_dev off by default when routes exist', () => {
-    expect(triggersOf({route: 'a.com/*'})).toEqual({crons: null, previewUrls: null, routes: ['a.com/*'], workersDev: false})
+    expect(triggersOf({route: 'a.com/*'}, undefined, 'w')).toEqual({consumers: [], streamingTailConsumers: null, tailConsumers: null, workflows: [], crons: null, previewUrls: null, routes: ['a.com/*'], workersDev: false})
   })
 })
 
 describe('triggersHash', () => {
   it('follows the content', () => {
-    const triggers = triggersOf({routes: ['a.com/*']})
+    const triggers = triggersOf({routes: ['a.com/*']}, undefined, 'w')
     expect(triggersHash(triggers)).toMatch(HEX_64)
     expect(triggersHash({...triggers})).toBe(triggersHash(triggers))
     expect(triggersHash({...triggers, workersDev: true})).not.toBe(triggersHash(triggers))
+    expect(triggersHash({...triggers, consumers: [{queue: 'jobs'}]})).not.toBe(triggersHash(triggers))
+    expect(triggersHash({...triggers, workflows: [{name: 'flow'}]})).not.toBe(triggersHash(triggers))
+    expect(triggersHash({...triggers, tailConsumers: []})).not.toBe(triggersHash(triggers))
+    expect(triggersHash({...triggers, streamingTailConsumers: []})).not.toBe(triggersHash(triggers))
   })
 })
 
