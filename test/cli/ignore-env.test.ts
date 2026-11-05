@@ -345,14 +345,10 @@ describe('check', () => {
     expect(result.stderr).toContain('No workers found')
   })
 
-  it('matches ignored-stale on the pattern with its scope removed', async () => {
+  it('matches a scoped line on the pattern with its scope removed', async () => {
     const live = await checkJson(project(['nightly except production', 'workers/billing in dev']), ['-e', 'production'])
-    expect(live.findings.filter(({rule}) => rule === 'ignored-stale')).toEqual([])
 
-    const stale = await checkJson(project(['gone except production']), ['--all-envs'])
-    expect(stale.findings.filter(({rule}) => rule === 'ignored-stale')).toEqual([
-      {level: 'warning', message: 'The .monocfignore line "gone except production" matches no directory.', rule: 'ignored-stale'},
-    ])
+    expect(live.findings.filter(({rule}) => rule === 'ignored-stale' || rule === 'ignored-malformed')).toEqual([])
   })
 
   it.each([
@@ -469,7 +465,8 @@ describe('plan', () => {
     const result = await rejected(built, ['plan', '-e', 'staging', '--state', 'file:state', '--first-run', '--out', 'plan.json'])
 
     expect(result.exitCode).toBe(2)
-    expect(result.stderr).toContain('ignored-unknown-env')
+    expect(result.stderr).toContain('names the env produciton, which no worker defines')
+    expect(result.calls).toEqual([])
   })
 
   it('does not change the fingerprint of what stays selected', async () => {
@@ -705,37 +702,63 @@ describe('the README', () => {
   })
 })
 
-describe('a typo in a keyword', () => {
-  describe.each(['workers/billing excpet production', 'workers/billing IN dev'])('%s', (line) => {
-    const fixture = () => deployFixture({ignore: [line], workers: [{name: 'billing'}, {name: 'reports'}]})
+const PLAN = ['plan', '-e', 'staging', '--state', 'file:state', '--first-run', '--out', 'plan.json']
 
-    it('fails check, under the same rule as a scope with no names', async () => {
-      const {exitCode, findings} = await checkJson(fixture(), ['-e', 'staging'])
+/** Every command that selects workers. Each should stop before it selects anything. */
+const SELECTING: [string, string[]][] = [
+  ['plan', PLAN],
+  ['build --all', ['build', '-a', '-e', 'staging']],
+  ['deploy --all', ['deploy', '-a', '-e', 'staging']],
+  ['preview --all', ['preview', '-a', '-e', 'staging']],
+  ['dev --all', ['dev', '-a', '-e', 'staging']],
+  ['secrets deploy --all', ['secrets', 'deploy', '-a', '-e', 'staging']],
+  ['secrets check', ['secrets', 'check', '-e', 'staging']],
+  ['bundle', ['bundle', '-e', 'staging']],
+  ['graph', ['graph', '-e', 'staging']],
+  ['deploy by name', ['deploy', 'billing', '-e', 'staging']],
+  ['rollback', ['rollback', '-e', 'staging', '--state', 'file:state', '--to-run', '20260101T000000Z-abc123']],
+]
+
+const twoWorkers = (lines: string[]) => deployFixture({ignore: lines, workers: [{name: 'billing'}, {name: 'reports'}]})
+
+describe('a line that was meant for a worker and would reach none', () => {
+  describe.each([
+    ['a misspelt keyword', 'workers/billing excpet production', 'holds a space'],
+    ['a keyword in capitals', 'workers/billing IN dev', 'holds a space'],
+    ['a comment after the pattern', 'workers/billing # except production', 'holds a space'],
+    ['a scope with no pattern', 'except production', 'holds a space'],
+    ['an in with no pattern', 'in staging', 'holds a space'],
+    ['a tab inside', 'workers/billing\tdraft', 'holds a space'],
+    ['a no-break space inside', 'workers/billing\u00A0draft', 'holds a space'],
+    ['a backslash path', String.raw`workers\billing except production`, 'matches no directory'],
+    ['a misspelt path', 'workers/billling except production', 'matches no directory'],
+    ['an indented scoped line', '  workers/billing except production', 'starts with whitespace'],
+    ['a line indented with a tab', '\tworkers/billing in staging', 'starts with whitespace'],
+    ['an indented line with no scope', '  workers/billing', 'starts with whitespace'],
+  ])('%s', (_, line, message) => {
+    it('fails check, under the rule for a malformed line, and only that', async () => {
+      const {exitCode, findings} = await checkJson(twoWorkers([line]), ['--all-envs'])
 
       expect(exitCode).toBe(2)
-      const malformed = findings.find(({rule}) => rule === 'ignored-malformed')
-      expect(malformed).toMatchObject({level: 'error'})
-      expect(malformed!.message).toContain(String.raw`written "\ "`)
+      expect(findings.filter(({rule}) => rule === 'ignored-malformed')).toEqual([{level: 'error', message: expect.stringContaining(message), rule: 'ignored-malformed'}])
       expect(findings.map(({rule}) => rule)).not.toContain('ignored-stale')
     })
 
-    it('fails check --all-envs as well', async () => {
-      const {exitCode, findings} = await checkJson(fixture(), ['--all-envs'])
-
-      expect(exitCode).toBe(2)
-      expect(findings.map(({rule}) => rule)).toContain('ignored-malformed')
-    })
-
     it.each([
-      ['plan', ['plan', '-e', 'staging', '--state', 'file:state', '--first-run', '--out', 'plan.json']],
-      ['build --all', ['build', '-a', '-e', 'staging']],
+      ['plan', PLAN],
       ['deploy --all', ['deploy', '-a', '-e', 'staging']],
-      ['bundle', ['bundle', '-e', 'staging']],
-      ['graph', ['graph', '-e', 'staging']],
-      ['deploy by name', ['deploy', 'billing', '-e', 'staging']],
-      ['rollback', ['rollback', '-e', 'staging', '--state', 'file:state', '--to-run', '20260101T000000Z-abc123']],
-    ])('stops %s with exit 2, and selects nothing', async (_, args) => {
-      const result = await runCli(fixture(), args, {cloudflare: {}, noCalls: true})
+    ])('stops %s with exit 2, and nothing runs', async (_name, args) => {
+      const result = await runCli(twoWorkers([line]), args, {cloudflare: {}, noCalls: true})
+
+      expect(result.exitCode).toBe(2)
+      expect(result.stderr.replaceAll(/\s+/g, ' ').replaceAll(' › ', ' ')).toContain(message)
+      expect(result.calls).toEqual([])
+    })
+  })
+
+  describe.each(['workers/billing excpet production', '  workers/billing except production', 'workers/billling except production'])('%s', (line) => {
+    it.each(SELECTING)('stops %s with exit 2, and selects nothing', async (_, args) => {
+      const result = await runCli(twoWorkers([line]), args, {cloudflare: {}, noCalls: true})
 
       expect(result.exitCode).toBe(2)
       expect(result.stderr).toContain('is malformed')
@@ -743,13 +766,91 @@ describe('a typo in a keyword', () => {
     })
   })
 
+  it('says how to write a space, in check, when a pattern holds one', async () => {
+    const {findings} = await checkJson(twoWorkers(['workers/billing excpet production']), ['-e', 'staging'])
+
+    expect(findings.find(({rule}) => rule === 'ignored-malformed')!.message).toContain(String.raw`written "\ "`)
+  })
+
   it('leaves a directory written with an escaped space working', async () => {
-    const fixture = deployFixture({ignore: [String.raw`workers/my\ dir except production`], workers: [{name: 'billing'}, {name: 'my dir'}]})
+    const fixture = deployFixture({ignore: [String.raw`workers/my\ dir in staging`], workers: [{name: 'billing'}, {name: 'my dir'}]})
 
     const view = await runCli(fixture, ['graph', '-e', 'staging', '--json'], {noCalls: true})
 
     expect(view.exitCode, view.stderr).toBe(0)
     expect(JSON.parse(view.stdout).ignored).toEqual(['my dir'])
+  })
+
+  it('leaves indented comments, trailing whitespace and CRLF alone', async () => {
+    const fixture = project([], {
+      files: {'.monocfignore': '   # an indented note\r\n\t# workers/nightly except production\r\nworkers/nightly except production   \r\nworkers/gateway in dev\t\r\n\r\n'},
+    })
+
+    const {exitCode, findings} = await checkJson(fixture, ['--all-envs', '--strict'])
+
+    expect(findings).toEqual([])
+    expect(exitCode).toBe(0)
+    expect((await graphJson(fixture, ['-e', 'dev'])).ignored).toEqual(['gateway', 'nightly'])
+  })
+
+  it('still warns, and does not stop, on a line with no scope that matches no directory', async () => {
+    const fixture = twoWorkers(['workers/billing-in-dev', String.raw`workers\billing`])
+
+    const {exitCode, findings} = await checkJson(fixture, ['-e', 'staging'])
+
+    expect(findings.filter(({rule}) => rule.startsWith('ignored-')).map(({rule}) => rule)).toEqual(['ignored-stale', 'ignored-stale'])
+    expect(exitCode).toBe(0)
+    expect((await checkJson(fixture, ['-e', 'staging', '--strict'])).exitCode).toBe(2)
+    const view = await runCli(fixture, ['graph', '-e', 'staging', '--json'], {noCalls: true})
+    expect(view.exitCode, view.stderr).toBe(0)
+  })
+
+  it('takes a workers directory written with ./ when it matches a line to a directory', async () => {
+    for (const workersDirName of ['./workers', './workers/']) {
+      const fixture = deployFixture({ignore: ['workers/billing in staging', 'gone'], monocfConfig: {workersDirName}, workers: [{name: 'billing'}, {name: 'reports'}]})
+
+      const {exitCode, findings} = await checkJson(fixture, ['--all-envs'])
+
+      expect(findings.filter(({rule}) => rule.startsWith('ignored-')).map(({message}) => message)).toEqual(['The .monocfignore line "gone" matches no directory.'])
+      expect(exitCode).toBe(0)
+      const plan = await runCli(fixture, PLAN, {cloudflare: {}})
+      expect(plan.exitCode, plan.stderr).toBe(0)
+      expect(readPlan(fixture).steps.map(({worker}: {worker: string}) => worker)).toEqual(['reports'])
+    }
+  })
+})
+
+describe('an env in a scope that nothing defines', () => {
+  const line = 'workers/nightly in dve,staging'
+
+  it.each(SELECTING)('stops %s with exit 2, and selects nothing', async (_, args) => {
+    const fixture = deployFixture({ignore: [line], workers: [{name: 'billing'}, {name: 'nightly'}]})
+
+    const result = await runCli(fixture, args, {cloudflare: {}, noCalls: true})
+
+    expect(result.exitCode).toBe(2)
+    expect(result.stderr.replaceAll(/\s+/g, ' ').replaceAll(' › ', ' ')).toContain(`The .monocfignore line "${line}" names the env dve, which no worker defines.`)
+    expect(result.calls).toEqual([])
+  })
+
+  it('stops apply too, on a gitignored file that changed after the plan', async () => {
+    const built = deployFixture({environments: ['staging', 'production']})
+    const cloudflare = await firstRun(built)
+    writeFileSync(join(built.root, '.git', 'info', 'exclude'), 'state\nplan.json\n.monocfignore\n')
+    await planFor(built, cloudflare, {rules: newCode('orders')})
+    writeFileSync(join(built.root, '.monocfignore'), 'reports except produciton\n')
+
+    const result = await applyPlan(built, cloudflare, {noCalls: true})
+
+    expect(result.exitCode).toBe(2)
+    expect(result.stderr).toContain('names the env produciton')
+    expect(writesOf(result.calls)).toEqual([])
+  })
+
+  it('reads no config for it when no line has a scope, so an ignored broken worker still stops nothing', async () => {
+    const fixture = project(['nightly'], {files: {'workers/nightly/wrangler.jsonc': '{'}})
+
+    expect((await runCli(fixture, ['build', 'billing', '-e', 'dev'])).exitCode).toBe(0)
   })
 })
 

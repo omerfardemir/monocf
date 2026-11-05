@@ -1,4 +1,4 @@
-import {resolve} from 'node:path'
+import {join, resolve} from 'node:path'
 import {describe, expect, it} from 'vitest'
 
 import {discoverWorkers, findIgnoredWorkers, ignoredByScope, inferWorker, selectWorkers} from '../../src/project/workers.js'
@@ -66,8 +66,10 @@ describe('findIgnoredWorkers', () => {
   })
 })
 
+const filesOf = (workers: string[]) => Object.fromEntries(workers.map((worker) => [`workers/${worker}/wrangler.jsonc`, {}]))
+
 function ignoredIn(env: string | undefined, patterns: string, workers = all): string[] {
-  return findIgnoredWorkers({...options, env}, workers, memoryReader({...workerFiles, '.monocfignore': patterns}))
+  return findIgnoredWorkers({...options, env}, workers, memoryReader({...workerFiles, ...filesOf(workers), '.monocfignore': patterns}))
 }
 
 describe('findIgnoredWorkers with a scope', () => {
@@ -122,7 +124,7 @@ describe('findIgnoredWorkers with a scope', () => {
 
   it('takes a whole word only: a path segment called in or except is a pattern', () => {
     const workers = ['in', 'except', 'orders']
-    const found = (env: string, file: string, names = workers) => findIgnoredWorkers({...options, env}, names, memoryReader({'.monocfignore': file}))
+    const found = (env: string, file: string, names = workers) => findIgnoredWorkers({...options, env}, names, memoryReader({...filesOf(names), '.monocfignore': file}))
     expect(found('dev', 'workers/in\nworkers/except\n')).toEqual(['in', 'except'])
     expect(found('dev', 'in\n')).toEqual(['in'])
     expect(found('dev', 'workers/in in production\n')).toEqual([])
@@ -135,7 +137,7 @@ describe('findIgnoredWorkers with a scope', () => {
   })
 
   it('keeps an escaped space in the pattern, so a directory with such a name can still be written', () => {
-    const reader = memoryReader({'.monocfignore': 'my\\ in\\ tray\nx\\ in\\ y in dev\n'})
+    const reader = memoryReader({...filesOf(['my in tray', 'x in y']), '.monocfignore': 'my\\ in\\ tray\nx\\ in\\ y in dev\n'})
     expect(findIgnoredWorkers({...options, env: 'staging'}, ['my in tray', 'x in y'], reader)).toEqual(['my in tray'])
     expect(findIgnoredWorkers({...options, env: 'dev'}, ['my in tray', 'x in y'], reader)).toEqual(['my in tray', 'x in y'])
   })
@@ -167,8 +169,23 @@ describe('findIgnoredWorkers with a scope', () => {
     ['billing # a note', 'holds a space'],
     ['!billing draft', 'holds a space'],
     ['billing\tdraft', 'holds a space'],
+    ['billing\u00A0draft', 'holds a space'],
+    ['billing # except production', '"billing #" holds a space'],
+    ['except production', '"except production" holds a space'],
+    ['in dev', '"in dev" holds a space'],
     [String.raw`my\\ dir`, 'holds a space'],
-    ['  billing excpet production  ', 'holds a space'],
+    ['  billing', 'starts with whitespace'],
+    ['\tbilling', 'starts with whitespace'],
+    ['\u00A0billing', 'starts with whitespace'],
+    ['  billing except production', 'starts with whitespace'],
+    ['\tbilling in dev', 'starts with whitespace'],
+    ['  !billing', 'starts with whitespace'],
+    ['  billing excpet production  ', 'starts with whitespace'],
+    ['gone except production', '"gone" matches no directory'],
+    ['workers/billling except production', '"workers/billling" matches no directory'],
+    [String.raw`workers\billing except production`, String.raw`"workers\billing" matches no directory`],
+    ['!gone in dev', '"!gone" matches no directory'],
+    ['workers/zz* in dev', '"workers/zz*" matches no directory'],
   ])('refuses the malformed line %j, in every env and with none', (line, message) => {
     for (const env of [undefined, 'dev', 'production']) {
       expect(() => ignoredIn(env, `orders\n${line}\n`)).toThrow(message)
@@ -199,14 +216,46 @@ describe('findIgnoredWorkers with a scope', () => {
     expect(ignoredIn('dev', '# a comment with spaces\n   # an indented one\n\n   \n\t\nbilling\n')).toEqual(['billing'])
   })
 
-  // What `ignore` does with these, as ever: trailing whitespace goes, and leading whitespace stays part of the pattern, so it matches nothing.
-  it('keeps what leading and trailing whitespace have always meant', () => {
+  it('takes trailing whitespace as gitignore does: it goes, unless it is escaped', () => {
     expect(ignoredIn('dev', 'billing   \n')).toEqual(['billing'])
     expect(ignoredIn('dev', 'billing\t\n')).toEqual(['billing'])
+    expect(ignoredIn('dev', 'billing\u00A0\n')).toEqual(['billing'])
+    expect(ignoredIn('dev', 'billing\r\n')).toEqual(['billing'])
     expect(ignoredIn('dev', 'billing in dev   \n')).toEqual(['billing'])
-    expect(ignoredIn('dev', '   billing\n')).toEqual([])
-    expect(ignoredIn('dev', '   billing in dev\n')).toEqual([])
     expect(ignoredIn('dev', 'billing\\ \n', ['billing ', 'billing'])).toEqual(['billing '])
+  })
+
+  it('takes a scope after any whitespace, as the pattern before it is what it means', () => {
+    expect(ignoredIn('dev', 'billing\u00A0in\u00A0dev\n')).toEqual(['billing'])
+    expect(ignoredIn('production', 'billing\u00A0in\u00A0dev\n')).toEqual([])
+  })
+
+  it('reads a file that starts with a byte order mark, as git does', () => {
+    expect(ignoredIn('dev', '\uFEFFbilling\n')).toEqual(['billing'])
+    expect(ignoredIn('dev', '\uFEFFbilling in dev\n')).toEqual(['billing'])
+    expect(ignoredIn('dev', '\uFEFF# a comment\nbilling\n')).toEqual(['billing'])
+  })
+
+  it('takes a scoped line for a directory with no config: it matches a directory, and ignores nothing', () => {
+    const reader = memoryReader({...workerFiles, 'workers/draft/notes.txt': 'x', '.monocfignore': 'draft except production\n'})
+    expect(findIgnoredWorkers({...options, env: 'dev'}, all, reader)).toEqual([])
+  })
+
+  it('stays a warning for check, and no refusal, when a line with no scope matches no directory', () => {
+    expect(ignoredIn('dev', 'gone\nbilling-in-dev\n!gone-too\nbilling\n')).toEqual(['billing'])
+  })
+})
+
+describe('where the workers directory is written', () => {
+  const reader = memoryReader({...workerFiles, '.monocfignore': 'workers/orders\nbilling in dev\n'})
+
+  it.each(['workers', './workers', 'workers/.', String.raw`.\workers`])('takes %s the same way', (workersDirName) => {
+    expect(findIgnoredWorkers({rootDir: projectRoot, workersDirName, env: 'dev'}, all, reader)).toEqual(['billing', 'orders'])
+  })
+
+  it('takes a directory above the root, where a line can only go by the name', () => {
+    const above = memoryReader({'workers/orders/wrangler.jsonc': {}, 'sub/.monocfignore': 'orders\nbilling in dev\n', 'workers/billing/wrangler.jsonc': {}})
+    expect(findIgnoredWorkers({rootDir: join(projectRoot, 'sub'), workersDirName: '../workers', env: 'dev'}, ['billing', 'orders'], above)).toEqual(['billing', 'orders'])
   })
 })
 

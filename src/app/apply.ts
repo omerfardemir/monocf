@@ -10,7 +10,7 @@ import {workerExternalHash} from '../fingerprint/external.js'
 import {configHash, doHash, triggersHash, triggersOf, type Triggers} from '../fingerprint/fingerprint.js'
 import {PLAN_SCHEMA_VERSION, tagFor, type Plan, type PlanStep} from '../plan/plan.js'
 import type {OptionFlags, Options} from '../project/options.js'
-import {discoverWorkers, findIgnoredWorkers, IGNORE_FILE} from '../project/workers.js'
+import {discoverWorkers, IGNORE_FILE} from '../project/workers.js'
 import {formatRunMarkdown, formatRunSummary} from '../report/run-summary.js'
 import {materialiseConfig} from '../runtime/materialise.js'
 import type {StateWorker} from '../state/manifest.js'
@@ -34,7 +34,7 @@ import {
   type DeployResult,
   type DeployStep,
 } from './deployment.js'
-import {assertHoldsNoSource, checkoutHead, dirtyPaths, loadOptions} from './project.js'
+import {assertHoldsNoSource, checkoutHead, dirtyPaths, findIgnored, loadOptions} from './project.js'
 import {accountOf, callWrangler, runStep, withRun, type RunContext} from './run.js'
 
 export interface ApplyFlags extends OptionFlags {
@@ -108,7 +108,7 @@ function assertCanApply(plan: Plan, {expectBranchTip, rootDir, wranglerVersion}:
 
 /** The clean checkout says the ignore file is what the plan saw, unless git ignores it. A plan never gets to touch what it leaves out. */
 function assertNotIgnored(names: string[], options: Options): void {
-  const ignored = findIgnoredWorkers(options, names)
+  const ignored = findIgnored(options, names)
   if (ignored.length > 0) throw new ConfigError(`The plan deploys ${ignored.join(', ')}, and ${IGNORE_FILE} leaves that out of ${options.env}. Plan again.`)
 }
 

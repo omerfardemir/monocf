@@ -2,11 +2,13 @@ import {execFileSync} from 'node:child_process'
 import {realpathSync} from 'node:fs'
 import {basename, dirname, isAbsolute, join, relative, resolve} from 'node:path'
 
+import {readProjectInputs} from '../config/resolve.js'
 import {ConfigError} from '../config/types.js'
+import {definedEnvs} from '../config/validate.js'
 import {isSameOrWithin} from '../fingerprint/external.js'
 import {findConfigFile, loadProjectFile} from '../project/load.js'
 import {resolveOptions, type OptionFlags, type Options} from '../project/options.js'
-import {discoverWorkers, findIgnoredWorkers, ignoredIn, inferWorker, readIgnoreLines, selectWorkers} from '../project/workers.js'
+import {discoverWorkers, findIgnoredWorkers, ignoredIn, inferWorker, readIgnoreLines, selectWorkers, unknownEnvProblems} from '../project/workers.js'
 
 const SHORT_SHA_LENGTH = 7
 
@@ -14,6 +16,17 @@ const SHORT_SHA_LENGTH = 7
 export function loadOptions(flags: OptionFlags, cwd: string = process.cwd()): Options {
   const configPath = findConfigFile(flags.rootDir ? resolve(cwd, flags.rootDir) : cwd)
   return resolveOptions({configPath, cwd, file: configPath ? loadProjectFile(configPath) : undefined, flags})
+}
+
+/**
+ * What's ignored in this env. A scope naming an unknown env stops a command as a malformed line does, as `in dve,staging` would
+ * otherwise deploy what it was written to keep out of dev. Without a scoped line, no config gets read for this.
+ */
+export function findIgnored(options: Options, workers: string[]): string[] {
+  const ignored = findIgnoredWorkers(options, workers)
+  const [problem] = unknownEnvProblems(readIgnoreLines(options), () => definedEnvs(readProjectInputs(options), options))
+  if (problem !== undefined) throw new ConfigError(problem)
+  return ignored
 }
 
 export interface Selection {
@@ -29,14 +42,14 @@ export function selectFromArguments(options: Options, name?: string, cwd: string
   if (!options.all && target === undefined) throw new ConfigError('Worker name is required if --all flag is not set')
 
   const workers = discoverWorkers(options)
-  const ignored = findIgnoredWorkers(options, workers)
+  const ignored = findIgnored(options, workers)
   return {ignored, selected: selectWorkers(workers, ignored, target, options.env)}
 }
 
 /** Every worker the ignore file leaves in for this env. */
 export function selectAll(options: Options): Selection {
   const workers = discoverWorkers(options)
-  const ignored = findIgnoredWorkers(options, workers)
+  const ignored = findIgnored(options, workers)
   return {ignored, selected: selectWorkers(workers, ignored)}
 }
 
@@ -44,7 +57,7 @@ export function selectAll(options: Options): Selection {
 export function selectNamed(options: Options, names: string[]): Selection {
   if (names.length === 0) return selectAll(options)
   const workers = discoverWorkers(options)
-  const ignored = findIgnoredWorkers(options, workers)
+  const ignored = findIgnored(options, workers)
   return {ignored, selected: [...new Set(names.flatMap((name) => selectWorkers(workers, ignored, name, options.env)))].sort()}
 }
 

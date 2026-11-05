@@ -62,42 +62,74 @@ function scopeProblem(list: string, envs: string[]): string | undefined {
   return bad === undefined ? undefined : `"${bad}" isn't an environment name. Separate names with commas, and put a comment on a line of its own`
 }
 
-/** A space with no backslash of its own before it. A backslash that a backslash escapes doesn't count. */
+/** Whitespace with no backslash of its own before it. A backslash that a backslash escapes doesn't count. */
 const UNESCAPED_SPACE = /(?:^|[^\\])(?:\\\\)*\s/
 
-/** Leading and trailing whitespace reach the matcher as they always have. A space inside is a typo in a keyword until shown otherwise. */
+/** Takes the line without its trailing whitespace, which gitignore drops, and nothing else: the matcher keeps what's at the start. */
 function patternProblem(pattern: string): string | undefined {
-  return UNESCAPED_SPACE.test(pattern.trim())
-    ? `its pattern "${pattern.trim()}" holds a space. A scope is a lower-case \`in\` or \`except\` and a list of environments, a space in a directory name is written "\\ ", and a comment needs a line of its own`
+  if (/^\s/.test(pattern)) return 'it starts with whitespace, so its pattern would match nothing. Take the whitespace out'
+  return UNESCAPED_SPACE.test(pattern)
+    ? `its pattern "${pattern}" holds a space. A scope is a lower-case \`in\` or \`except\` and a list of environments, a space in a directory name is written "\\ ", and a comment needs a line of its own`
     : undefined
+}
+
+function malformed(text: string, problem: string | undefined): Pick<IgnoreLine, 'problem'> {
+  return problem === undefined ? {} : {problem: `The ${IGNORE_FILE} line "${text.trim()}" is malformed: ${problem}.`}
 }
 
 function parseIgnoreLine(text: string): IgnoreLine {
   const trimmed = text.trim()
   if (trimmed === '' || trimmed.startsWith('#')) return {pattern: text, text}
-  const malformed = (problem: string | undefined) => (problem === undefined ? {} : {problem: `The ${IGNORE_FILE} line "${trimmed}" is malformed: ${problem}.`})
 
-  const scoped = SCOPED_LINE.exec(text.trimEnd())
-  if (scoped === null) return {pattern: text, ...malformed(patternProblem(text)), text}
+  const line = text.trimEnd()
+  const scoped = SCOPED_LINE.exec(line)
+  if (scoped === null) return {pattern: text, ...malformed(text, patternProblem(line)), text}
 
   const [, pattern, kind, list = ''] = scoped
   const envs = list.split(/,[ \t]*/)
   return {
     pattern,
-    ...malformed(patternProblem(pattern) ?? scopeProblem(list, envs)),
+    ...malformed(text, patternProblem(pattern) ?? scopeProblem(list, envs)),
     scope: {envs, kind: kind as IgnoreScope['kind']},
     text,
   }
+}
+
+/** What a pattern can match a worker by: its directory name and, while that stays under the root, its path from the root. */
+function namesOf(worker: string, {workersDirName}: WorkerLocation): string[] {
+  const path = posix.join(workersDirName.replaceAll('\\', '/'), worker)
+  return path !== worker && ignore.isPathValid(path) ? [worker, path] : [worker]
+}
+
+function matcherOf(patterns: string, location: WorkerLocation): (worker: string) => boolean {
+  const matcher = ignore().add(patterns)
+  // A line with a trailing slash means a directory, and to the matcher only a path ending in one is a directory.
+  return (worker) => namesOf(worker, location).some((path) => matcher.ignores(path) || matcher.ignores(`${path}/`))
+}
+
+/** Whether the line's pattern, whichever way `!` turns it, reaches any of these directories. */
+export function matchesDirectory({pattern}: IgnoreLine, location: WorkerLocation, directories: string[]): boolean {
+  return directories.some(matcherOf(pattern.replace(/^!/, ''), location))
 }
 
 /** Every line of the ignore file, comments and blank lines too, in order. */
 export function readIgnoreLines(options: WorkerLocation, reader: FileReader = nodeReader): IgnoreLine[] {
   const ignorePath = join(options.rootDir, IGNORE_FILE)
   if (!reader.exists(ignorePath)) return []
-  return reader
+  const lines = reader
     .readFile(ignorePath)
+    .replace(/^\uFEFF/, '')
     .split(/\r?\n/)
     .map((text) => parseIgnoreLine(text))
+  if (!lines.some(({problem, scope}) => scope !== undefined && problem === undefined)) return lines
+
+  // A scope says someone meant this line for a worker, so unlike a plain line a removed worker left behind, matching nothing is a mistyped path.
+  const directories = reader.readDir(join(options.rootDir, options.workersDirName))
+  return lines.map((line) =>
+    line.scope === undefined || line.problem !== undefined || matchesDirectory(line, options, directories)
+      ? line
+      : {...line, ...malformed(line.text, `its pattern "${line.pattern}" matches no directory`)},
+  )
 }
 
 function appliesTo({problem, scope}: IgnoreLine, env: string | undefined): boolean {
@@ -107,12 +139,8 @@ function appliesTo({problem, scope}: IgnoreLine, env: string | undefined): boole
   return scope.kind === 'in' ? named : !named
 }
 
-function matchedBy(lines: IgnoreLine[], {workersDirName}: WorkerLocation, workers: string[]): string[] {
-  const patterns = ignore().add(lines.map(({pattern}) => pattern).join('\n'))
-  const prefix = posix.normalize(workersDirName.replaceAll('\\', '/'))
-  // A line with a trailing slash means a directory, and to the matcher only a path ending in one is a directory.
-  const matches = (path: string) => patterns.ignores(path) || patterns.ignores(`${path}/`)
-  return workers.filter((worker) => matches(worker) || (prefix !== '.' && matches(posix.join(prefix, worker))))
+function matchedBy(lines: IgnoreLine[], location: WorkerLocation, workers: string[]): string[] {
+  return workers.filter(matcherOf(lines.map(({pattern}) => pattern).join('\n'), location))
 }
 
 /**
@@ -130,6 +158,16 @@ export function findIgnoredWorkers(options: IgnoreOptions, workers: string[], re
   const malformed = lines.find(({problem}) => problem !== undefined)
   if (malformed) throw new ConfigError(malformed.problem!)
   return ignoredIn(lines, options, workers)
+}
+
+/** Each env a scope names that isn't defined, as a message. `defined` is only asked for when there's a scope to compare. */
+export function unknownEnvProblems(lines: IgnoreLine[], defined: () => string[]): string[] {
+  const scoped = lines.filter(({problem, scope}) => scope !== undefined && problem === undefined)
+  if (scoped.length === 0) return []
+  const envs = defined()
+  return scoped.flatMap(({scope, text}) =>
+    scope!.envs.filter((env) => !envs.includes(env)).map((env) => `The ${IGNORE_FILE} line "${text.trim()}" names the env ${env}, which no worker defines.`),
+  )
 }
 
 /** What's ignored in `options.env` only because of a scope. The lines with no scope wouldn't ignore these by themselves. */

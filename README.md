@@ -132,17 +132,23 @@ workers/nightly-report except production
 - **With no `-e` there's no environment.** An `in` line doesn't apply, and an `except` line does.
 - **`except` covers everything it doesn't name, `local` and no env included.** With `workers/nightly-report except production`, `monocf dev nightly-report -e local` and `monocf build nightly-report` are both refused. Write `except production,local` to allow `-e local`. Only an `in` line, or none, leaves a worker usable with no env.
 - A scope starts at the first whole word `in` or `except` after the pattern, so `workers/in` has no scope. To name a directory with a space and one of those words in it, escape the space, as in `my\ in\ tray`.
-- A comment needs a line of its own, as `.gitignore` has no inline comments.
-- **A space inside a pattern is an error unless it's escaped,** so that a typo in a keyword can't quietly leave a worker selected everywhere. `workers/x excpet production` and `workers/x IN dev` both stop with exit 2, as `in` and `except` are lower case. Write a directory with a space in its name as `my\ dir`. Whitespace at the start and end of a line means what it does in `.gitignore`.
+- A comment needs a line of its own, as `.gitignore` has no inline comments. It may be indented.
+- **A line that can't reach the worker it was written for is an error,** so that a typo can't quietly leave a worker selected everywhere. Each of these stops `check` and every command that selects workers, with exit 2:
+  - Whitespace inside a pattern, tabs and no-break spaces included, unless it's escaped: `workers/x excpet production`, `workers/x IN dev` (`in` and `except` are lower case), `workers/x # except production`, or `except production` with no pattern. Write a directory with a space in its name as `my\ dir`.
+  - Whitespace at the start of a line, which `.gitignore` keeps as part of the pattern, so the line would match nothing. Whitespace at the end goes, as in `.gitignore`.
+  - A line with a scope whose pattern matches no directory, as in `workers/nightlly except production` or `workers\nightly in dev`. Use `/` in paths, as `\` escapes the next character.
+  - A scope naming an env that no config defines, as in `except produciton`.
+- A line with no scope that matches no directory is only a warning, `ignored-stale`, as a removed worker leaves one behind. `workers/nightly-in-dev` is such a line, so check that warning.
+- `dev <worker>` still starts the workers it binds to, ignored or not, as a local session needs them. `deploy -d` and `preview -d` don't follow a binding to a worker ignored in their env, and say so.
 
 `check` looks after this file:
 
 | Rule | Level | What it means |
 |---|---|---|
 | `ignored-dependency` | error | A selected worker binds to one that's ignored in that env |
-| `ignored-malformed` | error | A scope with no names, an empty name or something that isn't a name, as in `workers/x except a,,b` or `workers/x except production # note`, or a pattern with an unescaped space inside it, as in `workers/x excpet production`. Every command that selects workers stops on this too, as nothing says what the line was meant to leave out |
-| `ignored-unknown-env` | error | A scope names an env that neither the base config nor any worker defines, as in `except produciton` |
-| `ignored-stale` | warning | The pattern, without its scope, matches no directory |
+| `ignored-malformed` | error | A scope with no names, an empty name or something that isn't a name, as in `workers/x except a,,b` or `workers/x except production # note`; a pattern with unescaped whitespace inside or at the start, as in `workers/x excpet production`; or a scoped line whose pattern matches no directory. Every command that selects workers stops on this too, as nothing says what the line was meant to leave out |
+| `ignored-unknown-env` | error | A scope names an env that neither the base config nor any worker defines, as in `except produciton`. Every command that selects workers stops on this too |
+| `ignored-stale` | warning | A line with no scope matches no directory |
 
 `check` and `check --all-envs` give each env its own ignored set. A worker ignored in an env gets no `missing-env` there, so a production-only worker needs no `dev` section.
 
@@ -1051,6 +1057,7 @@ Its limits:
 - **Workers the run created** have nothing to go back to. They're skipped with a note, and stay deployed.
 - **A recreated provider.** A caller's earlier version can't reach a provider that was recreated. If the run created that provider, the rollback refuses that caller without `--force`. Whichever way a caller goes back, the next `plan` gives it a new version.
 - **A first route.** If the run gave a worker its first route, the rollback leaves it attached, as wrangler only publishes a list with something in it, and says so. Remove it by hand.
+- **A broken `.monocfignore`.** A line `check` calls `ignored-malformed` or `ignored-unknown-env` stops a rollback, as it stops every command that selects workers. Rollback doesn't need a clean checkout, so fixing the line, even uncommitted, lets it run.
 
 ## Exit codes and JSON output
 
