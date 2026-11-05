@@ -28,7 +28,7 @@ monocf can now run a Cloudflare Workers monorepo from CI: a dependency graph, a 
 
 - `monocf graph`, `check` and `bundle`, which need no credentials.
 - `monocf plan`, `apply` and `rollback`, with per-environment state in an R2 bucket.
-- `monocf secrets check`, which compares secret names with what's live.
+- `monocf secrets check`, which compares secret names with what's live, and prints its results on stdout.
 - A `.monocfignore` line can apply to some environments: `workers/load-test in dev,staging`, or `workers/nightly-report except production`. Every command resolves the ignored set for its env. `except` also covers `local` and a command with no env, so write `except production,local` to allow `-e local`. **Scoped lines need 0.3.0 or later:** an older monocf reads one as a literal pattern, so the worker silently stops being ignored.
 - `check` rules `ignored-malformed` and `ignored-unknown-env`, and an `ignored-but-deployed` note in `plan`. Both rules stop every command that selects workers too. A scoped line whose pattern matches no directory, as in `workers/nightlly except production`, is malformed, while a line with no scope that matches nothing stays an `ignored-stale` warning.
 - `apply` refuses, with exit 2, a checkout with changes git doesn't ignore, or one whose commit isn't the plan's. Anything a job writes before `apply` has to go outside the checkout or be ignored. In a `file:` state directory only the manifests and run records are exempt, and `plan` and `apply` refuse a state or `--bundle-dir` directory that contains the project root or a worker.

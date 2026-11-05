@@ -1029,7 +1029,7 @@ monocf secrets check -e production       # names only, never values
 
 `secrets deploy` refuses a worker that doesn't exist yet, because wrangler would otherwise create a new one from a typo. `--create` allows it.
 
-`secrets check` expects the names in `secrets.required`, which wrangler doesn't inherit into an env, and the keys of a `.dev.vars.example` next to the worker's config. A missing name is exit 1, and an unexpected one is a warning. A worker with neither source is skipped with a note.
+`secrets check` expects the names in `secrets.required`, which wrangler doesn't inherit into an env, and the keys of a `.dev.vars.example` next to the worker's config. A missing name is exit 1, and an unexpected one is a warning. The results go to stdout, one line per worker, so `monocf secrets check -e production | grep missing` works, and notices go to stderr. A worker with neither source is skipped with a note.
 
 **`secrets.required` limits `apply`.** Wrangler enforces it itself: `versions upload` and `deploy` refuse while a name is unset. A worker that doesn't exist yet could only get one through `--secrets-file`, which `apply` doesn't pass. So `plan` can say `upload` or `create`, and `apply` then fails that worker with exit 1. Run `secrets check` before `apply` and set what's missing first. Don't add `secrets.required` to a worker until it exists.
 

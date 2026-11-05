@@ -38,9 +38,13 @@ export function formatHuman(event: ReportEvent): string | undefined {
   }
 }
 
-export function humanSink(write: (text: string) => void = (text) => process.stderr.write(text)) {
+/** A command's result goes to stdout, so that a script can read it. Progress and notices go to stderr. */
+export function humanSink(
+  write: (text: string) => void = (text) => process.stderr.write(text),
+  result: (text: string) => void = (text) => process.stdout.write(text),
+) {
   return (event: ReportEvent): void => {
     const line = formatHuman(event)
-    if (line !== undefined) write(`${line}\n`)
+    if (line !== undefined) (event.type === 'secrets-check' ? result : write)(`${line}\n`)
   }
 }

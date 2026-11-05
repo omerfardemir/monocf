@@ -22,14 +22,15 @@ describe('secrets check', () => {
     const result = await check(project(required('API_KEY')), live(['API_KEY']))
 
     expect(result.exitCode, result.stderr).toBe(0)
-    expect(result.stderr).toContain('has API_KEY')
+    expect(result.stdout).toContain('has API_KEY')
   })
 
   it('exits 1 and names what is missing', async () => {
     const result = await check(project(required('API_KEY', 'OTHER')), live(['API_KEY']))
 
     expect(result.exitCode).toBe(1)
-    expect(result.stderr).toContain('missing OTHER')
+    expect(result.stdout).toContain('missing OTHER')
+    expect(result.stderr).not.toContain('missing OTHER')
   })
 
   it('takes names from .dev.vars.example too, and never prints a value', async () => {
@@ -47,28 +48,28 @@ describe('secrets check', () => {
     const result = await check(project(required('API_KEY')), live(['API_KEY', 'LEFTOVER']))
 
     expect(result.exitCode, result.stderr).toBe(0)
-    expect(result.stderr).toContain('warning: not expected LEFTOVER')
+    expect(result.stdout).toContain('warning: not expected LEFTOVER')
   })
 
   it('does not count a plain var as a secret', async () => {
     const result = await check(project(required('PLAIN')), live([]))
 
     expect(result.exitCode).toBe(1)
-    expect(result.stderr).toContain('missing PLAIN')
+    expect(result.stdout).toContain('missing PLAIN')
   })
 
   it('reports a worker that does not exist, and exits 1', async () => {
     const result = await check(project(required('API_KEY')), {})
 
     expect(result.exitCode).toBe(1)
-    expect(result.stderr).toContain('does not exist')
+    expect(result.stdout).toContain('does not exist')
   })
 
   it('says so when nothing says what to expect, reads nothing and exits 0', async () => {
     const result = await runCli(project({}), ['secrets', 'check', '-e', 'staging'], {cloudflare: {}, noCalls: true})
 
     expect(result.exitCode, result.stderr).toBe(0)
-    expect(result.stderr).toContain('nothing to check against')
+    expect(result.stdout).toContain('nothing to check against')
     expect(result.calls).toEqual([])
   })
 
