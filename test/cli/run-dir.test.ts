@@ -548,6 +548,7 @@ describe.skipIf(isWindows)('signals', () => {
   it.each([
     ['SIGTERM', 143],
     ['SIGINT', 130],
+    ['SIGHUP', 129],
   ] as const)('%s reaches wrangler, cleans up and exits %i', async (signal, exitCode) => {
     const fixture = project()
     const running = startCli(fixture, ['worker', 'orders', '-c', 'deploy'], {

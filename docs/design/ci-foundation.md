@@ -72,7 +72,7 @@ src/
 | 1 | One or more workers failed |
 | 2 | Usage or config error; nothing was attempted |
 | 3 | Environment error: wrangler missing, wrong version, no auth |
-| 130 / 143 | Interrupted; partial results reported |
+| 129 / 130 / 143 | Interrupted by SIGHUP, SIGINT or SIGTERM; partial results reported |
 | 128 + n | A wrangler process was killed by signal n, without monocf being interrupted |
 
 A `wrangler` that fails gives exit 1, and its own exit code appears in the message.

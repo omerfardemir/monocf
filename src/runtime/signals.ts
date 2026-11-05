@@ -4,7 +4,7 @@ import {constants} from 'node:os'
 import {MonocfError} from '../errors.js'
 
 const GRACE_MS = 10_000
-const SIGNALS: NodeJS.Signals[] = ['SIGINT', 'SIGTERM']
+const SIGNALS: NodeJS.Signals[] = ['SIGHUP', 'SIGINT', 'SIGTERM']
 
 export function signalExitCode(signal: NodeJS.Signals): number {
   return 128 + (constants.signals[signal] ?? 0)
@@ -29,7 +29,7 @@ function terminate(child: ChildProcess, signal: NodeJS.Signals): void {
 
 /**
  * The one signal handler. A signal stops new steps and reaches the running children, which get time to finish before
- * the rest are killed. The run then ends by itself through `throwIfInterrupted`, with its cleanup, as 130 or 143.
+ * the rest are killed. The run then ends by itself through `throwIfInterrupted`, with its cleanup, as 129, 130 or 143.
  */
 export class Interrupts {
   /** The signal that ended this run, if any. */

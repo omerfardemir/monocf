@@ -110,6 +110,7 @@ if (rule.holdMs) {
     if (!rule.ignoreSignals) process.exit(0)
   }
 
+  process.on('SIGHUP', () => received('SIGHUP'))
   process.on('SIGINT', () => received('SIGINT'))
   process.on('SIGTERM', () => received('SIGTERM'))
 }
