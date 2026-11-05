@@ -1,15 +1,19 @@
 name: tests
 on:
+  pull_request:
   push:
-    branches-ignore: [main]
+    branches: ['**']
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   unit-tests:
     strategy:
       matrix:
         os: ['ubuntu-latest', 'windows-latest']
-        node_version: [lts/-1, lts/*, latest]
+        node_version: ['22', '24', latest]
       fail-fast: false
     runs-on: ${{ matrix.os }}
     steps:
@@ -18,6 +22,6 @@ jobs:
         with:
           node-version: ${{ matrix.node_version }}
           cache: npm
-      - run: npm install
+      - run: npm ci
       - run: npm run build
-      - run: npm run test
+      - run: npm test
