@@ -112,7 +112,38 @@ Flags win over this file, and this file wins over the defaults. The three boolea
 
 The file sits in the root and uses `.gitignore` syntax. A pattern matches a worker's directory name, or its path from the root, as in `workers/orders`.
 
-It removes workers from bulk selections: `--all`, and `bundle`, `plan`, `check` and `graph` with no names. Naming an ignored worker is an error, not a silent skip. A selected worker that binds to an ignored one fails `check`.
+It removes workers from bulk selections: `--all`, and `bundle`, `plan`, `check` and `graph` with no names. Naming an ignored worker is an error, not a silent skip, and so is running a command from inside its directory. A selected worker that binds to an ignored one fails `check`.
+
+A line can apply to some environments only, with a trailing `in` or `except` and a list of names. **Scoped lines need monocf 0.3.0 or later.** An older monocf reads one as a literal pattern that matches nothing, so the worker silently stops being ignored.
+
+```gitignore
+# Ignored in every environment
+workers/legacy-tool
+
+# Ignored in these environments only
+workers/load-test in dev,staging
+
+# Ignored in every environment except these
+workers/nightly-report except production
+```
+
+- For each env, monocf keeps the lines that apply to it, in their order, and removes the scopes. So `!` and last-match-wins work as in `.gitignore`.
+- Names are matched exactly, case included. Spaces after commas are fine.
+- **With no `-e` there's no environment.** An `in` line doesn't apply, and an `except` line does.
+- **`except` covers everything it doesn't name, `local` and no env included.** With `workers/nightly-report except production`, `monocf dev nightly-report -e local` and `monocf build nightly-report` are both refused. Write `except production,local` to allow `-e local`. Only an `in` line, or none, leaves a worker usable with no env.
+- A scope starts at the first whole word `in` or `except` after the pattern, so `workers/in` has no scope. To name a directory with a space and one of those words in it, escape the space, as in `my\ in\ tray`.
+- A comment needs a line of its own, as `.gitignore` has no inline comments.
+
+`check` looks after this file:
+
+| Rule | Level | What it means |
+|---|---|---|
+| `ignored-dependency` | error | A selected worker binds to one that's ignored in that env |
+| `ignored-malformed` | error | A scope with no names, an empty name or something that isn't a name, as in `workers/x except a,,b` or `workers/x except production # note`. Every command that selects workers stops on this too, as nothing says what the line was meant to leave out |
+| `ignored-unknown-env` | error | A scope names an env that neither the base config nor any worker defines, as in `except produciton` |
+| `ignored-stale` | warning | The pattern, without its scope, matches no directory |
+
+`check` and `check --all-envs` give each env its own ignored set. A worker ignored in an env gets no `missing-env` there, so a production-only worker needs no `dev` section.
 
 ### Base config merge rules
 
@@ -931,6 +962,22 @@ So run the first plan over existing workers with `--on-drift warn`. Once a manif
 
 Secrets you already set survive the upload, since a new version inherits them.
 
+### Workers in only some environments
+
+A worker used only in production stays out of the other pipelines with one line in [`.monocfignore`](#monocfignore):
+
+```gitignore
+workers/nightly-report except production,local
+```
+
+`plan` then selects it for `production` and leaves it out of `dev` and `staging`, and `graph`, `check`, `bundle` and `deploy -a` agree. Two things happen when you change such a line for a worker that already exists.
+
+**A worker that's live and now left out stays live.** If the state knows it, `plan` adds an `ignored-but-deployed` note. monocf never touches it, so deleting it, if you don't want it there, is a person's job. A line with no scope gets no such note.
+
+**A worker a scope brings back can turn every merge red.** If it's live and the state has no entry for it, it's the `Anything else` row under [First run](#first-run). With `--on-drift fail`, `plan` marks it `blocked` and exits 1, on every run, until someone acts. Run one plan and apply with `--on-drift warn`, which uploads this commit over it and records it, and `fail` is safe again. Look at what's live first.
+
+`apply` refuses a plan that deploys a worker the file now leaves out of its env. `rollback --to-run` skips such a worker with a note and leaves it as it is, and `rollback <worker>` refuses it. Fingerprints don't depend on this file, so changing a line doesn't redeploy anything else.
+
 ### Guards against a wrong account
 
 A real account with no such worker answers the same as a first run does. So `plan` refuses, with exit 3 and a plan marked not applicable, in three cases:
@@ -973,7 +1020,7 @@ monocf secrets check -e production       # names only, never values
 
 When a provider is deleted and created again, its callers stay broken until they get a new version. Redeploying the old version doesn't help.
 
-monocf handles this when it does the creating. Before `apply` creates a worker the manifest knows, it writes the worker's direct callers to a `needsNewVersion` marker in the manifest, before the provider exists. So the need survives a crash. `plan` turns a marked caller into `upload` with the reason `provider-recreated`. The marker clears once that caller gets a new version. A caller that isn't selected keeps its marker and gets a `caller-not-selected` note. A caller in `.monocfignore` is named in a `caller-ignored` note and left alone.
+monocf handles this when it does the creating. Before `apply` creates a worker the manifest knows, it writes the worker's direct callers to a `needsNewVersion` marker in the manifest, before the provider exists. So the need survives a crash. `plan` turns a marked caller into `upload` with the reason `provider-recreated`. The marker clears once that caller gets a new version. A caller that isn't selected keeps its marker and gets a `caller-not-selected` note. A caller `.monocfignore` leaves out of this env is named in a `caller-ignored` note and left alone.
 
 **If you delete and recreate a provider by hand, redeploy its callers too.** Nothing can see that it happened.
 
@@ -1124,7 +1171,7 @@ These now fail with exit 2 where they used to be ignored or misread:
 - `--from-version` with `--all` or `--deploy-bindings`.
 - `--message` or `--deploy-bindings` on `build` or `dev`, `--deploy-secrets` on `build` or `dev`, `--port` on anything but `dev`, `--minify` on `dev`.
 - An unknown `-c` value, a blank value for a string flag, and an unknown `--env`.
-- A named worker that's missing or listed in `.monocfignore`.
+- A named worker that's missing or ignored in this env, including one inferred from the directory you run in. A package script such as `monocf worker -c build` in an ignored worker used to run and now fails, so change its line in `.monocfignore`, as above, or take the worker out of that script.
 - An unknown key in `monocf.config.json`.
 - An unknown placeholder, or one outside a string, as in `"cpu_ms": {cpu}`.
 - `null` in a worker config under a base config.

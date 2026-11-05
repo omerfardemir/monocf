@@ -13,6 +13,8 @@ monocf can now run a Cloudflare Workers monorepo from CI: a dependency graph, a 
 - **`-e dev` reads `.dev.vars.dev`,** like any other env.
 - **Mistakes that used to pass now fail with exit 2:** an unknown `--env`, a named worker that is missing or in `.monocfignore`, an unknown key in `monocf.config.json`, an unknown placeholder, `null` in a worker config under a base config, and a flag that means nothing to its command, such as `--deploy-from-version-id` without `--from-version`.
 - **Exit codes changed.** 1 means a worker failed, 2 a usage or config error, 3 an environment error. A failed wrangler gives 1, with its own code in the message. A wrangler killed by a signal no longer counts as success.
+- **A worker in `.monocfignore` no longer runs by name.** In 0.2.1, a per-worker script such as `monocf worker orders -c build` ran in an ignored worker. Now it exits 2, and that fails a monorepo's `build` for that worker. Remove the line, or scope it so that it leaves out the env the script uses: `except production,local` for a script with `-e local`, and `in <envs>` for a script with no `-e`, which any `except` line covers. Or take the worker out of the script.
+- **A line with a whole word `in` or `except` after its pattern is now a scope** in `.monocfignore`. A directory with such a name can still be written by escaping the space.
 - **`secrets deploy` refuses a worker that doesn't exist,** unless you pass `--create`, and `-a` now honours `.monocfignore`.
 - **`build` and `dev` write the env suffix into service bindings,** as `deploy` always did.
 - **`worker create`** writes a small embedded template. It no longer downloads one or runs an install.
@@ -23,6 +25,8 @@ monocf can now run a Cloudflare Workers monorepo from CI: a dependency graph, a 
 - `monocf graph`, `check` and `bundle`, which need no credentials.
 - `monocf plan`, `apply` and `rollback`, with per-environment state in an R2 bucket.
 - `monocf secrets check`, which compares secret names with what's live.
+- A `.monocfignore` line can apply to some environments: `workers/load-test in dev,staging`, or `workers/nightly-report except production`. Every command resolves the ignored set for its env. `except` also covers `local` and a command with no env, so write `except production,local` to allow `-e local`. **Scoped lines need 0.3.0 or later:** an older monocf reads one as a literal pattern, so the worker silently stops being ignored.
+- `check` rules `ignored-malformed` and `ignored-unknown-env`, and an `ignored-but-deployed` note in `plan`.
 - `apply` refuses, with exit 2, a checkout with changes git doesn't ignore, or one whose commit isn't the plan's. Anything a job writes before `apply` has to go outside the checkout or be ignored.
 - `rollback --to-run` works on a run that failed or was interrupted: `apply` reads what's live when a step doesn't finish and records whether it changed. A worker it can't account for is refused, with exit 1, and not reported as fine.
 - `monocf build`, `deploy`, `preview` and `dev`, over the same code as `monocf worker -c`.

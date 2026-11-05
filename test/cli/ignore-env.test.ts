@@ -1,5 +1,6 @@
 import {mkdirSync, readFileSync, writeFileSync} from 'node:fs'
 import {join} from 'node:path'
+import {fileURLToPath} from 'node:url'
 import {describe, expect, it} from 'vitest'
 
 import {
@@ -667,6 +668,34 @@ describe('rollback', () => {
     expect(result.exitCode).toBe(1)
     expect(lastRunRecord(built).workers.orders).toMatchObject({message: expect.stringContaining("can't reach"), result: 'refused'})
     expect(lastRunRecord(built).workers.billing).toMatchObject({result: 'skipped'})
+  })
+})
+
+describe('the README', () => {
+  const readme = readFileSync(fileURLToPath(new URL('../../README.md', import.meta.url)), 'utf8').replaceAll('\r\n', '\n')
+  const samples = [...readme.matchAll(/```gitignore\n([\s\S]*?)```/g)].map(([, sample]) => sample)
+  const names = [{name: 'legacy-tool'}, {name: 'load-test'}, {name: 'nightly-report'}, {name: 'orders'}]
+
+  it('shows lines that do what it says, with no env and in each env', async () => {
+    const fixture = createFixture({environments: [...environments, 'local'], files: {'.monocfignore': samples[0]}, workers: names})
+
+    expect((await checkJson(fixture, ['--all-envs'])).findings).toEqual([])
+    expect((await graphJson(fixture, [])).ignored).toEqual(['legacy-tool', 'nightly-report'])
+    expect((await graphJson(fixture, ['-e', 'local'])).ignored).toEqual(['legacy-tool', 'nightly-report'])
+    expect((await graphJson(fixture, ['-e', 'dev'])).ignored).toEqual(['legacy-tool', 'load-test', 'nightly-report'])
+    expect((await graphJson(fixture, ['-e', 'staging'])).ignored).toEqual(['legacy-tool', 'load-test', 'nightly-report'])
+    expect((await graphJson(fixture, ['-e', 'production'])).ignored).toEqual(['legacy-tool'])
+    expectRefused(await rejected(fixture, ['dev', 'nightly-report', '-e', 'local']), 'Worker nightly-report is ignored in local')
+    expectRefused(await rejected(fixture, ['build', 'nightly-report']), 'Worker nightly-report is ignored by .monocfignore when no env is given')
+  })
+
+  it('shows a production-only line that leaves local alone', async () => {
+    const fixture = createFixture({environments: [...environments, 'local'], files: {'.monocfignore': samples[1]}, workers: names})
+
+    expect((await checkJson(fixture, ['--all-envs'])).findings).toEqual([])
+    expect((await graphJson(fixture, ['-e', 'staging'])).ignored).toEqual(['nightly-report'])
+    expect((await graphJson(fixture, ['-e', 'production'])).ignored).toEqual([])
+    expect((await graphJson(fixture, ['-e', 'local'])).ignored).toEqual([])
   })
 })
 
