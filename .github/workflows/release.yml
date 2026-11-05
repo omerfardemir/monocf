@@ -1,14 +1,13 @@
 name: release
 
-# Runs on every push to main, and does only what the version in package.json is still missing. So a
-# push with no new version does nothing, and "Re-run all jobs" picks a failed run up where it stopped.
+# Started by hand, on main: Actions, release, Run workflow. It does only what the version in
+# package.json is still missing, so running it again picks a failed release up where it stopped.
 # docs/releasing.md has the setup on npmjs.com, and what to do when a run fails.
 #
 # Everything is in one workflow because a release made with GITHUB_TOKEN can't start another
 # workflow. This way the repository stores no secrets.
 on:
-  push:
-    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -34,6 +33,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # The run form lets anyone pick a branch. npm can't tell, so this is the only thing that stops it.
+          if [ "$GITHUB_REF" != refs/heads/main ]; then
+            echo "::error::Releases run from main, and this run is on $GITHUB_REF_NAME."
+            exit 1
+          fi
+
           # Anything but a clear yes or no stops the run, so an outage can't look like a new version.
           missing() {
             code=$(curl --silent --retry 3 --max-time 30 --output /dev/null --write-out '%{http_code}' "$@")
