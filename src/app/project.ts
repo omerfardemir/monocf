@@ -1,6 +1,6 @@
 import {execFileSync} from 'node:child_process'
 import {realpathSync} from 'node:fs'
-import {isAbsolute, relative, resolve} from 'node:path'
+import {basename, dirname, isAbsolute, join, relative, resolve} from 'node:path'
 
 import {ConfigError} from '../config/types.js'
 import {isSameOrWithin} from '../fingerprint/external.js'
@@ -93,12 +93,27 @@ export function isTreeDirty(rootDir: string, bundleDir: string): boolean {
   }
 }
 
-function realPath(path: string): string {
+/** A path that doesn't exist yet takes the real path of the deepest parent that does. */
+export function realPath(path: string): string {
   try {
     return realpathSync.native(path)
   } catch {
-    return path
+    const parent = dirname(path)
+    return parent === path ? path : join(realPath(parent), basename(path))
   }
+}
+
+/**
+ * `apply` doesn't count what monocf writes as a change to the checkout, so a directory it writes can't also hold what gets
+ * deployed: an uncommitted change in there would ship under the plan's fingerprint.
+ */
+export function assertHoldsNoSource(what: string, dir: string, {rootDir, workers}: {rootDir: string; workers: {dir: string; path: string}[]}): void {
+  const real = realPath(dir)
+  const contains = (path: string): boolean => isSameOrWithin(real, realPath(path))
+  const held = contains(rootDir) ? 'the project root' : workers.find(({path}) => contains(path))?.dir
+  if (held === undefined) return
+  const name = held === 'the project root' ? held : `the worker ${held}`
+  throw new ConfigError(`${what} ${dir} holds ${name}, so apply couldn't tell a change to the code from monocf's own files. Use a directory of its own.`)
 }
 
 const STATUS_MAX_BUFFER = 256 * 1024 * 1024
@@ -117,9 +132,10 @@ export function dirtyPaths(rootDir: string, excluded: string[]): string[] | unde
     for (let index = 0; index < fields.length; index++) {
       const field = fields[index]
       if (field.length > 3) {
-        // A rename or a copy is followed by the name it came from.
-        if (field[0] === 'R' || field[0] === 'C' || field[1] === 'R' || field[1] === 'C') index++
         paths.push(resolve(top, field.slice(3)))
+        // A rename is followed by the name it came from, which an exempt new name mustn't hide. A copy's source hasn't changed.
+        if (field[0] === 'R' || field[1] === 'R') paths.push(resolve(top, fields[++index]))
+        else if (field[0] === 'C' || field[1] === 'C') index++
       }
     }
 

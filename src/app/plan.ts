@@ -21,7 +21,7 @@ import {withReadRetries} from '../wrangler/retry.js'
 import {configHash, doHash, triggersHash, triggersOf} from '../fingerprint/fingerprint.js'
 import {workerExternalHash} from '../fingerprint/external.js'
 import {buildBundle, checkEntrypoints, readBundleManifest, type BundleManifest, type ManifestWorker} from './bundle.js'
-import {checkoutHead, isTreeDirty, loadOptions, resolveCommit, selectNamed} from './project.js'
+import {assertHoldsNoSource, checkoutHead, isTreeDirty, loadOptions, resolveCommit, selectNamed} from './project.js'
 import {accountOf, callWrangler, createSink, runWorkerSteps, withRun, type RunContext} from './run.js'
 
 export interface PlanFlags extends OptionFlags {
@@ -221,6 +221,8 @@ export async function runPlan(flags: PlanFlags): Promise<void> {
 
   const inputs = readProjectInputs(options)
   const project = resolveProject(options, inputs)
+  if (location.kind === 'file') assertHoldsNoSource('The state directory', location.dir, {rootDir, workers: project.workers})
+  if (flags.bundleDir !== undefined) assertHoldsNoSource('The bundle directory', resolve(flags.bundleDir), {rootDir, workers: project.workers})
   const directories = nodeReader.readDir(join(rootDir, options.workersDirName))
   const findings = runRules({directories, env, ignored, inputs, options, project, reader: nodeReader, selected})
   reportFindings(findings, json)

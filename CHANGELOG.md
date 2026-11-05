@@ -27,7 +27,7 @@ monocf can now run a Cloudflare Workers monorepo from CI: a dependency graph, a 
 - `monocf secrets check`, which compares secret names with what's live.
 - A `.monocfignore` line can apply to some environments: `workers/load-test in dev,staging`, or `workers/nightly-report except production`. Every command resolves the ignored set for its env. `except` also covers `local` and a command with no env, so write `except production,local` to allow `-e local`. **Scoped lines need 0.3.0 or later:** an older monocf reads one as a literal pattern, so the worker silently stops being ignored.
 - `check` rules `ignored-malformed` and `ignored-unknown-env`, and an `ignored-but-deployed` note in `plan`.
-- `apply` refuses, with exit 2, a checkout with changes git doesn't ignore, or one whose commit isn't the plan's. Anything a job writes before `apply` has to go outside the checkout or be ignored.
+- `apply` refuses, with exit 2, a checkout with changes git doesn't ignore, or one whose commit isn't the plan's. Anything a job writes before `apply` has to go outside the checkout or be ignored. In a `file:` state directory only the manifests and run records are exempt, and `plan` and `apply` refuse a state or `--bundle-dir` directory that contains the project root or a worker.
 - `rollback --to-run` works on a run that failed or was interrupted: `apply` reads what's live when a step doesn't finish and records whether it changed. A worker it can't account for is refused, with exit 1, and not reported as fine.
 - `monocf build`, `deploy`, `preview` and `dev`, over the same code as `monocf worker -c`.
 - `--json` on every command that runs workers, with a `schemaVersion`.

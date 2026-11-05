@@ -3,7 +3,7 @@ import {mkdirSync, symlinkSync, unlinkSync, writeFileSync} from 'node:fs'
 import {join} from 'node:path'
 import {describe, expect, it} from 'vitest'
 
-import {applyPlan, commitAll, deployFixture, firstRun, manifestOf, planFor, readPlan, stepOf, writePlan, writesOf} from '../helpers/deploy-fixtures.js'
+import {applyPlan, commitAll, deployFixture, firstRun, manifestOf, newCode, planFor, readPlan, stepOf, writePlan, writesOf} from '../helpers/deploy-fixtures.js'
 import {createFixture, flagValue, releaseOf, runCli, type Fixture} from '../helpers/harness.js'
 
 const git = (fixture: Fixture, ...args: string[]) => execFileSync('git', args, {cwd: fixture.root, encoding: 'utf8'}).trim()
@@ -123,6 +123,174 @@ describe('apply, against what is on disk (WP6-1)', () => {
     expect(result.exitCode, result.stderr).toBe(0)
   })
 
+  it('refuses a staged rename into an exempt directory, which would hide the deletion (R10)', async () => {
+    const fixture = deployFixture({files: {'workers/reports/src/unused.js': 'export const unused = 1\n'}})
+    await planFor(fixture, {}, {flags: ['--first-run']})
+    mkdirSync(join(fixture.root, '.monocf'), {recursive: true})
+    git(fixture, 'mv', 'workers/reports/src/unused.js', '.monocf/unused.js')
+    expect(git(fixture, 'status', '--porcelain', 'workers/reports/src/unused.js', '.monocf/unused.js')).toMatch(/^R/)
+
+    await refuses(fixture, /doesn't include: workers\/reports\/src\/unused\.js\. Commit/)
+  })
+})
+
+describe('apply, and a linked root (R13, M18)', () => {
+  it("doesn't count the plan's own files when the root is reached through a link", async () => {
+    const fixture = deployFixture()
+    const link = join(fixture.root, '..', 'linked')
+    symlinkSync(fixture.root, link, 'junction')
+
+    try {
+      await planFor(fixture, {}, {flags: ['--first-run', '--root-dir', link, '--markdown', join(link, 'plan.md')]})
+      expect(readPlan(fixture).outputs).toEqual(['plan.md'])
+      expect(git(fixture, 'status', '--porcelain', '-uall', 'plan.md')).toContain('plan.md')
+
+      const result = await applyPlan(fixture, {}, {flags: ['--root-dir', link]})
+
+      expect(result.exitCode, result.stderr).toBe(0)
+    } finally {
+      unlinkSync(link)
+    }
+  })
+})
+
+/** No gitignore for the state, as a person trying monocf out may not have one. */
+function withStateInTheOpen(options: Partial<Parameters<typeof deployFixture>[0]> = {}): Fixture {
+  const fixture = deployFixture({workers: [{name: 'billing'}], ...options})
+  writeFileSync(join(fixture.root, '.git', 'info', 'exclude'), 'plan.json\n')
+  return fixture
+}
+
+const planState = (state: string) => ['plan', '-e', 'staging', '--state', state, '--first-run', '--out', 'plan.json']
+
+describe('a file: state directory, and what it exempts (R2)', () => {
+  it.each([
+    ['file:.', /state directory .* holds the project root/],
+    ['file:workers', /state directory .* holds the worker billing/],
+    ['file:workers/billing', /state directory .* holds the worker billing/],
+    ['file:..', /state directory .* holds the project root/],
+  ])('plan refuses %s, which holds what gets deployed', async (state, message) => {
+    const fixture = withStateInTheOpen()
+
+    const result = await runCli(fixture, planState(state), {cloudflare: {}, noCalls: true})
+
+    expect(result.exitCode).toBe(2)
+    expect(result.stderr).toMatch(message)
+    expect(result.calls).toEqual([])
+  })
+
+  it.each([
+    ['file:.', /state directory .* holds the project root/],
+    ['file:workers', /state directory .* holds the worker billing/],
+  ])('apply refuses a plan that names %s, with uncommitted source or without', async (state, message) => {
+    const fixture = withStateInTheOpen()
+    await planFor(fixture, {}, {flags: ['--first-run']})
+    writePlan(fixture, {state})
+
+    await refuses(fixture, message)
+
+    writeFileSync(join(fixture.worker('billing'), 'src', 'index.ts'), 'export default {} // uncommitted\n')
+    await refuses(fixture, message)
+  })
+
+  it('counts anything else in the state directory as a change', async () => {
+    const fixture = withStateInTheOpen()
+    await planFor(fixture, {}, {flags: ['--first-run']})
+    writeFileSync(join(fixture.root, 'state', 'notes.txt'), 'mine')
+
+    await refuses(fixture, /doesn't include: state\/notes\.txt\. Commit/)
+  })
+
+  it('counts a file beside the manifest in the env directory as a change', async () => {
+    const fixture = withStateInTheOpen()
+    await planFor(fixture, {}, {flags: ['--first-run']})
+    writeFileSync(join(fixture.root, 'state', 'staging', 'shared.ts'), 'export const a = 1\n')
+
+    await refuses(fixture, /doesn't include: state\/staging\/shared\.ts\. Commit/)
+  })
+
+  it("doesn't count the manifest or run records monocf wrote there, for this env or another", async () => {
+    const fixture = withStateInTheOpen({environments: ['staging', 'dev']})
+    const cloudflare = await firstRun(fixture)
+    mkdirSync(join(fixture.root, 'state', 'dev', 'runs'), {recursive: true})
+    writeFileSync(join(fixture.root, 'state', 'dev', 'manifest.json'), '{}')
+    writeFileSync(join(fixture.root, 'state', 'dev', 'runs', 'a-run.json'), '{}')
+    expect(git(fixture, 'status', '--porcelain', '-uall')).toContain('state/staging/manifest.json')
+    await planFor(fixture, cloudflare, {rules: newCode('billing')})
+
+    const result = await applyPlan(fixture, cloudflare)
+
+    expect(result.exitCode, result.stderr).toBe(0)
+  })
+
+  it("runs the README's sample as written, plan and apply in one job, again and again", async () => {
+    const fixture = withStateInTheOpen()
+    writeFileSync(join(fixture.root, '.git', 'info', 'exclude'), '')
+    const sample = ['plan', '-e', 'staging', '--state', 'file:state', '--out', 'plan.json', '--markdown', 'plan.md']
+
+    const first = await runCli(fixture, [...sample, '--first-run'], {cloudflare: {}})
+    expect(first.exitCode, first.stderr).toBe(0)
+    const applied = await runCli(fixture, ['apply', 'plan.json'], {cloudflare: {}})
+    expect(applied.exitCode, applied.stderr).toBe(0)
+
+    expect(git(fixture, 'status', '--porcelain', '-uall')).toContain('state/staging/manifest.json')
+    const second = await runCli(fixture, sample, {cloudflare: applied.cloudflare, rules: newCode('billing')})
+    expect(second.exitCode, second.stderr).toBe(0)
+    const again = await runCli(fixture, ['apply', 'plan.json'], {cloudflare: applied.cloudflare})
+    expect(again.exitCode, again.stderr).toBe(0)
+    expect(writesOf(again.calls)).toEqual(['upload billing', 'promote billing'])
+  })
+
+  it('reaches the same state directory through a linked root', async () => {
+    const fixture = withStateInTheOpen()
+    const cloudflare = await firstRun(fixture)
+    await planFor(fixture, cloudflare, {rules: newCode('billing')})
+    const link = join(fixture.root, '..', 'linked')
+    symlinkSync(fixture.root, link, 'junction')
+
+    try {
+      const result = await runCli(fixture, ['apply', 'plan.json', '--root-dir', link], {cloudflare})
+
+      expect(result.exitCode, result.stderr).toBe(0)
+    } finally {
+      unlinkSync(link)
+    }
+  })
+})
+
+describe('a reused --bundle-dir, and what it exempts (R2)', () => {
+  it.each([
+    ['workers', /bundle directory .* holds the worker billing/],
+    ['.', /bundle directory .* holds the project root/],
+  ])('plan refuses %s, which holds what gets deployed', async (dir, message) => {
+    const fixture = deployFixture({workers: [{name: 'billing'}]})
+
+    const result = await runCli(fixture, ['plan', '-e', 'staging', '--state', 'file:state', '--first-run', '--out', 'plan.json', '--bundle-dir', dir], {cloudflare: {}, noCalls: true})
+
+    expect(result.exitCode).toBe(2)
+    expect(result.stderr).toMatch(message)
+  })
+
+  it('apply refuses a plan whose outputs hold a worker, so uncommitted source cannot ship', async () => {
+    const fixture = deployFixture({workers: [{name: 'billing'}]})
+    await planFor(fixture, {}, {flags: ['--first-run']})
+    writePlan(fixture, {outputs: ['workers']})
+    writeFileSync(join(fixture.worker('billing'), 'src', 'index.ts'), 'export default {} // uncommitted\n')
+
+    await refuses(fixture, /plan's output .* holds the worker billing/)
+  })
+
+  it('still lets a bundle directory of its own pass', async () => {
+    const fixture = deployFixture({workers: [{name: 'billing'}]})
+    const bundle = await runCli(fixture, ['bundle', '-e', 'staging', '--out', 'out/bundle'])
+    expect(bundle.exitCode, bundle.stderr).toBe(0)
+    await planFor(fixture, {}, {flags: ['--first-run', '--bundle-dir', 'out/bundle']})
+    expect(readPlan(fixture).outputs).toEqual(['out/bundle'])
+
+    const result = await applyPlan(fixture, {})
+
+    expect(result.exitCode, result.stderr).toBe(0)
+  })
 })
 
 describe('plan, when GITHUB_SHA is not what is checked out (WP6-1)', () => {

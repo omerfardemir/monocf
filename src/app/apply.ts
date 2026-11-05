@@ -4,7 +4,7 @@ import {dirname, join, resolve} from 'node:path'
 
 import {effectiveField, readProjectInputs, resolveProject} from '../config/resolve.js'
 import {ConfigError, isPlainObject, type ResolvedWorker} from '../config/types.js'
-import {assertResolved} from '../config/validate.js'
+import {assertResolved, definedEnvs} from '../config/validate.js'
 import {EXIT_FAILED, EXIT_OK} from '../errors.js'
 import {workerExternalHash} from '../fingerprint/external.js'
 import {configHash, doHash, triggersHash, triggersOf, type Triggers} from '../fingerprint/fingerprint.js'
@@ -34,7 +34,7 @@ import {
   type DeployResult,
   type DeployStep,
 } from './deployment.js'
-import {checkoutHead, dirtyPaths, loadOptions} from './project.js'
+import {assertHoldsNoSource, checkoutHead, dirtyPaths, loadOptions} from './project.js'
 import {accountOf, callWrangler, runStep, withRun, type RunContext} from './run.js'
 
 export interface ApplyFlags extends OptionFlags {
@@ -114,14 +114,23 @@ function assertNotIgnored(names: string[], options: Options): void {
 
 const MAX_NAMED_PATHS = 5
 
-/** A change on disk would ship under the plan's fingerprint and leave the state saying that it hadn't happened. */
-function assertCleanCheckout(plan: Plan, {location, planPath, rootDir, summaryFile}: {location: StateLocation; planPath: string; rootDir: string; summaryFile?: string}): void {
+/**
+ * A change on disk would ship under the plan's fingerprint and leave the state saying that it hadn't happened. What's exempt is
+ * what monocf writes itself. In a `file:` state directory that's the manifest and run records, of any env, as local runs share one.
+ */
+function assertCleanCheckout(
+  plan: Plan,
+  {envs, location, planPath, rootDir, summaryFile, workers}: {envs: string[]; location: StateLocation; planPath: string; rootDir: string; summaryFile?: string; workers: ResolvedWorker[]},
+): void {
+  const outputs = (plan.outputs ?? []).map((path) => resolve(rootDir, path))
+  for (const output of outputs) assertHoldsNoSource("The plan's output", output, {rootDir, workers})
+  if (location.kind === 'file') assertHoldsNoSource('The state directory', location.dir, {rootDir, workers})
   const paths = dirtyPaths(rootDir, [
     planPath,
     ...(summaryFile === undefined ? [] : [resolve(summaryFile)]),
     join(rootDir, '.monocf'),
-    ...(location.kind === 'file' ? [location.dir] : []),
-    ...(plan.outputs ?? []).map((path) => resolve(rootDir, path)),
+    ...(location.kind === 'file' ? envs.flatMap((env) => [join(location.dir, env, 'manifest.json'), join(location.dir, env, 'runs')]) : []),
+    ...outputs,
   ])
   if (paths === undefined) throw new ConfigError("git can't say whether this checkout has changes, so nothing says that the plan describes it.")
   if (paths.length === 0) return
@@ -540,7 +549,7 @@ export async function runApply(planPath: string, flags: ApplyFlags): Promise<voi
     }
   }
 
-  assertCleanCheckout(plan, {location, planPath: fullPlanPath, rootDir, summaryFile: flags.summaryFile})
+  assertCleanCheckout(plan, {envs: definedEnvs(inputs, options), location, planPath: fullPlanPath, rootDir, summaryFile: flags.summaryFile, workers: project.workers})
   assertNotIgnored(names, options)
   const notices: {message: string; worker?: string}[] = []
   assertDescribes(plan, workers, {notice: (message, worker) => notices.push({message, worker}), rootDir})
