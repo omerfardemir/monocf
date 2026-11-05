@@ -5,6 +5,7 @@ import {join} from 'node:path'
 const MONOCF_DIR = '.monocf'
 const RUNS_DIR = 'runs'
 const OWNER_FILE = 'owner.pid'
+const IGNORE_FILE = '.gitignore'
 const MAX_AGE_MS = 24 * 60 * 60 * 1000
 
 export interface RunDir {
@@ -36,6 +37,17 @@ function removeIfEmpty(path: string): void {
   } catch {
     // Not empty, or already gone.
   }
+}
+
+/** The ignore file alone doesn't keep the directory: it's only there for what a run would leave behind. */
+function removeMonocfIfUnused(path: string): void {
+  try {
+    if (readdirSync(path).join('/') === IGNORE_FILE) rmSync(join(path, IGNORE_FILE), {force: true})
+  } catch {
+    // Already gone, or in use by another run.
+  }
+
+  removeIfEmpty(path)
 }
 
 function isAlive(pid: number): boolean {
@@ -86,6 +98,7 @@ export function createRunDir(rootDir: string): RunDir {
   const runs = join(monocf, RUNS_DIR)
   const path = join(runs, randomBytes(6).toString('hex'))
   makePrivateDir(path)
+  writeFileSync(join(monocf, IGNORE_FILE), '*\n')
   writeFileSync(join(path, OWNER_FILE), String(process.pid))
 
   const outputs = new Map<string, number>()
@@ -103,7 +116,7 @@ export function createRunDir(rootDir: string): RunDir {
     removeDir(path)
     // Empty parents go too, so a finished run leaves the tree as it found it. Another run's directory keeps them.
     removeIfEmpty(runs)
-    removeIfEmpty(monocf)
+    removeMonocfIfUnused(monocf)
   }
 
   process.once('exit', remove)

@@ -42,7 +42,7 @@ flags + monocf.config + wrangler.jsonc files
 Rules that follow from this:
 
 - **The source tree is never written to** by build, deploy, preview or dev. No temp configs and no `.dev.vars` edits next to the source.
-- **One run directory per process:** `<root>/.monocf/runs/<random-id>/<worker>/`. It is created with mode `0700`, and secret files with `0600`. It is removed on every exit path. A crash leaves only ignorable files, and at startup a run is removed if its owner PID is dead or if it is older than a day. MonoCF doesn't touch a consumer's `.gitignore` except in `worker create`, and the docs advise adding `.monocf/`.
+- **One run directory per process:** `<root>/.monocf/runs/<random-id>/<worker>/`. It is created with mode `0700`, and secret files with `0600`. It is removed on every exit path. A crash can leave secret files until the next run, which removes a run if its owner PID is dead or if it is older than a day. So a run writes `.monocf/.gitignore` containing `*`, and `git add -A` can't take them. MonoCF doesn't touch a consumer's own `.gitignore` except in `worker create`.
 - **No shell, no wrapper.** Wrangler is spawned as `process.execPath <wrangler package>/wrangler-dist/cli.js ...argv`, with `shell: false`, resolved from the project root. With `shell: true`, or through `bin/wrangler.js`, a killed wrangler can keep deploying. The `bin/wrangler.js` wrapper also turns a signal death of its child into exit 0, which looks like success. The wrapper's version check is replaced by monocf's own floor check.
 - **stdout carries results only.** Diagnostics and wrangler output go to stderr.
 - **Everything before `materialise` is pure,** so it can be tested without a disk or a process.

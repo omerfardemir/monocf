@@ -158,6 +158,24 @@ describe('the run directory', () => {
     expect(existsSync(join(fixture.root, '.monocf'))).toBe(false)
   })
 
+  it('is ignored by git while it exists, with nothing in the consumer .gitignore', async () => {
+    const fixture = project()
+    const running = startCli(fixture, ['worker', 'gateway', '-c', 'deploy', '-e', 'staging', '-s'], {
+      rules: [{command: 'deploy', delayMs: 3000}],
+    })
+    const [call] = await running.waitForCalls(1)
+    expect(existsSync(call.configDir!)).toBe(true)
+
+    const status = execFileSync('git', ['status', '--porcelain', '--untracked-files=all'], {
+      cwd: fixture.root,
+      encoding: 'utf8',
+    })
+
+    expect(status).not.toContain('.monocf')
+    await running.done
+    expect(existsSync(join(fixture.root, '.monocf'))).toBe(false)
+  }, 30_000)
+
   it('does not touch the consumer .gitignore', async () => {
     const fixture = project()
     const before = readFileSync(join(fixture.root, '.gitignore'), 'utf8')
