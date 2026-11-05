@@ -326,10 +326,13 @@ function resolveTarget(
     )
   }
 
+  const target: BindingTarget = owner.env === env ? {dir: owner.dir, kind: 'local'} : {kind: 'external', name}
+  // Outside services, the deployed name of this env is what the README says to write, as nothing rewrites those fields.
+  if (source !== 'services' && owner.env === env) return target
   const advice = source === 'services' ? ' Use the directory name instead.' : ''
   notices.push({
     binding,
-    message: `${worker}: ${binding} hardcodes ${name}, the deployed name of ${owner.dir}${owner.env ? ` in ${owner.env}` : ''}.${advice}`,
+    message: `${worker}: ${source} ${binding} hardcodes ${name}, the deployed name of ${owner.dir}${owner.env ? ` in ${owner.env}` : ''}.${advice}`,
     name,
     source,
     targetDir: owner.dir,
@@ -337,7 +340,7 @@ function resolveTarget(
     type: 'hardcoded-name',
     worker,
   })
-  return owner.env === env ? {dir: owner.dir, kind: 'local'} : {kind: 'external', name}
+  return target
 }
 
 function resolveServices(

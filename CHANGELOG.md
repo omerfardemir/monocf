@@ -41,6 +41,7 @@ monocf can now run a Cloudflare Workers monorepo from CI: a dependency graph, a 
 - `dev <worker>` also starts the workers it reaches through a Durable Object or Workflow binding with a `script_name`, gives every worker in the session `RELEASE`, and says when a queue consumer or tail consumer it sends to isn't in the session.
 - `--json` on every command that runs workers, with a `schemaVersion`.
 - A `check` warning, `worker-name`, for a name that deploys as something other than what's written, such as `orDers`, which deploys as `or-ers`, or that starts or ends with a dash. The same notice shows on every command that resolves the worker.
+- A Durable Object, Workflow or tail consumer that names the deployed name of the same env, as it has to, gets no "hardcodes" notice any more. The notice that remains names its field, as in `services B`.
 - A `note` level in `check`, which `--strict` doesn't count. A cycle that only a queue closes is a note, as it's fine at deploy time, so it no longer fails `check --strict`. `check --json` has a `notes` count.
 - `--no-` forms of `--deploy-bindings`, `--deploy-secrets` and `--minify`.
 - `--concurrency` on `build`, `deploy` and `preview`.

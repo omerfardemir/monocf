@@ -284,16 +284,26 @@ describe('binding targets', () => {
     })
   })
 
-  it('suggests the directory name only for a service binding, the one field monocf rewrites', () => {
+  it('reports only a service binding with the deployed name of this env, as elsewhere that name is the one to write', () => {
     const workflows = [{binding: 'FLOW', script_name: 'billing-v1-staging'}]
     const files = {
       ...base,
       ...worker('orders', {env: {staging: {services: [{binding: 'B', service: 'billing-v1-staging'}], workflows}}}),
       ...worker('billing'),
     }
-    const [service, workflow] = noticesOf(resolveFiles(files, 'staging').project.notices, 'hardcoded-name')
-    expect(service.message).toContain('Use the directory name')
-    expect(workflow.message).not.toContain('Use the directory name')
+    const {project} = resolveFiles(files, 'staging')
+    const notices = noticesOf(project.notices, 'hardcoded-name')
+    expect(notices).toHaveLength(1)
+    expect(notices[0].message).toBe('orders: services B hardcodes billing-v1-staging, the deployed name of billing in staging. Use the directory name instead.')
+    const orders = project.workers.find(({dir}) => dir === 'orders')!
+    expect(orders.bindings.find(({binding}) => binding === 'FLOW')?.target).toEqual({dir: 'billing', kind: 'local'})
+  })
+
+  it('names the field when another field targets the deployed name of another env', () => {
+    const workflows = [{binding: 'FLOW', script_name: 'billing-v1-production'}]
+    const files = {...base, ...worker('orders', {env: {staging: {workflows}}}), ...worker('billing')}
+    const [workflow] = noticesOf(resolveFiles(files, 'staging').project.notices, 'hardcoded-name')
+    expect(workflow.message).toBe('orders: workflows FLOW hardcodes billing-v1-production, the deployed name of billing in production.')
   })
 
   it('prefers a directory over a deployed name', () => {
