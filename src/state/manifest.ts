@@ -57,6 +57,7 @@ function assertWorker(name: string, entry: unknown): void {
   const missing = REQUIRED_TEXT.find((field) => typeof entry[field] !== 'string')
   if (missing !== undefined) throw unusable(`has no ${missing} for ${name}.`)
   if (!isPlainObject(entry.triggers)) throw unusable(`has no triggers for ${name}.`)
+  if (entry.versionId === '') throw unusable(`has an empty versionId for ${name}.`)
 }
 
 /**
@@ -73,7 +74,7 @@ export function parseStateManifest(body: string, env: string): StateManifest {
 
   if (!isPlainObject(parsed)) throw unusable('is not an object.')
   const {schemaVersion, workers} = parsed
-  if (typeof schemaVersion !== 'number' || !Number.isInteger(schemaVersion)) throw unusable('has no valid schemaVersion.')
+  if (typeof schemaVersion !== 'number' || !Number.isInteger(schemaVersion) || schemaVersion < 1) throw unusable('has no valid schemaVersion.')
   if (schemaVersion > STATE_SCHEMA_VERSION) {
     throw unusable(`has schemaVersion ${schemaVersion}, and this monocf reads up to ${STATE_SCHEMA_VERSION}. Upgrade monocf.`)
   }

@@ -33,10 +33,6 @@ describe('parseStateManifest', () => {
     expect(parseStateManifest(body(), 'staging').workers.orders.versionId).toBe('v')
   })
 
-  it('reads an older schema version', () => {
-    expect(parseStateManifest(body({schemaVersion: 0}), 'staging').schemaVersion).toBe(0)
-  })
-
   it('takes a worker without a version', () => {
     expect(parseStateManifest(body(), 'staging').workers.orders.version).toBeUndefined()
   })
