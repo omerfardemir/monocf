@@ -1,5 +1,5 @@
 import {execFileSync} from 'node:child_process'
-import {existsSync, mkdirSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync} from 'node:fs'
+import {existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync} from 'node:fs'
 import {join} from 'node:path'
 import {describe, expect, it} from 'vitest'
 
@@ -641,6 +641,48 @@ describe.skipIf(isWindows)('signals', () => {
     expect(Date.now() - started).toBeGreaterThanOrEqual(9000)
     expect(Date.now() - started).toBeLessThan(30_000)
     expect(existsSync(join(fixture.root, '.monocf'))).toBe(false)
+  }, 45_000)
+
+  it('kills a child that ignores the signal at once, on a second signal', async () => {
+    const fixture = project()
+    const running = startCli(fixture, ['worker', 'orders', '-c', 'deploy'], {
+      rules: [{command: 'deploy', holdMs: 60_000, ignoreSignals: true}],
+    })
+    await running.waitForCalls(1)
+    const started = Date.now()
+
+    running.child.kill('SIGTERM')
+    await new Promise((resolve) => {
+      setTimeout(resolve, 500)
+    })
+    running.child.kill('SIGTERM')
+    const result = await running.done
+
+    expect(result.exitCode).toBe(143)
+    expect(Date.now() - started).toBeLessThan(9000)
+  }, 45_000)
+
+  it('leaves the private .env copy of dev for the next run to remove, after a kill -9', async () => {
+    const fixture = createFixture({
+      environments: ['staging'],
+      files: {'workers/orders/.env': 'A=1', 'workers/orders/.env.staging': 'A=3'},
+      workers: [{name: 'orders'}],
+    })
+    const running = startCli(fixture, ['worker', 'orders', '-c', 'dev', '-e', 'staging'], {rules: [{command: 'dev', holdMs: 5000}]})
+    await running.waitForCalls(1)
+
+    running.child.kill('SIGKILL')
+    await running.done.catch(() => {})
+
+    const copies = listTree(join(fixture.root, '.monocf')).filter((path) => /\/\.env(\.staging)?$/.test(path))
+    expect(copies).toHaveLength(2)
+    for (const copy of copies) expect(statSync(join(fixture.root, '.monocf', copy)).mode.toString(8).slice(-3)).toBe('600')
+
+    const next = await runCli(fixture, ['worker', 'orders', '-c', 'build', '-e', 'staging'])
+
+    expect(next.exitCode, next.stderr).toBe(0)
+    expect(listTree(fixture.root).filter((path) => path.startsWith('.monocf/runs'))).toEqual([])
+    expect(readFileSync(join(fixture.worker('orders'), '.env.staging'), 'utf8')).toBe('A=3')
   }, 45_000)
 
   it('dev -a forwards a signal to every process', async () => {

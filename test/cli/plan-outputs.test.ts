@@ -1,4 +1,4 @@
-import {existsSync, mkdirSync, readFileSync, writeFileSync} from 'node:fs'
+import {chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync} from 'node:fs'
 import {join} from 'node:path'
 import {describe, expect, it} from 'vitest'
 
@@ -98,6 +98,24 @@ describe('where a plan writes', () => {
     expect(result.exitCode).toBe(3)
     expect(result.stderr).toContain("Can't write")
     expect(existsSync(join(fixture.root, 'plan.json'))).toBe(false)
+  })
+
+  // Nothing is in the way of removing an older one here, so this is the write itself failing. Root writes anywhere.
+  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)('gives exit 3 when the markdown cannot be created, and no plan', async () => {
+    const fixture = project()
+    const locked = join(fixture.root, 'locked')
+    mkdirSync(locked)
+    chmodSync(locked, 0o555)
+
+    try {
+      const result = await runCli(fixture, ['plan', '-e', 'staging', '--state', 'file:state', '--first-run', '--out', 'plan.json', '--markdown', 'locked/plan.md'], {cloudflare: {}})
+
+      expect(result.exitCode).toBe(3)
+      expect(result.stderr).toContain("Can't write")
+      expect(existsSync(join(fixture.root, 'plan.json'))).toBe(false)
+    } finally {
+      chmodSync(locked, 0o755)
+    }
   })
 
   it('gives exit 3 for an output that is a directory', async () => {

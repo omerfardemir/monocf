@@ -1,4 +1,4 @@
-import {mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync} from 'node:fs'
+import {mkdirSync, mkdtempSync, renameSync, rmSync, symlinkSync, unlinkSync, writeFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {dirname, join} from 'node:path'
 import {afterEach, describe, expect, it} from 'vitest'
@@ -142,6 +142,20 @@ describe('externalHash', () => {
     write(root, 'out/orders/README.md', 'Generated at noon')
 
     expect(externalHash([site(root)], [join(root, 'out')])).toBe(before)
+  })
+
+  it('takes where a link to a directory points, so pointing it elsewhere is a change', () => {
+    const root = tree({'one/x.txt': '1', 'public/index.html': 'a', 'two/x.txt': '2'})
+    const link = join(root, 'public', 'linked')
+    symlinkSync(join(root, 'one'), link, 'junction')
+    const first = externalHash([assets(join(root, 'public'))])
+    expect(externalHash([assets(join(root, 'public'))])).toBe(first)
+
+    unlinkSync(link)
+    symlinkSync(join(root, 'two'), link, 'junction')
+
+    expect(externalHash([assets(join(root, 'public'))])).not.toBe(first)
+    unlinkSync(link)
   })
 
   it('hashes the fact that an input is missing, and sees it appear', () => {
