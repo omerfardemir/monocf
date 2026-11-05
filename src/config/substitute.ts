@@ -1,7 +1,10 @@
 import {isPlainObject, type RawConfig} from './types.js'
 
-// Digits can't start a name, so a regex quantifier such as `\d{3}` isn't taken for a placeholder.
-const PLACEHOLDER = /\{[A-Za-z_][\w.-]*\}/g
+// One word in braces, in any script, with or without spaces around it. Text with quotes, colons, commas or several
+// words isn't a placeholder, so JSON, a glob such as `*.{js,ts}` and a quantifier such as `{3,5}` don't match.
+const PLACEHOLDER = /\{\s*[^\s{}"':,]+\s*\}/g
+// A regex quantifier such as `\d{3}`.
+const QUANTIFIER = /^\{\d+\}$/
 
 function substituteText(text: string, variables: Record<string, string>): string {
   let result = text
@@ -37,7 +40,9 @@ export function substituteConfig(config: RawConfig, variables: Record<string, st
 
 function collectPlaceholders(value: unknown, found: Set<string>): void {
   if (typeof value === 'string') {
-    for (const [placeholder] of value.matchAll(PLACEHOLDER)) found.add(placeholder)
+    for (const [placeholder] of value.matchAll(PLACEHOLDER)) {
+      if (!QUANTIFIER.test(placeholder)) found.add(placeholder)
+    }
   } else if (Array.isArray(value)) {
     for (const element of value) collectPlaceholders(element, found)
   } else if (isPlainObject(value)) {

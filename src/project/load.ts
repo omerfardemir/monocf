@@ -42,10 +42,10 @@ const KEY_TYPES: Record<keyof ProjectFile, 'boolean' | 'number' | 'object' | 'st
   workersDirName: 'string',
 }
 
-/** Parses JSONC the way wrangler reads a config: comments and trailing commas are fine. */
+/** Parses JSONC the way wrangler reads a config: comments, trailing commas and one leading BOM are fine. */
 export function parseJsonc(text: string, file: string): unknown {
   const errors: ParseError[] = []
-  const value = parse(text, errors, {allowTrailingComma: true})
+  const value = parse(text.replace(/^\uFEFF/, ''), errors, {allowTrailingComma: true})
   if (errors.length > 0) {
     throw new ConfigError(`Invalid JSON at offset ${errors[0].offset}: ${printParseErrorCode(errors[0].error)}`, file)
   }

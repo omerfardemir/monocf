@@ -25,34 +25,39 @@ export interface Graph {
   nodes: string[]
 }
 
-function queueNames(entries: unknown): string[] {
-  if (!Array.isArray(entries)) return []
-  return entries.flatMap((entry: unknown) => {
-    const queue = isPlainObject(entry) ? entry.queue : undefined
+function queueEntries(entries: unknown): RawConfig[] {
+  return Array.isArray(entries) ? entries.filter((entry): entry is RawConfig => isPlainObject(entry)) : []
+}
+
+function queueNames(entries: RawConfig[], field: string): string[] {
+  return entries.flatMap((entry) => {
+    const queue = entry[field]
     return typeof queue === 'string' ? [queue] : []
   })
 }
 
-function queueFields(config: RawConfig, env?: string): {consumers: string[]; producers: string[]} {
+function queueFields(config: RawConfig, env?: string): {consumers: RawConfig[]; producers: RawConfig[]} {
   const {queues} = envSection(config, env)
   return isPlainObject(queues)
-    ? {consumers: queueNames(queues.consumers), producers: queueNames(queues.producers)}
+    ? {consumers: queueEntries(queues.consumers), producers: queueEntries(queues.producers)}
     : {consumers: [], producers: []}
 }
 
+/** A worker sends to the queues it produces to and, when it fails a message, to the dead letter queue of its consumer. */
 function queueEdges(workers: ResolvedWorker[]): Edge[] {
   const consumersByQueue = new Map<string, string[]>()
   for (const {config, dir, env} of workers) {
-    for (const queue of queueFields(config, env).consumers) {
+    for (const queue of queueNames(queueFields(config, env).consumers, 'queue')) {
       consumersByQueue.set(queue, [...(consumersByQueue.get(queue) ?? []), dir])
     }
   }
 
-  return workers.flatMap(({config, dir, env}) =>
-    queueFields(config, env).producers.flatMap((queue) =>
+  return workers.flatMap(({config, dir, env}) => {
+    const {consumers, producers} = queueFields(config, env)
+    return [...queueNames(producers, 'queue'), ...queueNames(consumers, 'dead_letter_queue')].flatMap((queue) =>
       (consumersByQueue.get(queue) ?? []).map((to) => ({from: dir, kind: 'queues' as const, to, via: queue})),
-    ),
-  )
+    )
+  })
 }
 
 function compareText(a: string, b: string): number {
@@ -74,7 +79,7 @@ export function buildGraph(workers: ResolvedWorker[]): Graph {
   for (const {bindings, dir} of workers) {
     for (const {binding, source, target} of bindings) {
       if (target.kind === 'local') {
-        // A target outside the nodes failed to resolve, and project.failures reports it.
+        // The resolver fails a worker whose target failed, so a missing node means the caller passed a partial list.
         if (nodes.has(target.dir)) bindingEdges.push({from: dir, kind: source, to: target.dir, via: binding})
       } else {
         external.push({binding, name: target.name, source, worker: dir})

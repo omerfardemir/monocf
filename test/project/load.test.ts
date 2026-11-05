@@ -15,6 +15,16 @@ describe('findConfigFile', () => {
   })
 })
 
+describe('parseJsonc', () => {
+  it('accepts one leading BOM, as wrangler does (F3)', () => {
+    expect(parseJsonc('\uFEFF{"a": 1}', 'f')).toEqual({a: 1})
+  })
+
+  it('does not accept a second one', () => {
+    expect(() => parseJsonc('\uFEFF\uFEFF{"a": 1}', 'f')).toThrow('Invalid JSON')
+  })
+})
+
 describe('parseProjectFile', () => {
   it('accepts comments and trailing commas', () => {
     expect(parseProjectFile('{\n// comment\n"workersDirName": "workers",\n}', 'f')).toEqual({workersDirName: 'workers'})

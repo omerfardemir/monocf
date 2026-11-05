@@ -73,6 +73,38 @@ describe('buildGraph', () => {
     expect(graph.edges.map(({to}) => to)).toEqual(['c1', 'c2'])
   })
 
+  it('makes an edge from every other reference kind (F1)', () => {
+    const graph = buildGraph([
+      node('a', [local('b', 'streaming_tail_consumers'), local('c', 'dispatch_namespaces')]),
+      node('b'),
+      node('c'),
+    ])
+
+    expect(graph.edges.map(({kind, to}) => [kind, to])).toEqual([
+      ['streaming_tail_consumers', 'b'],
+      ['dispatch_namespaces', 'c'],
+    ])
+  })
+
+  it('makes an edge from a consumer to the consumer of its dead letter queue (F1)', () => {
+    const graph = buildGraph([
+      node('worker', [], {queues: {consumers: [{dead_letter_queue: 'jobs-dlq', queue: 'jobs'}]}}),
+      node('rescue', [], {queues: {consumers: [{queue: 'jobs-dlq'}]}}),
+      node('other', [], {queues: {consumers: [{dead_letter_queue: 'nobody-reads-this', queue: 'other'}]}}),
+    ])
+
+    expect(graph.edges).toEqual([{from: 'worker', kind: 'queues', to: 'rescue', via: 'jobs-dlq'}])
+  })
+
+  it('reads a dead letter queue from the env section only (F1)', () => {
+    const graph = buildGraph([
+      node('worker', [], {queues: {consumers: [{dead_letter_queue: 'dlq', queue: 'q'}]}}, 'staging'),
+      node('rescue', [], queues({consumers: [{queue: 'dlq'}]}, 'staging'), 'staging'),
+    ])
+
+    expect(graph.edges).toEqual([])
+  })
+
   it('keeps a self edge', () => {
     const graph = buildGraph([node('a', [local('a')], {queues: {consumers: [{queue: 'q'}], producers: [{queue: 'q'}]}})])
     expect(graph.edges.map(({from, kind, to}) => [from, kind, to])).toEqual([

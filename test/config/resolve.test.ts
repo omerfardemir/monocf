@@ -181,6 +181,18 @@ describe('placeholders', () => {
     expect(resolveFiles(files, 'staging').project.failures).toHaveLength(1)
   })
 
+  it('uses a variable value as the parsed string, with no second round of JSON escapes (F4)', () => {
+    const value = String.raw`l1\nl2 A "q"`
+    const files = {...base, ...worker('orders', {vars: {A: '{v}'}})}
+    const {project} = resolveFiles(files, undefined, {v: value, version: 'v1'})
+    expect(project.workers[0].config.vars).toMatchObject({A: value})
+  })
+
+  it('reports a misspelt placeholder form instead of deploying it as text (F7)', () => {
+    const {project} = resolveFiles({...base, ...worker('orders', {vars: {A: '{ version }'}})})
+    expect(project.failures[0].error.message).toContain('{ version }')
+  })
+
   it('ignores a placeholder that the worker overrides', () => {
     const files = {'base.wrangler.jsonc': {main: '{nope}', name: '{workerName}'}, ...worker('orders', {main: 'a.ts'})}
     expect(resolveFiles(files).project.failures).toEqual([])
@@ -307,6 +319,86 @@ describe('binding targets', () => {
     ])
   })
 
+  it('keeps a hardcoded name exactly as written, whichever env it belongs to (F8)', () => {
+    for (const name of ['billing-v1-production', 'billing-v1-staging', 'billing-v1']) {
+      const files = {...base, ...worker('orders', binding(name)), ...worker('billing')}
+      const orders = resolved(files, 'orders', 'staging')
+      expect(envSection(orders.config, 'staging').services).toEqual([{binding: 'B', service: name}])
+    }
+  })
+
+  it('sanitizes the rewritten binding target, which the deployed name is not (F8)', () => {
+    const withEnv = {...base, 'base.wrangler.jsonc': {...base['base.wrangler.jsonc'], env: {my_env: {}}}}
+    const section = {env: {my_env: {services: [{binding: 'B', service: 'billing'}]}}}
+    const files = {...withEnv, ...worker('orders', section), ...worker('billing')}
+    const orders = resolved(files, 'orders', 'my_env')
+    expect(envSection(orders.config, 'my_env').services).toEqual([{binding: 'B', service: 'billing-v1-my-env'}])
+    expect(resolved(files, 'billing', 'my_env').deployedName).toBe('billing-v1-my_env')
+  })
+
+  it('lets the selected env win the name index when two envs give one name (F8)', () => {
+    const files = {
+      'base.wrangler.jsonc': {env: {'prod-staging': {}, staging: {}}, main: 'a.ts', name: '{workerName}'},
+      ...worker('caller', {env: {staging: {services: [{binding: 'B', service: 'x-prod-staging'}]}}}),
+      ...worker('x'),
+      ...worker('x-prod'),
+    }
+    expect(resolved(files, 'caller', 'staging').bindings[0].target).toEqual({dir: 'x-prod', kind: 'local'})
+  })
+
+  it('makes references from streaming tails and dispatch namespaces, without rewriting them (F1)', () => {
+    const section = {
+      dispatch_namespaces: [
+        {binding: 'NS', namespace: 'n', outbound: {service: 'gateway'}},
+        {binding: 'PLAIN', namespace: 'p'},
+      ],
+      streaming_tail_consumers: [{service: 'billing'}],
+    }
+    const files = {...base, ...worker('orders', {env: {staging: section}}), ...worker('billing'), ...worker('gateway')}
+    const orders = resolved(files, 'orders', 'staging')
+    expect(orders.bindings).toEqual([
+      {binding: 'NS', source: 'dispatch_namespaces', target: {dir: 'gateway', kind: 'local'}},
+      {binding: 'billing', source: 'streaming_tail_consumers', target: {dir: 'billing', kind: 'local'}},
+    ])
+    expect(envSection(orders.config, 'staging')).toMatchObject(section)
+  })
+
+  it('reports these two references as external when they match no worker (F1)', () => {
+    const section = {
+      dispatch_namespaces: [{binding: 'NS', outbound: {service: 'elsewhere'}}],
+      streaming_tail_consumers: [{service: 'other'}],
+    }
+    const {project} = resolveFiles({...base, ...worker('orders', {env: {staging: section}})}, 'staging')
+    expect(noticesOf(project.notices, 'external-binding').map(({name}) => name)).toEqual(['elsewhere', 'other'])
+  })
+
+  it('does not inherit these two references from the top level (F1)', () => {
+    const top = {
+      dispatch_namespaces: [{binding: 'NS', outbound: {service: 'billing'}}],
+      streaming_tail_consumers: [{service: 'billing'}],
+    }
+    const files = {...base, ...worker('orders', top), ...worker('billing')}
+    expect(resolved(files, 'orders', 'staging').bindings).toEqual([])
+    expect(resolved(files, 'orders').bindings).toHaveLength(2)
+  })
+
+  it('gives notice of a directory name in a field monocf does not rewrite', () => {
+    const section = {tail_consumers: [{service: 'billing'}], workflows: [{binding: 'F', script_name: 'billing'}]}
+    const files = {...base, ...worker('orders', {env: {staging: section}}), ...worker('billing')}
+    const notices = noticesOf(resolveFiles(files, 'staging').project.notices, 'directory-name')
+    expect(notices.map(({source}) => source)).toEqual(['tail_consumers', 'workflows'])
+    expect(notices[0].message).toContain('billing-v1-staging')
+  })
+
+  it('gives no such notice when the directory and the deployed name are the same', () => {
+    const files = {
+      'base.wrangler.jsonc': {main: 'a.ts', name: '{workerName}'},
+      ...worker('orders', {workflows: [{binding: 'F', script_name: 'billing'}]}),
+      ...worker('billing'),
+    }
+    expect(noticesOf(resolveFiles(files).project.notices, 'directory-name')).toEqual([])
+  })
+
   it('resolves the other target fields without rewriting them', () => {
     const section = {
       durable_objects: {
@@ -358,9 +450,79 @@ describe('failures', () => {
     expect(project.failures.map(({dir}) => dir)).toEqual(['broken', 'orders'])
   })
 
-  it('do not spread through a field that passes through', () => {
-    const {project} = resolveFiles({...base, ...broken, ...worker('orders', {workflows: [{script_name: 'broken'}]})})
+  it.each([
+    ['workflows', {workflows: [{binding: 'FLOW', script_name: 'broken'}]}],
+    ['durable_objects', {durable_objects: {bindings: [{name: 'DO', script_name: 'broken'}]}}],
+    ['tail_consumers', {tail_consumers: [{service: 'broken'}]}],
+    ['streaming_tail_consumers', {streaming_tail_consumers: [{service: 'broken'}]}],
+    ['dispatch_namespaces', {dispatch_namespaces: [{binding: 'D', outbound: {service: 'broken'}}]}],
+  ])('spread through %s, and never claim the target matches no local worker', (_field, config) => {
+    const {project} = resolveFiles({...base, ...broken, ...worker('orders', config)})
+    expect(project.failures.map(({dir}) => dir)).toEqual(['broken', 'orders'])
+    expect(project.failures[1].error.message).toContain('could not be resolved')
+    expect(noticesOf(project.notices, 'external-binding')).toEqual([])
+  })
+
+  it('spread to every transitive caller', () => {
+    const {project} = resolveFiles({
+      ...base,
+      ...broken,
+      ...worker('a', {services: [{binding: 'B', service: 'b'}]}),
+      ...worker('b', {services: [{binding: 'C', service: 'broken'}]}),
+      ...worker('unrelated'),
+    })
+    expect(project.failures.map(({dir}) => dir)).toEqual(['a', 'b', 'broken'])
+    expect(project.workers.map(({dir}) => dir)).toEqual(['unrelated'])
+  })
+
+  it('spread whatever the order of the workers, and keep the rewrite of a worker finished twice', () => {
+    const files = {
+      ...base,
+      ...broken,
+      ...worker('z', services('a')),
+      ...worker('a', services('broken')),
+      ...worker('caller', {env: {staging: {services: [{binding: 'U', service: 'unrelated'}]}}}),
+      ...worker('unrelated'),
+    }
+    const {project} = resolveFiles(files, 'staging')
+    expect(project.failures.map(({dir}) => dir)).toEqual(['a', 'broken', 'z'])
+    const caller = project.workers.find(({dir}) => dir === 'caller')!
+    expect(envSection(caller.config, 'staging').services).toEqual([{binding: 'U', service: 'unrelated-v1-staging'}])
+    expect(noticesOf(project.notices, 'hardcoded-name')).toEqual([])
+  })
+
+  it('spread through the hardcoded deployed name of a worker whose config has a bad placeholder', () => {
+    const bad = worker('bad', {vars: {A: '{nope}'}})
+    const {project} = resolveFiles({...base, ...bad, ...worker('orders', binding('bad-v1-staging'))}, 'staging')
+    expect(project.failures.map(({dir}) => dir)).toEqual(['bad', 'orders'])
+    expect(project.failures[1].error.message).toContain('the deployed name of bad')
+    expect(noticesOf(project.notices, 'external-binding')).toEqual([])
+  })
+
+  it('spread through the hardcoded deployed name of a worker whose config cannot be parsed, from the base name', () => {
+    const {project} = resolveFiles({...base, ...broken, ...worker('orders', binding('broken-v1-staging'))}, 'staging')
+    expect(project.failures.map(({dir}) => dir)).toEqual(['broken', 'orders'])
+  })
+
+  it('leave a binding alone when it hardcodes the name of a failed worker in another env', () => {
+    const {project} = resolveFiles({...base, ...broken, ...worker('orders', binding('broken-v1-production'))}, 'staging')
     expect(project.failures.map(({dir}) => dir)).toEqual(['broken'])
+    expect(noticesOf(project.notices, 'hardcoded-name')[0]).toMatchObject({targetDir: 'broken', targetEnv: 'production'})
+    expect(noticesOf(project.notices, 'external-binding')).toEqual([])
+  })
+
+  it('treat an unreadable wrangler config as a failure of that worker alone (F10)', () => {
+    const files = {
+      ...base,
+      'workers/unreadable/package.json': {version: '1.0.0'},
+      // A directory at the config's path: it exists, and reading it fails.
+      'workers/unreadable/wrangler.jsonc/child': 'x',
+      ...worker('orders'),
+    }
+    const {project} = resolveFiles(files)
+    expect(project.failures.map(({dir}) => dir)).toEqual(['unreadable'])
+    expect(project.failures[0].error.message).toContain('Could not read the config')
+    expect(project.workers.map(({dir}) => dir)).toEqual(['orders'])
   })
 
   it('stop everything when the base config is broken', () => {

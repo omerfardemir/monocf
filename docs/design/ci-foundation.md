@@ -88,10 +88,22 @@ A `wrangler` that fails gives exit 1, and its own exit code appears in the messa
 - Placeholders are replaced on parsed strings. An unknown placeholder is an error. A string that needs literal braces maps the variable to itself: `"id": "{id}"`.
 - Injected vars: `NAME`, `ENVIRONMENT`, `VERSION`. A value set in the worker's own config is kept. A value from the base config is overwritten, as before.
 - Every command receives the same resolved config: a service binding given by directory name becomes the target's deployed name for the env. `build` and `dev` used to leave out the env suffix. For `dev` that form fails with an env: real `wrangler dev` answers 503 "Worker not found", in one session and across `dev --all`, because the target runs under its name for the env. A test against real wrangler covers both.
-- A worker that can't be resolved stops only a run that selects it or has a service binding to it, so one broken config doesn't block unrelated deploys.
+- A worker that can't be resolved stops only a run that reaches it, so one broken config doesn't block unrelated deploys. A selection fails when any transitive callee failed to resolve, through any edge in the graph table except a queue. That includes a hardcoded deployed name of a failed worker, when its name can still be computed from the parts of its config that were readable.
 - `RELEASE` is **not** part of the resolved config. It is passed with `--var RELEASE:<sha>` to `deploy`, `versions upload` and `dev`, and not to a dry-run build, so a new commit with an unchanged bundle has an unchanged fingerprint. A `RELEASE` in a wrangler config is overridden. The SHA is resolved once per run, from `GITHUB_SHA` (cut to 7 characters) when set, else `git rev-parse --short HEAD`, else `unknown` with a notice.
 - An unknown `--env` is an error, so a typo can't create an orphan worker.
 - Moving a config into the run directory means relative path fields must be rebased. The list of these fields lives in one file. A test reads wrangler's `config-schema.json` and fails when a new path-like field appears.
+
+### Deliberate differences from monocf 0.2
+
+The old flow edited config text and read it back through wrangler's patch function. These inputs now behave differently, on purpose:
+
+| Input | Old | New |
+|---|---|---|
+| A variable value with JSON escapes, such as a backslash and `n` in the parsed value | Decoded a second time: a real newline | Used as the parsed string, so an old double-escaped workaround now keeps its backslashes. Remove the extra escaping |
+| A duplicate key in a config | Edits went to the first copy and reads came from the last, so edits could get lost | The parser reads the last value, and merges apply to it |
+| An unquoted placeholder, as in `"cpu_ms": {cpu}` | Worked with no base config | A parse error. Quote it and read the value as a string |
+| `null` in a worker config, under a base config | Depends on the wrangler version: a crash, or `null` written out | An error that names the key |
+| `{1abc}`, `{şehir}`, `{ v }` | Deployed as literal text | Unknown placeholder errors. `{3}` and `{3,5}` are quantifiers and pass |
 
 ## Graph
 
@@ -103,7 +115,10 @@ Edges come from:
 | `workflows[].script_name` | Worker |
 | `durable_objects.bindings[].script_name` | Worker |
 | `tail_consumers[].service` | Worker |
+| `streaming_tail_consumers[].service` | Worker |
+| `dispatch_namespaces[].outbound.service` | Worker |
 | Queue producers and consumers | Logical edge: consumer of a queue the worker produces to |
+| Queue `consumers[].dead_letter_queue` | Logical edge: consumer of the dead letter queue |
 
 Binding names that match no local worker pass through as external, with a notice. They are not part of the graph.
 

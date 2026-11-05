@@ -80,7 +80,8 @@ export function resolveOptions(sources: OptionSources): Options {
   rejectBlankFlags(flags)
   const rootDir = resolveRootDir(sources)
   const defaultBase = reader.exists(join(rootDir, DEFAULT_BASE_CONFIG)) ? DEFAULT_BASE_CONFIG : undefined
-  const baseConfig = precedence(flags.baseConfig, file.baseConfig, defaultBase)
+  // An empty value in the file means unset, so it can't silently drop the base. A blank flag was rejected above.
+  const baseConfig = precedence(flags.baseConfig, file.baseConfig?.trim() ? file.baseConfig : undefined, defaultBase)
 
   return {
     all: precedence(flags.all, undefined, false),

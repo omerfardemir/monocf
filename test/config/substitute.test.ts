@@ -45,8 +45,25 @@ describe('findUnknownPlaceholders', () => {
     expect(findUnknownPlaceholders({a: '{my-var} {my.var}'}, [])).toEqual(['{my-var}', '{my.var}'])
   })
 
-  it.each([String.raw`^\d{3}$`, '{"json": true}', '{}', '{ spaced }', 'a{1,2}'])('does not treat %s as one', (text) => {
+  it.each([
+    String.raw`^\d{3}$`,
+    'a{1,2}',
+    '{3,}',
+    '{"json": true}',
+    '{a: 1}',
+    '{}',
+    '*.{js,ts}',
+    '{two words}',
+  ])('does not treat %s as one', (text) => {
     expect(findUnknownPlaceholders({a: text}, [])).toEqual([])
+  })
+
+  it.each(['{1abc}', '{şehir}', '{ v }', '{\tv\t}'])('treats %s as one', (text) => {
+    expect(findUnknownPlaceholders({a: text}, [])).toEqual([text])
+  })
+
+  it('does not take a spaced form for the variable, which substitution would not replace', () => {
+    expect(findUnknownPlaceholders(substituteConfig({a: '{ v }'}, {v: '1'}), ['v'])).toEqual(['{ v }'])
   })
 
   it('skips a known key, which is how a variable mapped to itself keeps literal braces', () => {

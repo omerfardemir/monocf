@@ -8,6 +8,7 @@ import {findUnknownPlaceholders, substituteConfig} from './substitute.js'
 import {
   ConfigError,
   isPlainObject,
+  UnknownPlaceholderError,
   type BindingSource,
   type BindingTarget,
   type Notice,
@@ -63,11 +64,19 @@ function readPackageJson(dir: string, reader: FileReader): RawWorker['packageJso
   }
 }
 
+function readConfigText(file: string, reader: FileReader): string {
+  try {
+    return reader.readFile(file)
+  } catch (error) {
+    throw new ConfigError(`Could not read the config: ${(error as Error).message}`, file)
+  }
+}
+
 function readWorker(options: Options, dir: string, reader: FileReader): RawWorker {
   const path = workerPath(options, dir)
   const configPath = join(path, WORKER_CONFIG_FILE)
   return {
-    config: parseConfigObject(reader.readFile(configPath), configPath),
+    config: parseConfigObject(readConfigText(configPath, reader), configPath),
     configPath,
     dir,
     packageJson: readPackageJson(path, reader),
@@ -118,16 +127,24 @@ function placeholderSource(placeholder: string, raw: RawWorker, inputs: ProjectI
   return CONFIG_FILE
 }
 
-function mergeAndSubstitute(raw: RawWorker, inputs: ProjectInputs, options: Options): RawConfig {
+function mergeAndFill(
+  {config, configPath, dir}: {config: RawConfig; configPath?: string; dir: string},
+  inputs: ProjectInputs,
+  options: Options,
+): RawConfig {
   // Without a base config, the old flow never expanded {workerName}, so it stays unknown here.
   const merged = inputs.base
-    ? substituteConfig(mergeConfig(inputs.base.config, raw.config, raw.configPath), {workerName: raw.dir})
-    : structuredClone(raw.config)
-  const config = substituteConfig(merged, options.variables)
+    ? substituteConfig(mergeConfig(inputs.base.config, config, configPath), {workerName: dir})
+    : structuredClone(config)
+  return substituteConfig(merged, options.variables)
+}
+
+function mergeAndSubstitute(raw: RawWorker, inputs: ProjectInputs, options: Options): RawConfig {
+  const config = mergeAndFill(raw, inputs, options)
 
   const [unknown] = findUnknownPlaceholders(config, Object.keys(options.variables))
   if (unknown) {
-    throw new ConfigError(
+    throw new UnknownPlaceholderError(
       `Unknown placeholder ${unknown}. Define it under "variables" in ${CONFIG_FILE}. To keep it literal, map it to itself there.`,
       placeholderSource(unknown, raw, inputs),
     )
@@ -195,18 +212,38 @@ function deployedNameOf(name: string, env?: string): string {
 
 type NameOwner = {dir: string; env?: string}
 
+interface NamedWorker {
+  config: RawConfig
+  dir: string
+  name: string
+}
+
+/** The name a failed worker would deploy under, when its config got far enough to tell. */
+function nameOfFailed(dir: string, inputs: ProjectInputs, options: Options): NamedWorker | undefined {
+  const raw = inputs.workers.find((candidate) => candidate.dir === dir)
+  try {
+    const config = mergeAndFill(raw ?? {config: {}, dir}, inputs, options)
+    const {name} = config
+    if (typeof name !== 'string' || name === '') return undefined
+    if (findUnknownPlaceholders({name}, Object.keys(options.variables)).length > 0) return undefined
+    return {config, dir, name: sanitizeWorkerName(name)}
+  } catch {
+    return undefined
+  }
+}
+
 /** Indexes the names local workers deploy under. The selected env comes first, so it wins over any other. */
-function indexDeployedNames(prepared: PreparedWorker[], env?: string): Map<string, NameOwner> {
+function indexDeployedNames(workers: NamedWorker[], env?: string): Map<string, NameOwner> {
   const owners = new Map<string, NameOwner>()
   const add = (name: string, owner: NameOwner) => {
     if (!owners.has(name)) owners.set(name, owner)
   }
 
-  for (const {name, raw} of prepared) add(deployedNameOf(name, env), {dir: raw.dir, env})
-  for (const {config, name, raw} of prepared) {
-    add(name, {dir: raw.dir})
+  for (const {dir, name} of workers) add(deployedNameOf(name, env), {dir, env})
+  for (const {config, dir, name} of workers) {
+    add(name, {dir})
     for (const other of Object.keys(isPlainObject(config.env) ? config.env : {})) {
-      add(`${name}-${other}`, {dir: raw.dir, env: other})
+      add(`${name}-${other}`, {dir, env: other})
     }
   }
 
@@ -227,12 +264,26 @@ function resolveTarget(
   notices: Notice[],
 ): BindingTarget {
   const {env, failed, owners, prepared, worker} = context
-  // Only a service binding needs its target's name. The other fields pass through, so they don't depend on it.
-  if (source === 'services' && failed.has(name)) {
+  if (failed.has(name)) {
     throw new ConfigError(`Binding ${binding} targets worker ${name}, which could not be resolved.`)
   }
 
-  if (prepared.has(name)) return {dir: name, kind: 'local'}
+  const local = prepared.get(name)
+  if (local) {
+    // Only service bindings get rewritten, so elsewhere a directory name would reach wrangler as it is.
+    if (source !== 'services' && deployedNameOf(local.name, env) !== name) {
+      notices.push({
+        binding,
+        message: `${worker}: ${binding} names the directory ${name} in ${source}, which reaches wrangler as written. Use the deployed name ${deployedNameOf(local.name, env)}.`,
+        name,
+        source,
+        type: 'directory-name',
+        worker,
+      })
+    }
+
+    return {dir: name, kind: 'local'}
+  }
 
   const owner = owners.get(name)
   if (!owner) {
@@ -247,7 +298,12 @@ function resolveTarget(
     return {kind: 'external', name}
   }
 
-  // Only service bindings get rewritten, so elsewhere a directory name would reach wrangler as it is.
+  if (owner.env === env && failed.has(owner.dir)) {
+    throw new ConfigError(
+      `Binding ${binding} targets ${name}, the deployed name of ${owner.dir}, which could not be resolved.`,
+    )
+  }
+
   const advice = source === 'services' ? ' Use the directory name instead.' : ''
   notices.push({
     binding,
@@ -296,8 +352,13 @@ function resolveReferences(
   notices: Notice[],
 ): ResolvedBinding[] {
   const durableObjects = isPlainObject(section.durable_objects) ? section.durable_objects : {}
+  const outbound = validateList(section, 'dispatch_namespaces', file).flatMap((entry) =>
+    isPlainObject(entry.outbound) ? [{...entry.outbound, binding: entry.binding}] : [],
+  )
   const sources: [BindingSource, RawConfig[], string, string][] = [
+    ['dispatch_namespaces', outbound, 'service', 'binding'],
     ['durable_objects', validateList(durableObjects, 'bindings', file), 'script_name', 'name'],
+    ['streaming_tail_consumers', validateList(section, 'streaming_tail_consumers', file), 'service', 'service'],
     ['tail_consumers', validateList(section, 'tail_consumers', file), 'service', 'service'],
     ['workflows', validateList(section, 'workflows', file), 'script_name', 'binding'],
   ]
@@ -314,8 +375,10 @@ function resolveReferences(
 }
 
 function finishWorker(worker: PreparedWorker, context: TargetContext): {notices: Notice[]; resolved: ResolvedWorker} {
-  const {config, name, raw} = worker
+  const {name, raw} = worker
   const {env} = context
+  // A later round may finish this worker again, and finishing rewrites service names in place.
+  const config = structuredClone(worker.config)
   const notices = [...worker.notices]
   const section = envSection(config, env)
   const bindings = [
@@ -336,10 +399,34 @@ function finishWorker(worker: PreparedWorker, context: TargetContext): {notices:
   }
 }
 
+/** Finishes every worker. A failure spreads to its callers, so this repeats until a round adds no new failure. */
+function finishAll(context: Omit<TargetContext, 'worker'>): Pick<ResolvedProject, 'failures' | 'notices' | 'workers'> {
+  const failures: WorkerFailure[] = []
+  while (true) {
+    const round = {failures: [] as WorkerFailure[], notices: [] as Notice[], workers: [] as ResolvedWorker[]}
+    for (const worker of context.prepared.values()) {
+      const {dir} = worker.raw
+      if (!context.failed.has(dir)) {
+        try {
+          const finished = finishWorker(worker, {...context, worker: dir})
+          round.workers.push(finished.resolved)
+          round.notices.push(...finished.notices)
+        } catch (error) {
+          round.failures.push(asFailure(dir, error))
+        }
+      }
+    }
+
+    if (round.failures.length === 0) return {failures, notices: round.notices, workers: round.workers}
+    failures.push(...round.failures)
+    for (const {dir} of round.failures) context.failed.add(dir)
+  }
+}
+
 /**
- * Turns raw inputs into what wrangler receives for options.env. Pure: it reads and writes nothing. Each worker
- * resolves once, so cost grows with the number of workers, not with the paths through the graph.
- * A worker that can't resolve goes into `failures`, because a run may not need it. validateSelection decides.
+ * Turns raw inputs into what wrangler receives for options.env. Pure: it reads and writes nothing. A worker that can't
+ * resolve goes into `failures`, and so does any worker that reaches it through a binding, because a run may need
+ * neither. validateSelection decides.
  */
 export function resolveProject(options: Options, inputs: ProjectInputs): ResolvedProject {
   const {env} = options
@@ -353,19 +440,20 @@ export function resolveProject(options: Options, inputs: ProjectInputs): Resolve
     }
   }
 
-  const failed = new Set(failures.map(({dir}) => dir))
-  const owners = indexDeployedNames([...prepared.values()], env)
-  const notices: Notice[] = []
-  const workers: ResolvedWorker[] = []
-  for (const worker of prepared.values()) {
-    try {
-      const finished = finishWorker(worker, {env, failed, owners, prepared, worker: worker.raw.dir})
-      workers.push(finished.resolved)
-      notices.push(...finished.notices)
-    } catch (error) {
-      failures.push(asFailure(worker.raw.dir, error))
-    }
-  }
+  const named = [
+    ...[...prepared.values()].map(({config, name, raw}) => ({config, dir: raw.dir, name})),
+    ...failures.flatMap(({dir}) => nameOfFailed(dir, inputs, options) ?? []),
+  ]
+  const finished = finishAll({
+    env,
+    failed: new Set(failures.map(({dir}) => dir)),
+    owners: indexDeployedNames(named, env),
+    prepared,
+  })
 
-  return {failures: failures.sort((a, b) => a.dir.localeCompare(b.dir)), notices, workers}
+  return {
+    failures: [...failures, ...finished.failures].sort((a, b) => a.dir.localeCompare(b.dir)),
+    notices: finished.notices,
+    workers: finished.workers,
+  }
 }

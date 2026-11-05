@@ -1,9 +1,12 @@
 /*
- * Merge rules, equal to `experimental_patchConfig(path, patch, true)` in wrangler. A patch is a list of edits:
+ * Merge rules, equal to `experimental_patchConfig(path, patch, true)` in wrangler for non-null values. A patch is a
+ * list of edits:
  * - A scalar sets its key, replacing whatever is there, including an object or an array.
  * - An object descends into its keys. An empty object is no edit, so it vanishes and can't clear a base value.
  * - An array appends each element as it is, with no deduplication. An empty array is no edit, as above.
  * - `null` in a patch is an error, unless it sits inside an array element. In the base it's an ordinary scalar.
+ *   This is monocf's own rule: wrangler's patch crashes on `null` in some versions and writes it in others, and its
+ *   config reader then rejects it for fields such as `route`.
  * - An edit that has to pass through, or append to, a value of another type is an error.
  */
 import {ConfigError, isPlainObject, type RawConfig} from './types.js'
