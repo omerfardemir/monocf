@@ -1,4 +1,4 @@
-import {writeFileSync} from 'node:fs'
+import {readFileSync, writeFileSync} from 'node:fs'
 import {join} from 'node:path'
 import {describe, expect, it} from 'vitest'
 
@@ -15,16 +15,16 @@ import {
 import {runCli, type FakeCloudflare, type Fixture} from '../helpers/harness.js'
 
 // Queues, Workflows and tail consumers don't inherit, so they go in the env section.
-function staging(fixture: Fixture, section: Record<string, unknown>): void {
-  changeConfig(fixture, 'reports', {env: {staging: section}})
+function staging(fixture: Fixture, section: Record<string, unknown>, top: Record<string, unknown> = {}): void {
+  changeConfig(fixture, 'reports', {...top, env: {staging: section}})
 }
 
 const consumer = (batch: number) => ({queues: {consumers: [{max_batch_size: batch, queue: 'jobs'}]}})
 const workflow = {workflows: [{binding: 'FLOW', class_name: 'Flow', name: 'nightly-flow'}]}
 const tail = {tail_consumers: [{service: 'logs'}]}
 
-async function applyChange(fixture: Fixture, cloudflare: FakeCloudflare, section: Record<string, unknown>) {
-  staging(fixture, section)
+async function applyChange(fixture: Fixture, cloudflare: FakeCloudflare, section: Record<string, unknown>, top: Record<string, unknown> = {}) {
+  staging(fixture, section, top)
   const plan = await planFor(fixture, cloudflare)
   const result = await applyPlan(fixture, cloudflare)
   expect(result.exitCode, result.stderr).toBe(0)
@@ -60,6 +60,17 @@ describe('apply, with a queue consumer on a live worker', () => {
     const removed = await applyChange(fixture, cloudflare, {})
 
     expect(removed.result.calls.map(({argv}) => argv.slice(0, 3).join(' '))).not.toContain('queues consumer remove')
+  })
+
+  it('detaches it from a worker that takes a full deploy too', async () => {
+    const fixture = deployFixture({workers: [{config: {site: {bucket: './site'}}, name: 'reports'}]})
+    const site = {site: {bucket: './site'}}
+    const {cloudflare} = await applyChange(fixture, await firstRun(fixture), consumer(1), site)
+
+    const removed = await applyChange(fixture, cloudflare, {}, site)
+
+    expect(stepOf(removed.plan, 'reports')).toMatchObject({action: 'full-deploy', removedConsumers: ['jobs']})
+    expect(removed.cloudflare.consumers?.jobs).toEqual({})
   })
 
   it('counts one whose queue is gone as detached, as there is nothing to detach', async () => {
@@ -197,6 +208,53 @@ describe('apply, with tail consumers on a live worker', () => {
     expect(removed.cloudflare.workers![removed.name].tailConsumers).toEqual([])
   })
 
+  it('clears streaming tail consumers once the config drops them', async () => {
+    const fixture = deployFixture()
+    const added = await applyChange(fixture, await firstRun(fixture), {streaming_tail_consumers: [{service: 'logs'}]})
+    expect(added.cloudflare.workers![added.name].streamingTailConsumers).toEqual(['logs'])
+
+    const removed = await applyChange(fixture, added.cloudflare, {})
+
+    expect(stepOf(removed.plan, 'reports')).toMatchObject({explicitEmptyTails: ['streaming_tail_consumers']})
+    expect(removed.cloudflare.workers![removed.name].streamingTailConsumers).toEqual([])
+  })
+
+  it('fails the step when the read after giving the live version again for them names another', async () => {
+    const fixture = deployFixture()
+    const live = await firstRun(fixture)
+    staging(fixture, tail)
+    await planFor(fixture, live)
+    const killed = await applyPlan(fixture, live, {rules: [{command: 'versions deploy', effectThenFail: true, exitCode: 1, noSettings: true, times: 1}]})
+    const next = await planFor(fixture, killed.cloudflare!)
+    const step = stepOf(next, 'reports')
+    expect(step).toMatchObject({action: 'triggers'})
+    // The first read checks that what's live is what the plan saw. The second verifies the tails' promote.
+    const versions = [{percentage: 100, version_id: 'someone-elses'}]
+    const other = {command: 'deployments status', skip: 1, stdout: JSON.stringify({versions}), times: 1, worker: step.deployedName}
+
+    const result = await applyPlan(fixture, killed.cloudflare!, {rules: [other]})
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain('verify-mismatch')
+  })
+
+  it('gives the live version again for them when an adopted worker has no state entry', async () => {
+    const fixture = deployFixture()
+    staging(fixture, tail)
+    const live = await firstRun(fixture)
+    const path = join(fixture.root, 'state', 'staging', 'manifest.json')
+    const manifest = JSON.parse(readFileSync(path, 'utf8'))
+    delete manifest.workers.reports
+    writeFileSync(path, JSON.stringify(manifest))
+
+    const plan = await planFor(fixture, live)
+    expect(stepOf(plan, 'reports')).toMatchObject({action: 'adopt'})
+    const result = await applyPlan(fixture, live)
+
+    expect(result.exitCode, result.stderr).toBe(0)
+    expect(writesOf(result.calls)).toEqual(['promote reports', 'triggers reports'])
+  })
+
   it('sets them on the next run, when a promote went live without them', async () => {
     const fixture = deployFixture()
     const live = await firstRun(fixture)
@@ -232,6 +290,19 @@ describe('rollback, across these', () => {
     expect(result.cloudflare!.workers![name].tailConsumers).toEqual([])
     expect(result.cloudflare!.workflows?.['nightly-flow']).toBeDefined()
     expect(result.stderr).toContain('wrangler workflows delete')
+  })
+
+  it('puts back the Workflow class that the run changed', async () => {
+    const fixture = deployFixture()
+    const before = await applyChange(fixture, await firstRun(fixture), workflow)
+    const {cloudflare} = await applyChange(fixture, before.cloudflare, {workflows: [{...workflow.workflows[0], class_name: 'Flow2'}]})
+    expect(cloudflare.workflows?.['nightly-flow']?.className).toBe('Flow2')
+    const {runId} = lastRunRecord(fixture)
+
+    const result = await runCli(fixture, ['rollback', '-e', 'staging', '--state', 'file:state', '--to-run', runId], {cloudflare})
+
+    expect(result.exitCode, result.stderr).toBe(0)
+    expect(result.cloudflare!.workflows?.['nightly-flow']?.className).toBe('Flow')
   })
 
   it('puts back the consumer settings and tail consumers that the run changed', async () => {

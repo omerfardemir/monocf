@@ -34,6 +34,16 @@ describe('a worker gone from the repository', () => {
     expect(plan.notes[0].message).toContain('Once it is deleted from Cloudflare, the next plan and apply drop it from the state.')
   })
 
+  it('keeps its state entry through an apply while it is live', async () => {
+    const {cloudflare, fixture} = await reportsLeft()
+    await planFor(fixture, cloudflare)
+
+    const applied = await applyPlan(fixture, cloudflare, {noCalls: true})
+
+    expect(applied.exitCode, applied.stderr).toBe(0)
+    expect(manifestOf(fixture).workers.reports).toBeDefined()
+  })
+
   it('leaves the state once it is deleted from Cloudflare too, and the note clears', async () => {
     const {cloudflare, deployedName, fixture} = await reportsLeft()
     const deleted = without(cloudflare, deployedName)
