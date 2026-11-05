@@ -18,6 +18,7 @@ import {openStateStore, parseStateUrl, type StateLocation} from '../state/store.
 import type {ArgvOptions} from '../wrangler/argv.js'
 import {locateWrangler} from '../wrangler/locate.js'
 import {readActiveVersion, readVersionTag, type WranglerCall} from '../wrangler/read.js'
+import {withReadRetries} from '../wrangler/retry.js'
 import {
   accountMarker,
   DEFAULT_CONCURRENCY,
@@ -33,7 +34,7 @@ import {
   type DeployStep,
 } from './deployment.js'
 import {checkoutHead, dirtyPaths, loadOptions} from './project.js'
-import {accountOf, runStep, withRun, type RunContext} from './run.js'
+import {accountOf, callWrangler, runStep, withRun, type RunContext} from './run.js'
 
 export interface ApplyFlags extends OptionFlags {
   concurrency?: number
@@ -151,6 +152,8 @@ function assertDescribes(plan: Plan, workers: Map<string, ResolvedWorker>, {noti
 
 interface Target {
   accountId?: string
+  /** A write that can change what's live has started, so what happened has to be read rather than assumed. */
+  attempted?: boolean
   /** What was live before this run's first attempt, as read then. */
   liveBefore?: string
   record: RunRecord['workers'][string]
@@ -224,6 +227,36 @@ class Applier {
         return target.step.action === 'triggers' ? [this.triggersStep(target)] : [this.adoptStep(target)]
       }),
     )
+
+    await Promise.all(targets.filter(({attempted, record}) => attempted && record.result !== 'ok' && record.newVersionId === undefined).map((target) => this.readWhatHappened(target)))
+  }
+
+  /**
+   * A step that failed or was cancelled may still have taken effect, as a deploy with a bad cron or a process killed after
+   * `Uploaded` does. What's recorded comes from what's live. A version of this run's own goes in the state, or the next plan
+   * would call it drift, with triggers that match nothing as it can't have reached them. `persist`, as this follows a signal too.
+   */
+  private async readWhatHappened(target: Target): Promise<void> {
+    const {record, step} = target
+    record.changed = 'unknown'
+    if (step.action === 'triggers' || step.action === 'adopt') return
+    const call = withReadRetries((read, accountId) => callWrangler(this.context, read, {accountId, persist: true, worker: target.worker.dir}))
+    try {
+      const active = await readActiveVersion(call, step.deployedName, target.accountId)
+      if (active.state === 'split') return
+      const live = active.state === 'active' ? active.versionId : undefined
+      if (live === (target.liveBefore ?? step.previousVersionId)) {
+        record.changed = false
+      } else if (live !== undefined && (live === record.uploadedVersionId || (await readVersionTag(call, step.deployedName, live, target.accountId)) === tagFor(step.fingerprint))) {
+        record.newVersionId = live
+        record.changed = true
+        const reached = step.action === 'upload' && !step.triggersChanged
+        const previous = record.previous?.triggers ?? NO_TRIGGERS
+        this.writer.update(target.worker.dir, {...this.entryFor(target, live), ...(!reached && {triggers: previous, triggersHash: TRIGGERS_NOT_APPLIED})}, {newVersion: true})
+      }
+    } catch {
+      // It stays unknown: this is what a failed read says.
+    }
   }
 
   private blockerOf(worker: string): string | undefined {
@@ -352,9 +385,13 @@ class Applier {
     return tag === tagFor(fingerprint) ? active.versionId : undefined
   }
 
+  /** The plan may be a while old, and a rollback has to go back to what this run really replaced. */
   private async readLiveBefore(target: Target): Promise<void> {
     const active = await readActiveVersion(this.call(target), target.step.deployedName, target.accountId)
-    if (active.state === 'active') target.liveBefore = active.versionId
+    if (active.state === 'active') {
+      target.liveBefore = active.versionId
+      target.record.previousVersionId = active.versionId
+    }
   }
 
   /** If this fails, the entry says so with a hash that matches nothing, and the next plan gives `triggers`. */
@@ -375,6 +412,7 @@ class Applier {
       run: async (attempt) => {
         if (attempt === 1) await this.readLiveBefore(target)
         const earlier = attempt > 1 ? await this.liveFromEarlierAttempt(target) : undefined
+        target.attempted = true
         const versionId =
           earlier ?? (await this.wrangler(target, {action: 'deploy', configPath: this.configOf(target)}, this.argvOptions(target))).output.versionId!
         await this.verify(target, versionId)
@@ -409,6 +447,8 @@ class Applier {
       dependsOn: [],
       run: async (attempt) => {
         const versionId = target.record.uploadedVersionId!
+        if (attempt === 1) await this.readLiveBefore(target)
+        target.attempted = true
         const active = attempt > 1 ? await readActiveVersion(this.call(target), target.step.deployedName, target.accountId) : undefined
         if (active?.state !== 'active' || active.versionId !== versionId) {
           const {env, message} = this.argvOptions(target)
@@ -432,6 +472,7 @@ class Applier {
       action: 'triggers',
       dependsOn: [],
       run: async () => {
+        target.attempted = true
         await this.wrangler(target, {action: 'triggers-deploy', configPath: this.configOf(target)}, {env: this.env})
         target.record.changed = true
         this.writer.update(target.worker.dir, this.entryFor(target, target.step.previousVersionId!))
@@ -446,6 +487,7 @@ class Applier {
       action: 'adopt',
       dependsOn: [],
       run: async () => {
+        target.attempted = true
         await this.wrangler(target, {action: 'triggers-deploy', configPath: this.configOf(target)}, {env: this.env})
         this.writer.update(target.worker.dir, this.entryFor(target, target.step.previousVersionId!))
       },
@@ -517,8 +559,10 @@ export async function runApply(planPath: string, flags: ApplyFlags): Promise<voi
               action: step.action,
               changed: false,
               deployedName: step.deployedName,
+              planned: {doHash: step.doHash, triggers: step.triggers, triggersHash: step.triggersHash},
               previous,
               ...(step.previousVersionId !== undefined && {previousVersionId: step.previousVersionId}),
+              reasons: step.reasons,
               result: 'unchanged',
             },
             step,

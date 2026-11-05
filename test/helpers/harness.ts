@@ -108,6 +108,8 @@ export interface WranglerRule {
   delayMs?: number
   /** Applies this many times, and then the command behaves as if the rule weren't there. */
   times?: number
+  /** Lets this many matching invocations through first. */
+  skip?: number
   /** Takes effect on the fake Cloudflare, and then fails anyway. */
   effectThenFail?: boolean
   /** Exits 0 and changes nothing on the fake Cloudflare. */

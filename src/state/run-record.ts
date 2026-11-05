@@ -1,5 +1,6 @@
 import {isPlainObject} from '../config/types.js'
 import {EXIT_ENVIRONMENT, MonocfError} from '../errors.js'
+import type {Triggers} from '../fingerprint/fingerprint.js'
 import type {StateWorker} from './manifest.js'
 
 export const RUN_RECORD_SCHEMA_VERSION = 1
@@ -11,18 +12,25 @@ export type RecordResult = 'cancelled' | 'failed' | 'ok' | 'refused' | 'skipped'
 
 export interface RunRecordWorker {
   action: string
-  /** Something on Cloudflare differs because of this run, whatever its result says. Rollback looks at this. */
-  changed: boolean
+  /**
+   * Something on Cloudflare differs because of this run, whatever its result says, as read afterwards. `unknown`: a write
+   * started, and nothing could say what it did. Rollback takes that as changed.
+   */
+  changed: 'unknown' | boolean
   deployedName: string
   message?: string
   /** The version this run left live. Absent when it left none of its own. */
   newVersionId?: string
+  /** What the step meant to put in place, which a step that didn't finish may have done part of. */
+  planned?: {doHash: string; triggers: Triggers; triggersHash: string}
   /** The state entry before this run: its triggers, doHash and fingerprint, among others. Null when it had none. */
   previous: null | StateWorker
   /** What was live before this run. Absent for a worker this run created. */
   previousVersionId?: string
   /** The worker whose failure skipped this one. */
   reason?: string
+  /** Why the plan gave this step. */
+  reasons?: string[]
   result: RecordResult
   /** A version this run uploaded and didn't promote. */
   uploadedVersionId?: string

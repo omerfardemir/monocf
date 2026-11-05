@@ -69,7 +69,7 @@ export class StateWriter {
     try {
       await this.store.write(manifestKey(this.env), this.body())
     } catch (error) {
-      throw new MonocfError(`Nothing was deployed, as the state store took no note of what's about to be recreated: ${(error as Error).message}`, EXIT_FAILED)
+      throw new MonocfError(`Nothing was changed, as the state store took no note of which callers will need a new version: ${(error as Error).message}`, EXIT_FAILED)
     }
   }
 

@@ -289,6 +289,14 @@ A plan's `commit` is the real `HEAD`. `GITHUB_SHA` can name another commit, as o
 
 Each run ends with `<env>/runs/<run-id>.json`, a run ID being `YYYYMMDDTHHMMSSZ-<6 hex>`. Per worker it holds the action, the result, whether anything on Cloudflare changed, the previous state entry, and the previous and new version IDs. An upload that was never promoted is named in the summary as well, because the next version inherits from it.
 
+**What a step that didn't finish did.** `changed` comes from what's live, not from how far the attempt got: a `deploy` with a bad cron exits 1 with the new version live, and a process killed after `Uploaded` leaves one too. Before a write that can change what's live, `apply` reads the active version, which also goes in the record as what this run replaced. When such a step fails or is cancelled, it reads again, including after a signal:
+
+- The same version: `changed: false`.
+- A version of this run's, by its upload or its tag: `changed: true`, with `newVersionId`. It also goes in the state, with triggers that match nothing unless the step was a promote with none to apply, so the next plan gives `triggers` rather than calling the run's own deployment drift.
+- Anything else, or a read that fails, or a failed `triggers` or `adopt` step, which can't be read back: `changed: "unknown"`. The summary names these workers.
+
+"Uploaded and not promoted" only names a worker whose `changed` was read as `false`.
+
 On a signal, `apply` stops starting steps, waits for the running ones, writes state and the record, prints the summary and exits 130 or 143.
 
 **Exit 0 isn't proof.** A step succeeded when wrangler exited with code 0 and no signal, the output file holds a version ID (`deploy`, `versions upload`), and a read-back of `deployments status` shows the expected version at 100%.
@@ -307,7 +315,13 @@ A caller sees a new callee version without being redeployed, for both RPC and fe
 
 **Rollback** runs callers first. Code, vars and secrets follow the version; crons don't, so they are restored separately, through a config holding only the name and the triggers. Rolling back across a Durable Object class addition is refused by Cloudflare, but rolling back across a class deletion exits 0 and leaves the class broken, so monocf refuses any rollback across a DO change unless forced. A refused or failed worker skips the workers it calls.
 
-`--to-run` restores what that run changed, using its record, and skips with a report a worker that run created. State goes back to the earlier entry, so the next plan compares against what's really live, and a fresh run record lets a later `--to-run` undo the rollback. `<worker> --to <version-id>` has no record to vouch for the version, so it needs `--force`, and it leaves hashes in the entry that match nothing, so that the next plan uploads over it.
+`--to-run` restores what that run changed, using its record, and skips with a report a worker that run created. State goes back to the earlier entry, so the next plan compares against what's really live, and a fresh run record lets a later `--to-run` undo the rollback. That entry only speaks for the version it names: when what the run replaced was something else, such as a manual hotfix or what a crash left, the restored version gets an entry whose hashes match nothing, with the earlier entry's Durable Object hash and triggers, so the next plan uploads over it.
+
+A failed or cancelled run is rolled back by what it may have done, and never answers "no workers" with exit 0. `unknown` counts as changed: the version and the triggers it meant to change go back. A worker with `changed: false` is only checked: if the version the run found is still live there's nothing to do, and if something else has replaced it the rollback fails rather than overwrite what this run didn't write. A worker that may have changed with nothing to go back to, such as a failed `adopt` or a `create` that can't be confirmed, is named, and the exit code is 1.
+
+**Across a recreated provider.** A caller's earlier version can't reach a recreated provider, and stays broken with exit 0 and a next plan of `skip` if nothing notes it. So a step with the reason `provider-recreated` whose callee this run created is refused unless forced. Any restored step with that reason goes back on `needsNewVersion` before the version does, so the next plan gives it a new version. `--to` has no record to tell this from, so it can't do either.
+
+**Across an added route.** Restored triggers can't remove a worker's last route, so the route stays attached. The record says to remove it by hand, and the entry holds the route, so the next plan's `routes-removed` note names it if the config no longer has it. `<worker> --to <version-id>` has no record to vouch for the version, so it needs `--force`, and it leaves hashes in the entry that match nothing, so that the next plan uploads over it.
 
 **`secrets check`** compares names only. It expects the union of `secrets.required`, which wrangler doesn't inherit into an env, and the keys of a `.dev.vars.example` next to the worker's config. It asks `versions view` for the active version's `secret_text` bindings, because `secret list` follows the latest upload. A missing name is exit 1, and an unexpected one is a warning. A worker with no source of names is skipped with a note.
 

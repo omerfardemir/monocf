@@ -253,7 +253,7 @@ function hasCrons(triggers: Triggers | undefined): boolean {
   return (triggers?.crons?.length ?? 0) > 0
 }
 
-function directBindingCallers(graph: Graph, worker: string): string[] {
+export function directBindingCallers(graph: Graph, worker: string): string[] {
   const edges = graph.edges.filter(({kind}) => kind !== 'queues')
   return directCallers({...graph, edges}, worker)
 }

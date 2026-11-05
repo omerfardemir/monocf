@@ -98,9 +98,10 @@ export function runIds(fixture: Fixture): string[] {
   return readdirSync(join(fixture.root, 'state', 'staging', 'runs')).map((name) => name.replace(/\.json$/, '')).sort()
 }
 
+/** By when it finished, as a run ID only sorts to the second, and two runs can share one. */
 export function lastRunRecord(fixture: Fixture) {
-  const id = runIds(fixture).at(-1)
-  return JSON.parse(readFileSync(join(fixture.root, 'state', 'staging', 'runs', `${id}.json`), 'utf8'))
+  const records = runIds(fixture).map((id) => JSON.parse(readFileSync(join(fixture.root, 'state', 'staging', 'runs', `${id}.json`), 'utf8')))
+  return records.sort((a, b) => (a.finishedAt < b.finishedAt ? -1 : 1)).at(-1)
 }
 
 export function eventsOf(result: CliResult): Record<string, unknown>[] {

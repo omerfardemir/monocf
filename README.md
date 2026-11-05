@@ -989,7 +989,9 @@ monocf rollback -e production --state r2://my-monocf-state/monocf --to-run 20260
 monocf rollback orders -e production --state r2://my-monocf-state/monocf --to 1a2b3c4d --force
 ```
 
-`--to-run` restores what that run changed, using its record. It goes callers first, and a worker that's refused or fails skips the workers it calls. State goes back to the earlier entries, so the next `plan` compares against what's really live, and a new record lets a later `--to-run` undo the rollback.
+`--to-run` restores what that run changed, using its record. It goes callers first, and a worker that's refused or fails skips the workers it calls. State goes back to the earlier entries, so the next `plan` compares against what's really live, and a new record lets a later `--to-run` undo the rollback. If what the run replaced wasn't what the state knew, such as a manual hotfix, the next `plan` uploads over it.
+
+A run that failed or was interrupted can be rolled back too. `apply` reads what's live when a step doesn't finish, and records whether it changed. If it can't tell, the summary says so and rollback treats the worker as changed. A worker the run left alone is only checked, and the rollback fails if something else has replaced it since.
 
 `<worker> --to <version-id>` has no record to vouch for the version, so it needs `--force`. The next `plan` will upload over it.
 
@@ -999,7 +1001,8 @@ Its limits:
 - **Durable Objects.** Cloudflare refuses a rollback across a class addition, and takes one across a class deletion with exit 0, leaving the class broken. So monocf refuses any rollback across a Durable Object change. `--force` accepts that risk.
 - **Retained versions.** Cloudflare keeps a limited number of versions. A version it no longer has fails that worker with exit 1.
 - **Workers the run created** have nothing to go back to. They're skipped with a note, and stay deployed.
-- **A first route.** If the run gave a worker its first route, the rollback leaves it attached, as wrangler only publishes a list with something in it. Remove it by hand.
+- **A recreated provider.** A caller's earlier version can't reach a provider that was recreated. If the run created that provider, the rollback refuses that caller without `--force`. Whichever way a caller goes back, the next `plan` gives it a new version.
+- **A first route.** If the run gave a worker its first route, the rollback leaves it attached, as wrangler only publishes a list with something in it, and says so. Remove it by hand.
 
 ## Exit codes and JSON output
 

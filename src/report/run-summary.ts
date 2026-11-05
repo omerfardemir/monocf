@@ -28,12 +28,20 @@ function countLine({workers}: RunRecord): string {
     .join(', ')
 }
 
-/** Uploaded and not promoted. The next version inherits secrets from the latest upload, so these are worth a name. */
+/** Uploaded and, by what was read afterwards, not promoted. The next version inherits secrets from the latest upload, so these are worth a name. */
 function unpromotedUploads({workers}: RunRecord): string[] {
   return Object.entries(workers)
-    .filter(([, {newVersionId, uploadedVersionId}]) => uploadedVersionId !== undefined && newVersionId === undefined)
+    .filter(([, {changed, newVersionId, uploadedVersionId}]) => uploadedVersionId !== undefined && newVersionId === undefined && changed === false)
     .map(([worker]) => worker)
 }
+
+function unconfirmed({workers}: RunRecord): string[] {
+  return Object.entries(workers)
+    .filter(([, {changed}]) => changed === 'unknown')
+    .map(([worker]) => worker)
+}
+
+const UNCONFIRMED = 'may have changed what is live, and nothing could confirm it. Rollback treats each as changed.'
 
 function pad(text: string, width: number): string {
   return text.padEnd(width)
@@ -51,6 +59,8 @@ export function formatRunSummary(record: RunRecord, problems: string[] = []): st
   ]
   const unpromoted = unpromotedUploads(record)
   if (unpromoted.length > 0) lines.push(`Uploaded and not promoted: ${unpromoted.join(', ')}. The next version of each inherits from that upload.`)
+  const unsure = unconfirmed(record)
+  if (unsure.length > 0) lines.push(`${unsure.join(', ')} ${UNCONFIRMED}`)
   lines.push(...problems)
   return `${lines.join('\n')}\n`
 }
@@ -73,6 +83,8 @@ export function formatRunMarkdown(record: RunRecord, problems: string[] = []): s
   ]
   const unpromoted = unpromotedUploads(record)
   if (unpromoted.length > 0) lines.push(`**Uploaded and not promoted:** ${unpromoted.join(', ')}. The next version of each inherits from that upload.`, '')
+  const unsure = unconfirmed(record)
+  if (unsure.length > 0) lines.push(`**${unsure.join(', ')}** ${UNCONFIRMED}`, '')
   if (problems.length > 0) lines.push(...problems.map((problem) => `**${cell(problem)}**`), '')
   return `${lines.join('\n').trimEnd()}\n`
 }

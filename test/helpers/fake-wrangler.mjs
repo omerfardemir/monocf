@@ -106,11 +106,21 @@ function timesUsed(index) {
   return existsSync(path) ? Number(readFileSync(path, 'utf8')) : 0
 }
 
+// A rule with `skip` lets that many matching invocations through first, as if the rule weren't there.
+function passedBy(index, skip) {
+  const path = `${process.env.FAKE_WRANGLER_RULES}.${index}.skipped`
+  const seen = existsSync(path) ? Number(readFileSync(path, 'utf8')) : 0
+  if (seen >= skip) return false
+  writeFileSync(path, String(seen + 1))
+  return true
+}
+
 const ruleIndex = rules.findIndex(
   (candidate, index) =>
     startsWithCommand(candidate.command) &&
     (candidate.worker === undefined || candidate.worker === workerDir || candidate.worker === deployedName) &&
-    (candidate.times === undefined || timesUsed(index) < candidate.times),
+    (candidate.times === undefined || timesUsed(index) < candidate.times) &&
+    (candidate.skip === undefined || !passedBy(index, candidate.skip)),
 )
 const rule = ruleIndex === -1 ? {} : rules[ruleIndex]
 if (rule.times !== undefined) writeFileSync(`${process.env.FAKE_WRANGLER_RULES}.${ruleIndex}.used`, String(timesUsed(ruleIndex) + 1))
