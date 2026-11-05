@@ -228,6 +228,24 @@ describe('doHash', () => {
 })
 
 describe('parseExportNames', () => {
+  it('reads past the license comment esbuild puts at the end', () => {
+    const source = [
+      'export {',
+      '  Api,',
+      '  w as default',
+      '};',
+      '/*! Bundled license information:',
+      '',
+      'some-package/index.js:',
+      '  (*! a license with export { Other } in it *)',
+      '*/',
+      '//# sourceMappingURL=index.js.map',
+      '',
+    ].join('\n')
+
+    expect(parseExportNames(source)).toEqual(['Api', 'default'])
+  })
+
   it('reads the closing statement of esbuild output', () => {
     expect(parseExportNames('var a = 1;\nexport {\n  Api,\n  worker as default\n};\n')).toEqual(['Api', 'default'])
   })

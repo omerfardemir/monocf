@@ -135,7 +135,8 @@ export function doHash(config: RawConfig, env?: string): string {
   )
 }
 
-const EXPORT_LIST = /\bexport\s*\{([^{}]*)\}\s*;?\s*(?:\/\/[^\n]*\s*)*$/
+// esbuild moves legal comments to the end of the file, after the export statement, and a source map comment follows them.
+const EXPORT_LIST = /\bexport\s*\{([^{}]*)\}\s*;?\s*(?:\/\/[^\n]*\s*|\/\*[\s\S]*?\*\/\s*)*$/
 
 /** The names in the `export {...};` that ends unminified esbuild output. Undefined when the text has no such statement. */
 export function parseExportNames(source: string): string[] | undefined {

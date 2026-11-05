@@ -203,6 +203,22 @@ export default {fetch: () => new Response('billing')}
       expect(bad.stderr).toContain('error unknown-entrypoint: orders: binding BILLING names entrypoint Typo')
     })
 
+    it('reads the exports of output that ends in bundled license information', async () => {
+      const licensed = structuredClone(bundled)
+      const source = 'workers/billing/src/index.ts'
+      const files = licensed.files as Record<string, string>
+      files['workers/billing/node_modules/licensed/index.js'] = '/*! @license a license */\nexport const value = 1\n'
+      files['workers/billing/node_modules/licensed/package.json'] = '{"main": "index.js", "name": "licensed"}'
+      files[source] = `import {value} from 'licensed'\n${files[source]}\nexport const used = value\n`
+      const fixture = createFixture(licensed)
+
+      const good = await runCli(fixture, ['bundle', '-e', 'dev'])
+
+      expect(good.exitCode, good.stderr).toBe(0)
+      expect(readFileSync(join(fixture.root, '.monocf', 'bundle', 'dev', 'billing', 'index.js'), 'utf8')).toContain('Bundled license information')
+      expect(good.stderr).not.toContain('unknown-entrypoint')
+    })
+
     it('reads the exports of real output, and catches a wrong entrypoint', async () => {
       const good = await runCli(createFixture(bundled), ['bundle', '-e', 'dev'])
       expect(good.stderr).not.toContain('unknown-entrypoint')
