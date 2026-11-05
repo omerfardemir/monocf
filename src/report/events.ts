@@ -1,0 +1,19 @@
+export const SCHEMA_VERSION = 1
+
+export type ReportEvent =
+  | {action: string; env?: string; type: 'run-started'; workers: string[]}
+  | {action: string; type: 'step-started'; worker: string}
+  | {
+      action: string
+      /** Why it failed, when it failed. */
+      message?: string
+      status: 'failed' | 'ok'
+      type: 'step-finished'
+      /** Set for a `deploy` or `versions upload`. */
+      versionId?: string
+      worker: string
+    }
+  | {message: string; type: 'notice'; worker?: string}
+  | {exitCode: number; status: 'failed' | 'interrupted' | 'ok'; type: 'run-finished'}
+
+export type EventSink = (event: ReportEvent) => void
