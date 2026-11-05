@@ -1,5 +1,5 @@
 import {execFileSync} from 'node:child_process'
-import {resolve} from 'node:path'
+import {isAbsolute, relative, resolve} from 'node:path'
 
 import {ConfigError} from '../config/types.js'
 import {findConfigFile, loadProjectFile} from '../project/load.js'
@@ -56,6 +56,23 @@ function gitRevParse(rootDir: string, ...args: string[]): string | undefined {
     }).trim()
   } catch {
     return undefined
+  }
+}
+
+/** What is really checked out, whatever CI's variables say. Undefined without git. */
+export function checkoutHead(rootDir: string): string | undefined {
+  return gitRevParse(rootDir)
+}
+
+/** Whether the checkout differs from its commit, the bundle's own directory aside. Without git, nothing says that it doesn't. */
+export function isTreeDirty(rootDir: string, bundleDir: string): boolean {
+  const inside = relative(rootDir, bundleDir).replaceAll('\\', '/')
+  const paths = inside === '' || inside.startsWith('..') || isAbsolute(inside) ? [] : ['--', '.', `:(exclude)${inside}`]
+  try {
+    const status = execFileSync('git', ['status', '--porcelain', ...paths], {cwd: rootDir, encoding: 'utf8', shell: false, stdio: ['ignore', 'pipe', 'ignore']})
+    return status.trim() !== ''
+  } catch {
+    return true
   }
 }
 

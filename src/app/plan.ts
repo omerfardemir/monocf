@@ -18,8 +18,9 @@ import {openStateStore, parseStateUrl} from '../state/store.js'
 import {locateWrangler} from '../wrangler/locate.js'
 import {readActiveVersion, readVersionTag, type ActiveInfo, type WranglerCall} from '../wrangler/read.js'
 import {withReadRetries} from '../wrangler/retry.js'
-import {buildBundle, checkEntrypoints, readBundleManifest, type BundleManifest} from './bundle.js'
-import {loadOptions, resolveCommit, selectNamed} from './project.js'
+import {configHash, doHash, triggersHash, triggersOf} from '../fingerprint/fingerprint.js'
+import {buildBundle, checkEntrypoints, readBundleManifest, type BundleManifest, type ManifestWorker} from './bundle.js'
+import {checkoutHead, isTreeDirty, loadOptions, resolveCommit, selectNamed} from './project.js'
 import {accountOf, callWrangler, createSink, runWorkerSteps, withRun, type RunContext} from './run.js'
 
 export interface PlanFlags extends OptionFlags {
@@ -62,10 +63,20 @@ function workerNames(flag: string | undefined): string[] {
   return names
 }
 
+/** Needs no build, and catches another config at the same commit, such as another --base-config. */
+function describesConfig(described: ManifestWorker | undefined, {config, deployedName}: ResolvedWorker, env: string): boolean {
+  return (
+    described?.deployedName === deployedName &&
+    described.configHash === configHash(config, env) &&
+    described.doHash === doHash(config, env) &&
+    described.triggersHash === triggersHash(triggersOf(config, env))
+  )
+}
+
 /** A bundle made elsewhere counts only if it describes exactly what this run would build. */
 function reusableBundle(
   dir: string,
-  expected: {commit: string; env: string; version: string; workers: ResolvedWorker[]},
+  expected: {commit: string; env: string; rootDir: string; version: string; workers: ResolvedWorker[]},
 ): {manifest: BundleManifest} | {mismatch: string} {
   const manifest = readBundleManifest(dir)
   if (!manifest?.workers) return {mismatch: 'it has no readable manifest'}
@@ -73,7 +84,10 @@ function reusableBundle(
   if (manifest.env !== expected.env) return {mismatch: `it is for env ${manifest.env}`}
   if (expected.commit === 'unknown' || manifest.commit !== expected.commit) return {mismatch: 'it is for another commit'}
   if (manifest.wrangler !== expected.version) return {mismatch: `it was built with wrangler ${manifest.wrangler}`}
-  const stale = expected.workers.find(({deployedName, dir: name}) => manifest.workers[name]?.deployedName !== deployedName)
+  if (manifest.dirty !== false) return {mismatch: 'its checkout had changes'}
+  if (manifest.head !== checkoutHead(expected.rootDir)) return {mismatch: 'another commit was checked out'}
+  if (isTreeDirty(expected.rootDir, dir)) return {mismatch: 'this checkout has changes'}
+  const stale = expected.workers.find((worker) => !describesConfig(manifest.workers[worker.dir], worker, expected.env))
   return stale ? {mismatch: `it doesn't describe ${stale.dir}`} : {manifest}
 }
 
@@ -84,7 +98,7 @@ async function bundleFor(
 ): Promise<BundleManifest> {
   if (flags.bundleDir !== undefined) {
     const dir = resolve(flags.bundleDir)
-    const found = reusableBundle(dir, {commit, env, version: context.wrangler.version, workers})
+    const found = reusableBundle(dir, {commit, env, rootDir, version: context.wrangler.version, workers})
     if ('manifest' in found) {
       checkEntrypoints(context, workers, dir, env)
       return found.manifest

@@ -244,6 +244,8 @@ Reads and the state store's wrangler calls run from a new empty directory under 
 
 A read that fails with `fetch failed`, a 429 or a 5xx is tried up to three times, with the backoff of a write.
 
+`--bundle-dir` reuses a bundle only if it describes this run. The env, commit and wrangler version have to match, `configHash`, `doHash` and `triggersHash` are recomputed per selected worker from the resolved config, and the bundle manifest's `head` (the real `git rev-parse HEAD`, not `GITHUB_SHA`) has to be what's checked out. A bundle built on a dirty tree is refused, and so is reuse on one. `apply` and `--expect-branch-tip` use the real `HEAD` too.
+
 The older plan and markdown at the output paths are removed right after flag parsing, so no failed run can leave one for `apply` or a PR comment. The markdown is written before the plan, so a plan appears only when everything has succeeded. A path that can't be written is exit 3.
 
 ## Deploy

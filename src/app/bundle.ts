@@ -21,7 +21,7 @@ import type {OptionFlags} from '../project/options.js'
 import {SCHEMA_VERSION} from '../report/events.js'
 import {materialiseConfig} from '../runtime/materialise.js'
 import {locateWrangler} from '../wrangler/locate.js'
-import {loadOptions, resolveCommit, selectNamed} from './project.js'
+import {checkoutHead, isTreeDirty, loadOptions, resolveCommit, selectNamed} from './project.js'
 import {defaultBuildConcurrency, runStep, runWorkerSteps, withRun, type RunContext} from './run.js'
 
 export interface BundleFlags extends OptionFlags {
@@ -48,7 +48,11 @@ export interface ManifestWorker {
 
 export interface BundleManifest {
   commit: string
+  /** The checkout had changes when this was built, so the commit doesn't describe the bundle. */
+  dirty: boolean
   env: string
+  /** What was checked out when this was built, whatever CI's variables said. */
+  head: string
   schemaVersion: number
   workers: Record<string, ManifestWorker>
   wrangler: string
@@ -190,6 +194,10 @@ export async function buildBundle(context: RunContext, job: BundleJob): Promise<
   assertSafeOut(out, workers, rootDir)
   const manifestPath = join(out, MANIFEST_FILE)
 
+  // Before the build, so that what the build generates doesn't count, and neither does this directory.
+  const head = checkoutHead(rootDir) ?? 'unknown'
+  const dirty = isTreeDirty(rootDir, out)
+
   // Only a complete run writes a manifest, so an old one must not outlive a failed run.
   rmSync(manifestPath, {force: true})
   mkdirSync(out, {recursive: true})
@@ -221,6 +229,8 @@ export async function buildBundle(context: RunContext, job: BundleJob): Promise<
 
   const manifest: BundleManifest = {
     commit,
+    dirty,
+    head,
     env,
     schemaVersion: SCHEMA_VERSION,
     workers: Object.fromEntries([...described].sort(([a], [b]) => compareNames(a, b))),
