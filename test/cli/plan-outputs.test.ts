@@ -93,7 +93,7 @@ describe('where a plan writes', () => {
     const fixture = project()
     writeFileSync(join(fixture.root, 'in-the-way'), 'a file')
 
-    const result = await runCli(fixture, ['plan', '-e', 'staging', '--state', 'file:state', '--first-run', '--out', 'plan.json', '--markdown', 'in-the-way/plan.md'], {cloudflare: {}})
+    const result = await runCli(fixture, ['plan', '-e', 'staging', '--state', 'file:state', '--first-run', '--out', 'plan.json', '--markdown', 'in-the-way/plan.md'], {cloudflare: {}, noCalls: true})
 
     expect(result.exitCode).toBe(3)
     expect(result.stderr).toContain("Can't write")

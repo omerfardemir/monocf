@@ -1,5 +1,5 @@
 import {execFileSync} from 'node:child_process'
-import {mkdirSync, writeFileSync} from 'node:fs'
+import {mkdirSync, readFileSync, writeFileSync} from 'node:fs'
 import {join} from 'node:path'
 import {describe, expect, it} from 'vitest'
 
@@ -26,6 +26,20 @@ async function bundled(fixture: Fixture, env: Record<string, string> = {}): Prom
 }
 
 describe('plan --bundle-dir', () => {
+  it.each(['configHash', 'doHash', 'triggersHash'])('bundles again when %s is not what this config gives', async (field) => {
+    const fixture = project()
+    await bundled(fixture)
+    const path = join(fixture.root, '.monocf', 'bundle', 'staging', 'manifest.json')
+    const manifest = JSON.parse(readFileSync(path, 'utf8'))
+    manifest.workers.orders[field] = 'something-else'
+    writeFileSync(path, JSON.stringify(manifest))
+
+    const result = await runCli(fixture, plan, {cloudflare: {}})
+
+    expect(result.exitCode, result.stderr).toBe(0)
+    expect(built(result.calls)).toBe(1)
+  })
+
   it('reuses a bundle of this very checkout', async () => {
     const fixture = project()
     await bundled(fixture)

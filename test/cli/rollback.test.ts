@@ -269,6 +269,14 @@ describe('rollback <worker> --to', () => {
     expect(actionsOf(await planFor(fixture, result.cloudflare!)).billing).toBe('upload')
   })
 
+  it('uploads over it even for the very code that was live before', async () => {
+    const {before, cloudflare, fixture} = await deployedTwice(['billing'])
+
+    const result = await rollback(fixture, ['billing', '--to', before.billing.versionId, '--force'], {cloudflare})
+
+    expect(actionsOf(await planFor(fixture, result.cloudflare!, {rules: newCode('billing')})).billing).toBe('upload')
+  })
+
   it('keeps the triggers state as it was, so that only the code comes up again', async () => {
     const {before, cloudflare, fixture} = await deployedTwice(['billing'])
     const {triggersHash} = manifestOf(fixture).workers.billing

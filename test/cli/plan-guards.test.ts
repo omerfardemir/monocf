@@ -56,6 +56,14 @@ describe('plan, against what looks like the wrong account', () => {
     expect(readFileSync(join(fixture.root, 'plan.md'), 'utf8')).toContain('chosen by wrangler')
   })
 
+  it('takes the environment for the mask, when the account_id is blank', async () => {
+    const fixture = project({account_id: '   '})
+
+    const result = await runCli(fixture, [...args, '--first-run'], {cloudflare: {}, env: {CLOUDFLARE_ACCOUNT_ID: ACCOUNT}})
+
+    expect(result.stderr).toContain('abcd…1234')
+  })
+
   it("takes a worker's own account_id for the mask", async () => {
     const fixture = project({account_id: 'ffff0000000000000000000000005678'})
 
