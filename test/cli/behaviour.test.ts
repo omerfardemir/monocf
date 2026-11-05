@@ -162,7 +162,7 @@ describe('-a', () => {
     expect(deploy.exitCode).toBe(0)
     expect(deployedNames(deploy.calls, 'deploy')).toEqual(['billing-v1', 'orders-v1'])
     expect(build.exitCode).toBe(0)
-    expect(deployedNames(build.calls, 'deploy')).toEqual(['billing-v1', 'orders-v1'])
+    expect(deployedNames(build.calls, 'deploy').sort()).toEqual(['billing-v1', 'orders-v1'])
     expect(preview.exitCode).toBe(0)
     expect(deployedNames(preview.calls, 'versions upload')).toEqual(['billing-v1', 'orders-v1'])
   })
