@@ -119,7 +119,6 @@ async function bundleFor(
   return manifest
 }
 
-/** A failed read stops the plan. There's no way to tell what a worker needs without knowing what is live. */
 /**
  * The orphans Cloudflare says don't exist. An orphan has no config, so it's read in the account the environment names, and
  * only when that's the account its entry recorded: another account would say "doesn't exist" of a worker that's live. A read
@@ -143,6 +142,7 @@ async function readGoneOrphans(context: RunContext, state: null | StateManifest,
   return gone
 }
 
+/** A failed read stops the plan. There's no way to tell what a worker needs without knowing what is live. */
 async function readActiveVersions(
   context: RunContext,
   workers: ResolvedWorker[],
