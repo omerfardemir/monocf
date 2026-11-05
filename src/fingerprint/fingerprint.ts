@@ -40,10 +40,13 @@ function normalisePath(path: string): string {
   return path.replaceAll('\\', '/')
 }
 
-/** README.md holds a timestamp, a .map changes with line endings, and wrangler.json is the config, hashed apart. */
-export function isHashed(path: string): boolean {
+/**
+ * Wrangler's README.md at the top holds a timestamp, and a source map changes with line endings. With additional modules,
+ * any other name can be a real module, so a `.map` is left out only when the file it maps sits beside it.
+ */
+export function isHashed(path: string, paths: ReadonlySet<string> = new Set()): boolean {
   const normal = normalisePath(path)
-  return normal !== 'README.md' && !normal.endsWith('.map') && !/^wrangler\.json[^/]*$/.test(normal)
+  return normal !== 'README.md' && !(normal.endsWith('.map') && paths.has(normal.slice(0, -'.map'.length)))
 }
 
 // esbuild writes module paths into comments and `__commonJS` keys. pnpm cuts a long store directory name at a limit that
@@ -62,8 +65,9 @@ export function normaliseModule(path: string, bytes: Uint8Array | string): Uint8
 /** SHA-256 over sorted (path, bytes). Each part carries its length, so moving bytes between files changes the hash. */
 export function bundleHash(files: BundleFile[]): string {
   const hash = createHash('sha256')
+  const paths = new Set(files.map(({path}) => normalisePath(path)))
   const hashed = files
-    .filter(({path}) => isHashed(path))
+    .filter(({path}) => isHashed(path, paths))
     .map(({bytes, path}) => ({bytes: normaliseModule(path, bytes), path: normalisePath(path)}))
     .sort((a, b) => (a.path < b.path ? -1 : Number(a.path > b.path)))
   for (const {bytes, path} of hashed) {

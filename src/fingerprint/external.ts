@@ -76,6 +76,22 @@ function capnpInputs(config: RawConfig, env: string | undefined, workerPath: str
 }
 
 /**
+ * Wrangler overwrites a module called README.md in the output with its own, so its content is only in the source. It counts
+ * whichever rules match it, which can give a false "changed" and never a false "unchanged". A Python worker and `no_bundle`
+ * find additional modules whatever the field says.
+ */
+function readmeModule(config: RawConfig, env: string | undefined, workerPath: string): ExternalInput[] {
+  const field = (name: string) => effectiveField(config, env, name)
+  const main = field('main')
+  const finds = field('find_additional_modules') === true || field('no_bundle') === true || (typeof main === 'string' && main.endsWith('.py'))
+  const baseDir = field('base_dir')
+  const root = typeof baseDir === 'string' ? baseDir : typeof main === 'string' ? dirname(main) : undefined
+  if (!finds || root === undefined) return []
+  const path = resolve(workerPath, root, 'README.md')
+  return existsSync(path) ? [{label: 'readme-module', path, type: 'file'}] : []
+}
+
+/**
  * What this worker sends from outside the output directory, with the values for this env. Wrangler reads `site` and the
  * blobs only at the top level, and warns about them under an env, so both places count: a false "changed" costs one
  * redeploy, and a false "unchanged" never ships the change.
@@ -103,6 +119,7 @@ export function externalInputs(config: RawConfig, env: string | undefined, worke
     ),
     ...capnpInputs(config, env, workerPath),
     ...containerInputs(config, env, workerPath),
+    ...readmeModule(config, env, workerPath),
   ]
 }
 

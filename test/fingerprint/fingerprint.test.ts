@@ -48,24 +48,27 @@ describe('bundleHash', () => {
     expect(bundleHash([file('a', 'xy'), file('b', 'z')])).not.toBe(bundleHash([file('a', 'x'), file('b', 'yz')]))
   })
 
-  it('ignores README.md, source maps and wrangler configs', () => {
-    const a = bundleHash([file('index.js')])
+  it('ignores README.md at the top, and a source map beside the file it maps', () => {
+    const files = [file('index.js'), file('nested/a.js')]
     expect(
-      bundleHash([
-        file('index.js'),
-        file('README.md', 'Generated at 12:00'),
-        file('index.js.map', 'x'),
-        file('nested/a.js.map', 'x'),
-        file('wrangler.json', 'x'),
-        file('wrangler.jsonc', 'x'),
-      ]),
-    ).toBe(a)
+      bundleHash([...files, file('README.md', 'Generated at 12:00'), file('index.js.map', 'x'), file('nested/a.js.map', 'x')]),
+    ).toBe(bundleHash(files))
   })
 
-  it('counts a module that only shares a name with those, in a subdirectory', () => {
+  it('counts a module that only shares a name with those', () => {
     expect(isHashed('docs/README.md')).toBe(true)
-    expect(isHashed('data/wrangler.json')).toBe(true)
     expect(isHashed('README.md')).toBe(false)
+  })
+
+  it('counts a .map with nothing beside it, which can only be a module', () => {
+    const a = bundleHash([file('index.js'), file('src/data.map', 'one')])
+    expect(bundleHash([file('index.js'), file('src/data.map', 'two')])).not.toBe(a)
+  })
+
+  it('counts a module called wrangler.json, at any depth', () => {
+    const a = bundleHash([file('index.js'), file('wrangler.json', 'one')])
+    expect(bundleHash([file('index.js'), file('wrangler.json', 'two')])).not.toBe(a)
+    expect(bundleHash([file('index.js'), file('wrangler.jsonc', 'one')])).not.toBe(bundleHash([file('index.js')]))
   })
 
   describe('pnpm store directories', () => {

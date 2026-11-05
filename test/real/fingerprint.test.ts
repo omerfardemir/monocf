@@ -7,6 +7,7 @@ import {createFixture, runCli, type Fixture} from '../helpers/harness.js'
 const SERVICE_WORKER = `addEventListener('fetch', (event) => event.respondWith(new Response('ok')))\n`
 
 interface Worker {
+  bundleHash: string
   externalHash: string
   fingerprint: string
 }
@@ -91,6 +92,53 @@ describe('real wrangler: the fingerprint covers what it uploads from outside --o
     const fixture = project(config, {'gen.cjs': script, 'source.txt': 'one'})
 
     expectChanged(await afterChanging(fixture, 'source.txt'))
+  })
+})
+
+const withModules = (globs: string[], type: string) => ({
+  find_additional_modules: true,
+  rules: [{globs, type}],
+})
+
+describe('real wrangler: a module is not left out because of its name', {timeout: 180_000}, () => {
+  const entry = `export default {fetch: () => new Response('ok')}\n`
+
+  it('a text module called data.map', async () => {
+    const fixture = project(withModules(['**/*.map'], 'Text'), {'src/data.map': 'one', 'src/index.ts': entry})
+
+    const [before, after] = await afterChanging(fixture, 'src/data.map')
+
+    expect(after.bundleHash).not.toBe(before.bundleHash)
+    expect(after.fingerprint).not.toBe(before.fingerprint)
+  })
+
+  it('a data module called wrangler.json', async () => {
+    const fixture = project(withModules(['**/*.json'], 'Data'), {'src/index.ts': entry, 'src/wrangler.json': '{"a": 1}'})
+
+    const [before, after] = await afterChanging(fixture, 'src/wrangler.json', '{"a": 2}')
+
+    expect(after.bundleHash).not.toBe(before.bundleHash)
+    expect(after.fingerprint).not.toBe(before.fingerprint)
+  })
+
+  it('a text module called README.md, which wrangler overwrites in the output', async () => {
+    const fixture = project(withModules(['**/*.md'], 'Text'), {'src/README.md': 'one', 'src/index.ts': entry})
+
+    expectChanged(await afterChanging(fixture, 'src/README.md'))
+  })
+
+  it('a README.md with no rule that matches it can only change the fingerprint in the safe direction', async () => {
+    const fixture = project(withModules(['**/*.txt'], 'Text'), {'src/README.md': 'one', 'src/index.ts': entry})
+
+    expectChanged(await afterChanging(fixture, 'src/README.md'))
+  })
+
+  it('a README.md is no input without additional modules', async () => {
+    const fixture = project({}, {'src/README.md': 'one', 'src/index.ts': entry})
+
+    const [before, after] = await afterChanging(fixture, 'src/README.md')
+
+    expect(after).toEqual(before)
   })
 })
 
