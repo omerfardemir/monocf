@@ -22,6 +22,8 @@ export interface StateWorker {
 
 export interface StateManifest {
   env: string
+  /** Callers of a recreated provider. They stay broken until they get a new version, whatever else is true of them. */
+  needsNewVersion?: string[]
   schemaVersion: number
   updatedAt: string
   workers: Record<string, StateWorker>
@@ -81,6 +83,11 @@ export function parseStateManifest(body: string, env: string): StateManifest {
 
   if (parsed.env !== env) throw unusable(`is for env ${String(parsed.env)}, not ${env}.`)
   if (!isPlainObject(workers)) throw unusable('has no workers.')
+  const {needsNewVersion} = parsed
+  if (needsNewVersion !== undefined && !(Array.isArray(needsNewVersion) && needsNewVersion.every((name) => typeof name === 'string'))) {
+    throw unusable('has a needsNewVersion that is not a list of names.')
+  }
+
   for (const [name, entry] of Object.entries(workers)) assertWorker(name, entry)
   return parsed as unknown as StateManifest
 }

@@ -39,6 +39,8 @@ export interface PlanStep {
   explicitEmptyCrons: boolean
   externalHash: string
   fingerprint: string
+  /** For a `create` of a worker the manifest knows: the callers `apply` marks in the manifest before this runs. */
+  markCallers?: string[]
   /** The version Cloudflare serves now, or the largest share of a split rollout. Absent when the worker doesn't exist. */
   previousVersionId?: string
   reasons: PlanReason[]
@@ -55,6 +57,7 @@ export interface PlanStep {
 
 export type PlanNoteKind =
   | 'baseline'
+  | 'caller-ignored'
   | 'caller-not-selected'
   | 'drift'
   | 'orphan'
@@ -95,6 +98,8 @@ export interface PlanBundle {
 export interface PlanOptions {
   createdAt: string
   onDrift: OnDrift
+  /** Every worker that isn't selected through the ignore file, with its edges. A caller here is never touched, so a note names it. */
+  ignored?: {graph: Graph; workers: string[]}
   /** Every worker directory in the repository, ignored ones too. A state entry for anything else is an orphan. */
   repositoryWorkers: string[]
   state: string
@@ -232,24 +237,59 @@ function previousVersion(active: ActiveInfo): string | undefined {
   return active.state === 'active' ? active.versionId : active.shares[0].versionId
 }
 
+/** A blocked step stays blocked: a person has to look at it, and the need stays in the manifest for afterwards. */
+function giveNewVersion(decision: Decision): void {
+  if (decision.action === 'skip' || decision.action === 'adopt' || decision.action === 'triggers') {
+    decision.reasons = decision.action === 'triggers' ? [...decision.reasons, 'provider-recreated'] : ['provider-recreated']
+    decision.action = 'upload'
+  } else if (decision.action === 'upload' && !decision.reasons.includes('provider-recreated')) {
+    decision.reasons = [...decision.reasons, 'provider-recreated']
+  }
+}
+
 /**
  * A deleted and recreated provider leaves its callers broken until they get a new version, and only a new one: redeploying
  * the old version doesn't help. So a caller that would otherwise get no new version gets one. Queue edges hold no binding.
+ * The need outlives this plan through the manifest's `needsNewVersion`, which `apply` writes before the provider exists.
  */
-function uploadCallersOfRecreated(decisions: Map<string, Decision>, recreated: string[], graph: Graph): PlanNote[] {
+function uploadCallersOfRecreated(
+  decisions: Map<string, Decision>,
+  {graph, ignored, marked, recreated}: {graph: Graph; ignored: PlanOptions['ignored']; marked: string[]; recreated: string[]},
+): PlanNote[] {
   const notes: PlanNote[] = []
+  const ignoredNames = new Set(ignored?.workers)
+  const ignoredNote = (caller: string, why: string): PlanNote => ({
+    kind: 'caller-ignored',
+    message: `${why}, and it's in .monocfignore, so monocf leaves it alone. It stays broken until someone gives it a new version.`,
+    worker: caller,
+  })
   for (const provider of recreated) {
     for (const caller of directBindingCallers(graph, provider)) {
       const decision = decisions.get(caller)
-      if (!decision) {
+      if (decision) {
+        giveNewVersion(decision)
+      } else {
         const message = `It calls ${provider}, which is being recreated, so it needs a new version, but it isn't selected.`
         notes.push({kind: 'caller-not-selected', message, worker: caller})
-      } else if (decision.action === 'skip' || decision.action === 'adopt' || decision.action === 'triggers') {
-        decision.reasons = decision.action === 'triggers' ? [...decision.reasons, 'provider-recreated'] : ['provider-recreated']
-        decision.action = 'upload'
-      } else if (decision.action === 'upload' && !decision.reasons.includes('provider-recreated')) {
-        decision.reasons = [...decision.reasons, 'provider-recreated']
       }
+    }
+
+    if (ignored) {
+      for (const caller of directBindingCallers(ignored.graph, provider)) {
+        if (ignoredNames.has(caller)) notes.push(ignoredNote(caller, `It calls ${provider}, which is being recreated`))
+      }
+    }
+  }
+
+  for (const caller of marked) {
+    const decision = decisions.get(caller)
+    if (decision) {
+      giveNewVersion(decision)
+    } else if (ignoredNames.has(caller)) {
+      notes.push(ignoredNote(caller, 'A provider it calls was recreated'))
+    } else {
+      const message = "A provider it calls was recreated, so it needs a new version, but it isn't selected."
+      notes.push({kind: 'caller-not-selected', message, worker: caller})
     }
   }
 
@@ -285,7 +325,7 @@ export function createPlan(
   state: null | StateManifest,
   active: Record<string, ActiveInfo>,
   graph: Graph,
-  {createdAt, onDrift, repositoryWorkers, state: stateUrl}: PlanOptions,
+  {createdAt, ignored, onDrift, repositoryWorkers, state: stateUrl}: PlanOptions,
 ): Plan {
   const stored = new Map(Object.entries(state?.workers ?? {}))
   const order = computeOrder(graph).levels.flat()
@@ -322,7 +362,9 @@ export function createPlan(
     }
   }
 
-  notes.push(...uploadCallersOfRecreated(decisions, recreated, graph))
+  // A name gone from the repository needs nothing: the orphan note covers it.
+  const marked = (state?.needsNewVersion ?? []).filter((name) => repositoryWorkers.includes(name))
+  notes.push(...uploadCallersOfRecreated(decisions, {graph, ignored, marked, recreated}))
   for (const name of names) routeToDeploy(decisions.get(name)!, bundle.workers[name], entryOf(name))
 
   for (const [name, entry] of stored) {
@@ -351,6 +393,7 @@ export function createPlan(
       triggersChanged,
       explicitEmptyCrons: hasCrons(entryOf(name)?.triggers) && !hasCrons(worker.triggers),
       fingerprint: worker.fingerprint,
+      ...(recreated.includes(name) && {markCallers: directBindingCallers(graph, name)}),
       bundleHash: worker.bundleHash,
       configHash: worker.configHash,
       externalHash: worker.externalHash,

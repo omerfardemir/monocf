@@ -30,6 +30,16 @@ describe('parseStateManifest', () => {
     expect(() => parseStateManifest(manifest({schemaVersion}), 'dev')).toThrow('schemaVersion')
   })
 
+  it('reads a manifest with no marked callers as having none', () => {
+    expect(parseStateManifest(manifest({}), 'dev').needsNewVersion).toBeUndefined()
+  })
+
+  it('keeps marked callers, and refuses what is not a list of names', () => {
+    expect(parseStateManifest(manifest({needsNewVersion: ['orders']}), 'dev').needsNewVersion).toEqual(['orders'])
+    expect(() => parseStateManifest(manifest({needsNewVersion: 'orders'}), 'dev')).toThrow('needsNewVersion')
+    expect(() => parseStateManifest(manifest({needsNewVersion: [1]}), 'dev')).toThrow('needsNewVersion')
+  })
+
   it('refuses an empty versionId', () => {
     expect(() => parseStateManifest(manifest({}, {orders: {...entry, versionId: ''}}), 'dev')).toThrow('empty versionId')
   })

@@ -213,6 +213,7 @@ export async function runPlan(flags: PlanFlags): Promise<void> {
     const active = await readActiveVersions(context, workers, {env, state})
     plan = createPlan(pickWorkers(bundle, selected), state, active, graph, {
       createdAt: new Date().toISOString(),
+      ignored: {graph: buildGraph(project.workers), workers: ignored},
       onDrift: flags.onDrift ?? 'warn',
       repositoryWorkers: discoverWorkers(options),
       state: store.describe(),
