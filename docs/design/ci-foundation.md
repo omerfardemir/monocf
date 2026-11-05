@@ -215,14 +215,14 @@ The active version comes from `wrangler deployments status --name <deployed-name
 |---|---|---|
 | Worker doesn't exist on Cloudflare | `create` | `new` |
 | Exists, no manifest entry, a different tag, and migrations in the config | `full-deploy`, since `versions upload` refuses pending migrations and nothing says which are applied | `baseline` |
-| Exists, no manifest entry, active tag is `monocf:<fingerprint>` | `adopt`: no deploy, `apply` records it in state, and applies its crons and routes when it has any, as a crash may have stopped short of them | `state-missing` |
+| Exists, no manifest entry, active tag is `monocf:<fingerprint>` | `adopt`: no deploy, `apply` runs `triggers deploy` and records it in state, as a crash may have stopped short of its triggers, `workers_dev` included | `state-missing` |
 | Exists, no manifest entry, another tag or none | `upload` with `--on-drift warn`, `blocked` with `fail` | `baseline`, or `drift` and `baseline` when blocked |
 | Manifest version is active, same fingerprint, other triggers. Only after a crash: `configHash` covers the triggers, so a cron-only commit changes the fingerprint and takes `upload` with `triggersChanged` | `skip` | `unchanged` |
 | Manifest version is active, same fingerprint, other triggers | `triggers` | `triggers-changed` |
 | Manifest version is active, other fingerprint, same DO hash | `upload`, with `triggersChanged` when they differ too | `bundle-changed`, `config-changed`, `external-changed` |
 | Other fingerprint, other DO hash | `full-deploy` | `do-changed` |
-| Another version is active, tag is `monocf:<manifest fingerprint>` | As if in sync, with the note `state-behind` | As above |
-| Another version is active, tag is `monocf:<this bundle's fingerprint>` | `skip`, or `triggers` when they differ from the manifest, with the note `state-behind`: a crashed run already deployed this | `unchanged`, `triggers-changed` |
+| Another version is active, tag is `monocf:<manifest fingerprint>` | As if in sync, with the note `state-behind`, and `triggers` where that says `skip`: nothing says the crashed run reached them, so they're applied whatever the manifest says | As above, or `state-behind` |
+| Another version is active, tag is `monocf:<this bundle's fingerprint>` | `triggers`, with the note `state-behind`: a crashed run already deployed this, and may have stopped short of them | `state-behind`, `triggers-changed` |
 | Another version is active, any other tag | Drift | |
 | Split rollout | Drift, also with no manifest entry | Adds `split` |
 
@@ -232,7 +232,7 @@ Drift with `--on-drift warn` takes the action the table gives, with `drift` firs
 - **Recreated provider:** when a worker that the manifest knows has to be created, each caller through a binding that would get no new version (`skip`, `adopt` or `triggers`) becomes an `upload`, reason `provider-recreated`. A queue edge holds no binding, so it doesn't count. A caller left out by `--workers` gets the note `caller-not-selected`.
 - **Routes removed:** wrangler only publishes a list with something in it, so removing the last route leaves it attached. Monocf has no zone to check this against, so a note `routes-removed` tells a person to remove it by hand.
 - **A recreated provider's callers:** they stay broken until they get a new version, so the need is durable. Before running a `create` for a worker the manifest knows, `apply` writes its direct callers to the manifest's `needsNewVersion`, before the provider exists. A caller leaves that list when it next gets a new version through a successful `upload` or `deploy`. `plan` turns a marked caller into `upload` / `provider-recreated` unless its action already makes a new version or it's blocked, keeps a `caller-not-selected` note and the marker for one that isn't selected, and names one in `.monocfignore` in a note and never touches it. **Someone who deletes and recreates a provider by hand must also redeploy its callers:** nothing can see that.
-- **Recorded without a deploy:** `adopt` and `state-behind` steps carry `recordState: true`, and `apply` records them at `previousVersionId`, so that a change after a recovered crash doesn't read as drift.
+- **Recorded without a deploy:** `adopt` and `state-behind` steps carry `recordState: true` and `triggersChanged: true`. `apply` runs `triggers deploy`, since the attempt can't prove it got that far, and only then records them at `previousVersionId`, so that a change after a recovered crash doesn't read as drift. A marked caller that needed `adopt` keeps those triggers when it becomes an `upload`.
 - **Crons removed:** when the manifest's crons aren't empty and the new effective crons are, the step has `explicitEmptyCrons: true`, and `apply` writes `"crons": []`, since an absent key changes nothing.
 - **Orphans:** a manifest entry whose directory is gone gets the note `orphan`, and is never read or deleted. A worker in `.monocfignore` gets no read, no step and no note.
 
@@ -272,7 +272,7 @@ Exceptions that need a plain `wrangler deploy`:
 
 The scheduler is a ready queue over the graph. On failure it skips the transitive callers of the failed worker and continues with independent branches. Each worker has one writer at a time, because parallel writes to one worker all exit 0 with a silent winner. It retries `fetch failed`, 429 and 5xx with backoff. State is written as workers finish, so an interrupted run loses nothing.
 
-A retry may follow an attempt that took effect, as a kill right after `Uploaded` shows. So a retried `versions deploy` reads the active version first, and a retried `deploy` also reads its tag, and takes the live version when the tag is this fingerprint. A step whose triggers failed therefore finds itself promoted, and goes on to them.
+A retry may follow an attempt that took effect, as a kill right after `Uploaded` shows. So a retried `versions deploy` reads the active version first, and a step whose triggers failed finds itself promoted and goes on to them. A retried `deploy` reads the active version and its tag, and takes that version when the tag is this fingerprint and it isn't the version read before the first attempt. A tag alone can't prove it: a marked caller's code hasn't changed, so its old version has that tag too. Wrangler applies triggers after `Uploaded`, so a `deploy` taken this way always goes on to `triggers deploy` before anything is recorded.
 
 `apply` refuses a stale plan with exit 2 before anything happens: an unknown schema, `applicable` false, a checkout whose real `HEAD` isn't the plan's commit, another wrangler version, a `--expect-branch-tip` elsewhere, or a worker this checkout doesn't deploy under that name. It passes each worker's account explicitly on every read and write.
 

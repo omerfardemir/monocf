@@ -59,6 +59,7 @@ describe('a version that a secret command made', () => {
   it('does not count when the tag says what it is', () => {
     const plan = planFor(three, manifest(threeEntries), {...threeLive, orders: live('other', {tag: tagFor('f-orders'), triggeredBy: 'secret'})})
 
-    expect(actions(plan).orders).toBe('skip')
+    expect(actions(plan).orders).toBe('triggers')
+    expect(plan.notes.map(({kind}) => kind)).toEqual(['state-behind'])
   })
 })

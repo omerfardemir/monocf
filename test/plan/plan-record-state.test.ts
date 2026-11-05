@@ -13,7 +13,7 @@ describe('recordState', () => {
   it('is set on a step behind the state, with the active version', () => {
     const plan = planFor(three, manifest(threeEntries), {...threeLive, orders: live('other', {tag: tagFor('f-orders')})})
 
-    expect(plan.steps.find(({worker}) => worker === 'orders')).toMatchObject({action: 'skip', previousVersionId: 'live-other', recordState: true})
+    expect(plan.steps.find(({worker}) => worker === 'orders')).toMatchObject({action: 'triggers', previousVersionId: 'live-other', recordState: true})
     expect(plan.notes.map(({kind}) => kind)).toEqual(['state-behind'])
   })
 

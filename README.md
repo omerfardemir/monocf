@@ -1069,10 +1069,10 @@ When in doubt, a file counts: a false "changed" costs one redeploy, and a false 
 |---|---|---|
 | `skip` | Nothing changed | `unchanged` |
 | `upload` | Code, config or external inputs changed | `bundle-changed`, `config-changed`, `external-changed`, and more below |
-| `triggers` | The code is live, and only crons, routes, `workers_dev` or `preview_urls` are behind, as after a crash | `triggers-changed` |
+| `triggers` | The code is live, and only crons, routes, `workers_dev` or `preview_urls` are behind, or a crash may have stopped short of them | `triggers-changed`, `state-behind` |
 | `full-deploy` | Durable Object classes or migrations changed, or `upload` can't carry the change | `do-changed`, `needs-deploy` |
 | `create` | The worker doesn't exist | `new` |
-| `adopt` | Live with the right tag, but no state entry. Nothing is deployed | `state-missing` |
+| `adopt` | Live with the right tag, but no state entry. No new version: `apply` runs `triggers deploy` and records it | `state-missing` |
 | `blocked` | Drift, under `--on-drift fail` | `drift`, `split`, `baseline` |
 
 `upload` can also carry `drift`, `split`, `baseline`, `secret-changed` or `provider-recreated`, as the sections above describe.

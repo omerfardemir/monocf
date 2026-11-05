@@ -23,7 +23,7 @@ import {
   writePlan,
   writesOf,
 } from '../helpers/deploy-fixtures.js'
-import {flagValue, releaseOf, runCli, startCli} from '../helpers/harness.js'
+import {effectiveConfig, flagValue, releaseOf, runCli, startCli} from '../helpers/harness.js'
 
 const comesBefore = (writes: string[], first: string, second: string) => {
   expect(writes).toContain(first)
@@ -534,10 +534,10 @@ describe('apply, on what it finds already live', () => {
     const plan = await planFor(fixture, cloudflare)
     expect(new Set(Object.values(actionsOf(plan)))).toEqual(new Set(['adopt']))
 
-    const result = await applyPlan(fixture, cloudflare, {noCalls: true})
+    const result = await applyPlan(fixture, cloudflare)
 
     expect(result.exitCode, result.stderr).toBe(0)
-    expect(writesOf(result.calls)).toEqual([])
+    expect(writesOf(result.calls).sort()).toEqual(['triggers billing', 'triggers gateway', 'triggers orders', 'triggers reports'])
     expect(manifestOf(fixture).workers.orders.versionId).toBe(workers.orders.versionId)
     expect(actionsOf(await planFor(fixture, cloudflare)).orders).toBe('skip')
   })
@@ -551,9 +551,9 @@ describe('apply, on what it finds already live', () => {
     live.tags![left] = live.tags![live.active[0][0]]
     live.active = [[left, 100]]
     const plan = await planFor(fixture, cloudflare)
-    expect(stepOf(plan, 'orders')).toMatchObject({action: 'skip', previousVersionId: left, recordState: true})
+    expect(stepOf(plan, 'orders')).toMatchObject({action: 'triggers', previousVersionId: left, recordState: true})
 
-    const result = await applyPlan(fixture, cloudflare, {noCalls: true})
+    const result = await applyPlan(fixture, cloudflare)
 
     expect(result.exitCode, result.stderr).toBe(0)
     expect(manifestOf(fixture).workers.orders.versionId).toBe(left)
@@ -569,7 +569,8 @@ describe('apply, on what it finds already live', () => {
 
     const result = await applyPlan(fixture, cloudflare)
 
-    expect(writesOf(result.calls)).toEqual(['triggers reports'])
+    expect(writesOf(result.calls)).toContain('triggers reports')
+    expect(effectiveConfig(callsOf(result.calls, 'triggers reports')[0]).triggers?.crons).toEqual(['0 1 * * *'])
   })
 })
 

@@ -21,6 +21,7 @@ export type PlanReason =
   | 'provider-recreated'
   | 'secret-changed'
   | 'split'
+  | 'state-behind'
   | 'state-missing'
   | 'triggers-changed'
   | 'unchanged'
@@ -44,7 +45,7 @@ export interface PlanStep {
   /** The version Cloudflare serves now, or the largest share of a split rollout. Absent when the worker doesn't exist. */
   previousVersionId?: string
   reasons: PlanReason[]
-  /** `apply` records this worker at `previousVersionId`, which is live and right, so that a change after a crash isn't drift. */
+  /** A crashed run left this version live, so `apply` records it, and applies the triggers that run may not have reached. */
   recordState?: true
   transitiveCallers: string[]
   triggers: Triggers
@@ -180,10 +181,14 @@ function drifted(worker: ManifestWorker, entry: StateWorker | undefined, {messag
   return {action: 'upload', notes, reasons, triggersChanged: true}
 }
 
-/** The manifest is behind what is live, but the tag shows monocf put it there: a run that crashed before writing state. */
+/**
+ * The manifest is behind what is live, but the tag shows monocf put it there: a run that crashed before writing state. Nothing
+ * says it got as far as its triggers, so they're applied whatever the manifest says about them.
+ */
 function stateBehind(decision: Decision): Decision {
   const message = 'The active version carries the expected tag, but the state manifest names another. A previous run likely stopped before writing state.'
-  return {...decision, notes: [{kind: 'state-behind', message}], recordState: true}
+  const recovered = decision.action === 'skip' ? {...decision, action: 'triggers' as const, reasons: ['state-behind' as const]} : decision
+  return {...recovered, notes: [{kind: 'state-behind', message}], recordState: true, triggersChanged: true}
 }
 
 /**
@@ -212,7 +217,7 @@ function classify(worker: ManifestWorker, entry: StateWorker | undefined, active
 
   if (!entry) {
     if (active.tag === tagFor(worker.fingerprint)) {
-      return {action: 'adopt', notes: [], reasons: ['state-missing'], recordState: true, triggersChanged: false}
+      return {action: 'adopt', notes: [], reasons: ['state-missing'], recordState: true, triggersChanged: true}
     }
 
     const message = 'The worker exists with no state entry, and its tag differs from this bundle.'

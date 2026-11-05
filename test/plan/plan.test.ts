@@ -130,7 +130,7 @@ describe('classification', () => {
       {state: 'missing'},
       {action: 'create', note: 'recreated', reasons: ['new'], triggersChanged: true},
     ],
-    ['exists, no entry, tag equals', {}, null, elsewhere(tagFor('fp-1')), {action: 'adopt', reasons: ['state-missing'], triggersChanged: false}],
+    ['exists, no entry, tag equals', {}, null, elsewhere(tagFor('fp-1')), {action: 'adopt', reasons: ['state-missing'], triggersChanged: true}],
     ['exists, no entry, tag differs', {}, null, elsewhere(tagFor('other')), {action: 'upload', note: 'baseline', reasons: ['baseline'], triggersChanged: true}],
     ['exists, no entry, no tag', {}, null, elsewhere(), {action: 'upload', note: 'baseline', reasons: ['baseline'], triggersChanged: true}],
     ['in sync, nothing changed', {}, {}, live, {action: 'skip', reasons: ['unchanged'], triggersChanged: false}],
@@ -161,18 +161,18 @@ describe('classification', () => {
       {action: 'full-deploy', reasons: ['do-changed'], triggersChanged: false},
     ],
     [
-      'state behind, tag equals the manifest, nothing to do',
+      'state behind, tag equals the manifest, nothing else to do',
       {},
       {},
       elsewhere(tagFor('fp-1')),
-      {action: 'skip', note: 'state-behind', reasons: ['unchanged'], triggersChanged: false},
+      {action: 'triggers', note: 'state-behind', reasons: ['state-behind'], triggersChanged: true},
     ],
     [
       'state behind, tag equals the manifest, the bundle moved on',
       {bundleHash: 'bundle-2', fingerprint: 'fp-2'},
       {},
       elsewhere(tagFor('fp-1')),
-      {action: 'upload', note: 'state-behind', reasons: ['bundle-changed'], triggersChanged: false},
+      {action: 'upload', note: 'state-behind', reasons: ['bundle-changed'], triggersChanged: true},
     ],
     [
       'state behind, tag equals the manifest, triggers differ',
@@ -186,7 +186,7 @@ describe('classification', () => {
       {bundleHash: 'bundle-2', doHash: 'do-2', fingerprint: 'fp-2'},
       {},
       elsewhere(tagFor('fp-2')),
-      {action: 'skip', note: 'state-behind', reasons: ['unchanged'], triggersChanged: false},
+      {action: 'triggers', note: 'state-behind', reasons: ['state-behind'], triggersChanged: true},
     ],
     [
       'state behind, a crashed run deployed this bundle, its triggers may not have landed',
@@ -263,7 +263,7 @@ describe('--on-drift fail', () => {
 
   it.each<[string, Partial<ManifestWorker>, null | Partial<StateWorker>, ActiveInfo, PlanStep['action']]>([
     ['in sync', {}, {}, live, 'skip'],
-    ['state behind', {}, {}, elsewhere(tagFor('fp-1')), 'skip'],
+    ['state behind', {}, {}, elsewhere(tagFor('fp-1')), 'triggers'],
     ['adopt', {}, null, elsewhere(tagFor('fp-1')), 'adopt'],
     ['new', {}, null, {state: 'missing'}, 'create'],
   ])('leaves %s alone', (_, worker, entry, active, action) => {

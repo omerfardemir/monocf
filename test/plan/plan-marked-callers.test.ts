@@ -13,6 +13,22 @@ describe('callers marked as needing a new version', () => {
     expect(actions(plan).gateway).toBe('skip')
   })
 
+  it('upload when they would otherwise be adopted, with the triggers the adopt would have run', () => {
+    const entries = {billing: threeEntries.billing, gateway: threeEntries.gateway}
+    const adopted = {...threeLive, orders: live('other', {tag: 'monocf:f-orders'})}
+
+    expect(actions(planFor(three, manifest(entries), adopted)).orders).toBe('adopt')
+    const plan = planFor(three, manifest(entries, {needsNewVersion: ['orders']}), adopted)
+
+    expect(plan.steps.find(({worker}) => worker === 'orders')).toMatchObject({action: 'upload', reasons: ['provider-recreated'], triggersChanged: true})
+  })
+
+  it('are left alone when they are gone from the repository, which the orphan note covers', () => {
+    const plan = planFor(withoutOrders, manifest(threeEntries, {needsNewVersion: ['orders']}), threeLive, {repositoryWorkers: ['billing', 'gateway']})
+
+    expect(plan.notes.map(({kind, worker}) => [kind, worker])).toEqual([['orphan', 'orders']])
+  })
+
   it('keep an action that already makes a new version', () => {
     const fullDeploy = {...three, orders: bundled('orders', {doHash: 'new', fingerprint: 'new'})}
 

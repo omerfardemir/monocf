@@ -151,6 +151,8 @@ function assertDescribes(plan: Plan, workers: Map<string, ResolvedWorker>, {noti
 
 interface Target {
   accountId?: string
+  /** What was live before this run's first attempt, as read then. */
+  liveBefore?: string
   record: RunRecord['workers'][string]
   step: PlanStep
   worker: ResolvedWorker
@@ -161,10 +163,6 @@ function withEmptyCrons(worker: ResolvedWorker, env: string): ResolvedWorker {
   const section = isPlainObject(envs[env]) ? envs[env] : {}
   const triggers = isPlainObject(section.triggers) ? section.triggers : {}
   return {...worker, config: {...worker.config, env: {...envs, [env]: {...section, triggers: {...triggers, crons: []}}}}}
-}
-
-function hasTriggers({crons, routes}: Triggers): boolean {
-  return (crons?.length ?? 0) > 0 || routes.length > 0
 }
 
 /** Every worker a step waits for that's in `members`, looking through the ones that aren't. */
@@ -212,12 +210,6 @@ class Applier {
   async execute(): Promise<void> {
     const targets = [...this.run.targets.values()]
     const ofAction = (...actions: PlanStep['action'][]) => targets.filter(({step}) => actions.includes(step.action))
-
-    for (const target of ofAction('skip')) {
-      if (target.step.recordState && target.step.previousVersionId !== undefined) {
-        this.writer.update(target.step.worker, this.entryFor(target, target.step.previousVersionId))
-      }
-    }
 
     const marks = [...new Set(targets.flatMap(({step}) => step.markCallers ?? []))]
     if (marks.length > 0) await this.writer.mark(marks)
@@ -347,14 +339,33 @@ class Applier {
     await verifyActive(this.call(target), {accountId: target.accountId, deployedName: target.step.deployedName, dir: target.worker.dir}, versionId)
   }
 
-  /** An earlier attempt may have taken effect, as a kill right after `Uploaded` does. Its tag says so, as it left no version ID. */
+  /**
+   * An earlier attempt may have taken effect, as a kill right after `Uploaded` does, and it left no version ID. Its tag says so,
+   * but only about a version that wasn't live before: the code of a marked caller hasn't changed, so its old version has that tag too.
+   */
   private async liveFromEarlierAttempt(target: Target): Promise<string | undefined> {
     const {deployedName, fingerprint} = target.step
     const call = this.call(target)
     const active = await readActiveVersion(call, deployedName, target.accountId)
-    if (active.state !== 'active') return undefined
+    if (active.state !== 'active' || active.versionId === target.liveBefore) return undefined
     const tag = await readVersionTag(call, deployedName, active.versionId, target.accountId)
     return tag === tagFor(fingerprint) ? active.versionId : undefined
+  }
+
+  private async readLiveBefore(target: Target): Promise<void> {
+    const active = await readActiveVersion(this.call(target), target.step.deployedName, target.accountId)
+    if (active.state === 'active') target.liveBefore = active.versionId
+  }
+
+  /** If this fails, the entry says so with a hash that matches nothing, and the next plan gives `triggers`. */
+  private async applyTriggers(target: Target, versionId: string): Promise<void> {
+    try {
+      await this.wrangler(target, {action: 'triggers-deploy', configPath: this.configOf(target)}, {env: this.env})
+    } catch (error) {
+      const previous = target.record.previous?.triggers ?? NO_TRIGGERS
+      this.writer.update(target.worker.dir, {...this.entryFor(target, versionId), triggers: previous, triggersHash: TRIGGERS_NOT_APPLIED}, {newVersion: true})
+      throw error
+    }
   }
 
   private deployStep(target: Target): DeployStep {
@@ -362,12 +373,15 @@ class Applier {
       action: 'deploy',
       dependsOn: [],
       run: async (attempt) => {
+        if (attempt === 1) await this.readLiveBefore(target)
         const earlier = attempt > 1 ? await this.liveFromEarlierAttempt(target) : undefined
         const versionId =
           earlier ?? (await this.wrangler(target, {action: 'deploy', configPath: this.configOf(target)}, this.argvOptions(target))).output.versionId!
         await this.verify(target, versionId)
         target.record.newVersionId = versionId
         target.record.changed = true
+        // Wrangler applies triggers after `Uploaded`, so a failure in between leaves them unapplied, and workers_dev off.
+        if (earlier !== undefined) await this.applyTriggers(target, versionId)
         this.writer.update(target.worker.dir, this.entryFor(target, versionId), {newVersion: true})
         return versionId
       },
@@ -390,7 +404,6 @@ class Applier {
 
   private promoteStep(target: Target): DeployStep {
     const {dir} = target.worker
-    const configPath = (): string => this.configOf(target)
     return {
       action: 'promote',
       dependsOn: [],
@@ -399,23 +412,14 @@ class Applier {
         const active = attempt > 1 ? await readActiveVersion(this.call(target), target.step.deployedName, target.accountId) : undefined
         if (active?.state !== 'active' || active.versionId !== versionId) {
           const {env, message} = this.argvOptions(target)
-          await this.wrangler(target, {action: 'versions-deploy', configPath: configPath(), versionId}, {env, message})
+          await this.wrangler(target, {action: 'versions-deploy', configPath: this.configOf(target), versionId}, {env, message})
         }
 
         await this.verify(target, versionId)
         target.record.newVersionId = versionId
         target.record.changed = true
 
-        if (target.step.triggersChanged) {
-          try {
-            await this.wrangler(target, {action: 'triggers-deploy', configPath: configPath()}, {env: this.env})
-          } catch (error) {
-            const previous = target.record.previous?.triggers ?? NO_TRIGGERS
-            this.writer.update(dir, {...this.entryFor(target, versionId), triggers: previous, triggersHash: TRIGGERS_NOT_APPLIED}, {newVersion: true})
-            throw error
-          }
-        }
-
+        if (target.step.triggersChanged) await this.applyTriggers(target, versionId)
         this.writer.update(dir, this.entryFor(target, versionId), {newVersion: true})
         return versionId
       },
@@ -436,16 +440,13 @@ class Applier {
     }
   }
 
-  /** Already live, by its tag. A run that crashed may have stopped short of its triggers, and applying them again is harmless. */
+  /** Already live, by its tag. A run that crashed may have stopped short of its triggers, workers_dev too, and applying them again is harmless. */
   private adoptStep(target: Target): DeployStep {
     return {
       action: 'adopt',
       dependsOn: [],
       run: async () => {
-        if (hasTriggers(target.step.triggers)) {
-          await this.wrangler(target, {action: 'triggers-deploy', configPath: this.configOf(target)}, {env: this.env})
-        }
-
+        await this.wrangler(target, {action: 'triggers-deploy', configPath: this.configOf(target)}, {env: this.env})
         this.writer.update(target.worker.dir, this.entryFor(target, target.step.previousVersionId!))
       },
       worker: target.worker.dir,
