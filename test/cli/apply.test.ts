@@ -131,6 +131,35 @@ describe('apply, with new code', () => {
     expect(writes.slice(3)).toEqual(['promote billing', 'promote orders', 'promote gateway'])
   })
 
+  it('holds a promote until the worker it calls has finished', async () => {
+    const fixture = deployFixture()
+    const cloudflare = await firstRun(fixture)
+    await planFor(fixture, cloudflare, {rules: newCode('billing', 'orders')})
+
+    const result = await applyPlan(fixture, cloudflare, {flags: ['--json'], rules: [{command: 'versions deploy', delayMs: 1500, worker: 'billing'}]})
+
+    expect(result.exitCode, result.stderr).toBe(0)
+    const events = eventsOf(result)
+    const billingDone = events.findIndex(({action, type, worker}) => type === 'step-finished' && action === 'promote' && worker === 'billing')
+    const ordersStart = events.findIndex(({action, type, worker}) => type === 'step-started' && action === 'promote' && worker === 'orders')
+    expect(billingDone).toBeGreaterThan(-1)
+    expect(ordersStart).toBeGreaterThan(billingDone)
+  })
+
+  it('holds a create until the worker it calls has finished', async () => {
+    const fixture = deployFixture()
+    await planFor(fixture, {}, {flags: ['--first-run']})
+
+    const result = await applyPlan(fixture, {}, {flags: ['--json'], rules: [{command: 'deploy', delayMs: 1500, worker: 'billing'}]})
+
+    expect(result.exitCode, result.stderr).toBe(0)
+    const events = eventsOf(result)
+    const billingDone = events.findIndex(({action, type, worker}) => type === 'step-finished' && action === 'deploy' && worker === 'billing')
+    const ordersStart = events.findIndex(({action, type, worker}) => type === 'step-started' && action === 'deploy' && worker === 'orders')
+    expect(billingDone).toBeGreaterThan(-1)
+    expect(ordersStart).toBeGreaterThan(billingDone)
+  })
+
   it('promotes the uploaded version, verifies it and records it', async () => {
     const fixture = deployFixture()
     const cloudflare = await firstRun(fixture)
@@ -478,6 +507,24 @@ describe('apply, on what it finds already live', () => {
     expect(writesOf(result.calls)).toEqual([])
     expect(manifestOf(fixture).workers.orders.versionId).toBe(workers.orders.versionId)
     expect(actionsOf(await planFor(fixture, cloudflare)).orders).toBe('skip')
+  })
+
+  it('records a version a crashed run left live, so that the next change is not drift', async () => {
+    const fixture = deployFixture()
+    const cloudflare = await firstRun(fixture)
+    const name = stepOf(await planFor(fixture, cloudflare), 'orders').deployedName
+    const live = cloudflare.workers![name]
+    const left = 'left-by-a-crash'
+    live.tags![left] = live.tags![live.active[0][0]]
+    live.active = [[left, 100]]
+    const plan = await planFor(fixture, cloudflare)
+    expect(stepOf(plan, 'orders')).toMatchObject({action: 'skip', previousVersionId: left, recordState: true})
+
+    const result = await applyPlan(fixture, cloudflare, {noCalls: true})
+
+    expect(result.exitCode, result.stderr).toBe(0)
+    expect(manifestOf(fixture).workers.orders.versionId).toBe(left)
+    expect(stepOf(await planFor(fixture, cloudflare, {rules: newCode('orders')}), 'orders').reasons).not.toContain('drift')
   })
 
   it('applies the triggers of what it adopts', async () => {

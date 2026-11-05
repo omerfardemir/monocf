@@ -208,6 +208,10 @@ This allows you to define common variables at the root level and override them a
 
 <!-- commands -->
 * [`monocf whoami`](#monocf-whoami)
+* [`monocf plan`](#monocf-plan)
+* [`monocf apply`](#monocf-apply)
+* [`monocf rollback`](#monocf-rollback)
+* [`monocf secrets check`](#monocf-secrets-check)
 * [`monocf secrets deploy`](#monocf-secrets-deploy)
 * [`monocf worker [WORKERNAME]`](#monocf-worker-workername)
 * [`monocf worker create WORKERNAME`](#monocf-worker-create-workername)
@@ -248,11 +252,17 @@ monocf plan -e production --state r2://my-state-bucket/monocf --on-drift fail --
 | `--markdown` | Also write a summary for a pull request comment: names only, no values. |
 | `--on-drift` | `warn` (default) deploys over what else is live, with a warning. `fail` blocks that worker. |
 | `--workers` | Plan only these, as a comma-separated list. |
+| `--first-run` | Accept that this environment has no state and none of its workers exist. Without it, that exits 3, because a wrong account looks the same. |
+| `--allow-recreate` | Accept that most known workers read as missing, or that the account differs from the one that last deployed. Without it, either exits 3. |
 | `--json` | NDJSON events on stdout, ending in a `plan` event. |
 
 Each worker gets an action: `create`, `upload`, `triggers`, `full-deploy`, `adopt`, `skip` or `blocked`, with the reasons for it. Exit codes: 0 when a plan is made, even with no changes; 1 when anything is blocked or a read fails; 2 on a usage or check error; 3 when the state store or credentials can't be used.
 
 A worker in `.monocfignore` is never touched. A deployed worker that left the repository is listed as an orphan and never deleted.
+
+Rotating a secret with `monocf secrets deploy` or `wrangler secret put` makes a new version with no tag. That isn't drift: the next plan gives that worker an `upload` with the reason `secret-changed`, also under `--on-drift fail`, and the secret carries over.
+
+Someone who deletes and recreates a worker by hand must also redeploy its callers. Monocf can't see that. When `apply` recreates one itself, it keeps a note of the callers until they have a new version.
 
 **Allow one pipeline per environment.** Wrangler offers R2 no conditional writes, so the state store can't act as a lock. In GitHub Actions:
 
@@ -261,6 +271,48 @@ concurrency:
   group: deploy-${{ inputs.environment }}
   cancel-in-progress: false
 ```
+
+## `monocf apply`
+
+Runs a plan: new workers first, then every upload in parallel, then promotes, callees first. Each step is checked against what Cloudflare serves. A failure skips the workers that call the failed one, and everything else carries on.
+
+```
+monocf apply plan.json
+monocf apply plan.json --expect-branch-tip origin/main --summary-file "$GITHUB_STEP_SUMMARY" --json
+```
+
+| Flag | Meaning |
+|---|---|
+| `--concurrency` | How many steps run at once. Defaults to 6. |
+| `--expect-branch-tip` | Refuse the plan unless this ref is at its commit, which stops a re-run deploying over something newer. Needs an up-to-date fetch. |
+| `--summary-file` | Also add a summary in markdown to this file. A failure to write it only warns. |
+| `--json` | NDJSON events on stdout. Only a promote or a deploy reports a `versionId`. |
+
+Exit codes: 0 when everything worked; 1 when a worker failed or was skipped, or state couldn't be written; 2 when the plan is stale and nothing was attempted; 130 or 143 on a signal. Each run writes `<env>/runs/<run-id>.json` to the state store, and prints its run ID, for `rollback`.
+
+## `monocf rollback`
+
+Puts back what a run replaced, callers first, and restores crons, which don't follow a version.
+
+```
+monocf rollback -e production --state r2://my-state-bucket/monocf --to-run 20260101T000000Z-abc123 --dry-run
+monocf rollback -e production --state r2://my-state-bucket/monocf --to-run 20260101T000000Z-abc123
+monocf rollback orders -e production --state r2://my-state-bucket/monocf --to 1a2b3c4d --force
+```
+
+A worker whose Durable Object classes differ between the two versions is refused unless you pass `--force`: Cloudflare can accept that with exit 0 and leave a class broken. A named worker with `--to` has no record to check, so it always needs `--force`, and the next plan uploads over it. Each rollback writes a run record of its own, so `--to-run` can undo it too.
+
+Exit codes: 0 when everything was restored; 1 when a worker was refused or failed; 2 on a usage error or a run that doesn't exist; 3 when a run record can't be trusted.
+
+## `monocf secrets check`
+
+Says which secret names the active version of each worker is missing. It prints names only, never values.
+
+```
+monocf secrets check -e production
+```
+
+It expects `secrets.required` from the worker's env section and the keys of a `.dev.vars.example` next to its config. Exit 1 when a name is missing or the worker doesn't exist. A name nothing expects is a warning, and a worker with neither source is skipped with a note. `apply` doesn't call this, so a pipeline has to, and before `apply`: wrangler refuses to upload a worker while a name in `secrets.required` is unset, and it can't create a new worker that has one unless it gets a secrets file, which `apply` doesn't pass.
 
 ## `monocf secrets deploy`
 

@@ -220,7 +220,7 @@ The active version comes from `wrangler deployments status --name <deployed-name
 |---|---|---|
 | Worker doesn't exist on Cloudflare | `create` | `new` |
 | Exists, no manifest entry, a different tag, and migrations in the config | `full-deploy`, since `versions upload` refuses pending migrations and nothing says which are applied | `baseline` |
-| Exists, no manifest entry, active tag is `monocf:<fingerprint>` | `adopt`: no deploy, `apply` records it in state | `state-missing` |
+| Exists, no manifest entry, active tag is `monocf:<fingerprint>` | `adopt`: no deploy, `apply` records it in state, and applies its crons and routes when it has any, as a crash may have stopped short of them | `state-missing` |
 | Exists, no manifest entry, another tag or none | `upload` with `--on-drift warn`, `blocked` with `fail` | `baseline`, or `drift` and `baseline` when blocked |
 | Manifest version is active, same fingerprint, other triggers. Only after a crash: `configHash` covers the triggers, so a cron-only commit changes the fingerprint and takes `upload` with `triggersChanged` | `skip` | `unchanged` |
 | Manifest version is active, same fingerprint, other triggers | `triggers` | `triggers-changed` |
@@ -275,6 +275,16 @@ Exceptions that need a plain `wrangler deploy`:
 
 The scheduler is a ready queue over the graph. On failure it skips the transitive callers of the failed worker and continues with independent branches. Each worker has one writer at a time, because parallel writes to one worker all exit 0 with a silent winner. It retries `fetch failed`, 429 and 5xx with backoff. State is written as workers finish, so an interrupted run loses nothing.
 
+A retry may follow an attempt that took effect, as a kill right after `Uploaded` shows. So a retried `versions deploy` reads the active version first, and a retried `deploy` also reads its tag, and takes the live version when the tag is this fingerprint. A step whose triggers failed therefore finds itself promoted, and goes on to them.
+
+`apply` refuses a stale plan with exit 2 before anything happens: an unknown schema, `applicable` false, a checkout whose real `HEAD` isn't the plan's commit, another wrangler version, a `--expect-branch-tip` elsewhere, or a worker this checkout doesn't deploy under that name. It passes each worker's account explicitly on every read and write.
+
+**State and records.** The manifest is written step by step, one write at a time, with whatever finished meanwhile going in the next one. A failed write isn't a failed deploy, but it's reported and the exit code is 1, and the next plan recovers through the tag. `needsNewVersion` is the exception: a failure to write it stops the run before anything is created. When triggers fail after a promote, the entry holds the new version and a triggers hash that matches nothing, so the next plan gives `triggers`.
+
+Each run ends with `<env>/runs/<run-id>.json`, a run ID being `YYYYMMDDTHHMMSSZ-<6 hex>`. Per worker it holds the action, the result, whether anything on Cloudflare changed, the previous state entry, and the previous and new version IDs. An upload that was never promoted is named in the summary as well, because the next version inherits from it.
+
+On a signal, `apply` stops starting steps, waits for the running ones, writes state and the record, prints the summary and exits 130 or 143.
+
 **Exit 0 isn't proof.** A step succeeded when wrangler exited with code 0 and no signal, the output file holds a version ID (`deploy`, `versions upload`), and a read-back of `deployments status` shows the expected version at 100%.
 
 Behaviour this design has to work with:
@@ -289,7 +299,13 @@ Behaviour this design has to work with:
 
 A caller sees a new callee version without being redeployed, for both RPC and fetch. The exception is a callee that was deleted and recreated: its callers stay broken until they get a new version, so the planner uploads them too.
 
-**Rollback** runs callers first. Code, vars and secrets follow the version; crons don't, so they are restored separately. Rolling back across a Durable Object class addition is refused by Cloudflare, but rolling back across a class deletion exits 0 and leaves the class broken, so monocf refuses any rollback across a DO change unless forced.
+**Rollback** runs callers first. Code, vars and secrets follow the version; crons don't, so they are restored separately, through a config holding only the name and the triggers. Rolling back across a Durable Object class addition is refused by Cloudflare, but rolling back across a class deletion exits 0 and leaves the class broken, so monocf refuses any rollback across a DO change unless forced. A refused or failed worker skips the workers it calls.
+
+`--to-run` restores what that run changed, using its record, and skips with a report a worker that run created. State goes back to the earlier entry, so the next plan compares against what's really live, and a fresh run record lets a later `--to-run` undo the rollback. `<worker> --to <version-id>` has no record to vouch for the version, so it needs `--force`, and it leaves hashes in the entry that match nothing, so that the next plan uploads over it.
+
+**`secrets check`** compares names only. It expects the union of `secrets.required`, which wrangler doesn't inherit into an env, and the keys of a `.dev.vars.example` next to the worker's config. It asks `versions view` for the active version's `secret_text` bindings, because `secret list` follows the latest upload. A missing name is exit 1, and an unexpected one is a warning. A worker with no source of names is skipped with a note.
+
+Wrangler itself enforces `secrets.required`: `versions upload` and `deploy` refuse while a name is unset, and a worker that doesn't exist yet can only get one through `--secrets-file`, which `apply` doesn't pass. So `plan` can say `upload` or `create` and `apply` then fails that worker. Run `secrets check` before `apply`, set what's missing first, and don't add `secrets.required` to a worker until it exists.
 
 ## Commands
 
@@ -297,9 +313,9 @@ A caller sees a new callee version without being redeployed, for both RPC and fe
 monocf graph    [-e env] [--json | --mermaid] [--callers worker]
 monocf check    [-e env | --all-envs] [--strict] [--json]
 monocf bundle   [workers...] -e env [--out dir] [--concurrency n] [--json]
-monocf plan     -e env --state <url> [--bundle-dir dir] [--out plan.json] [--markdown file] [--on-drift warn|fail] [--workers a,b] [--json]
+monocf plan     -e env --state <url> [--bundle-dir dir] [--out plan.json] [--markdown file] [--on-drift warn|fail] [--workers a,b] [--first-run] [--allow-recreate] [--json]
 monocf apply    <plan.json> [--concurrency n] [--expect-branch-tip ref] [--summary-file path] [--json]
-monocf rollback -e env --state <url> (--to-run <id> | <worker> --to <version-id>) [--force] [--json]
+monocf rollback -e env --state <url> (--to-run <id> [--dry-run] | <worker> --to <version-id>) [--force] [--json]
 monocf secrets check -e env [--json]
 ```
 

@@ -105,8 +105,6 @@ function assertCanApply(plan: Plan, {expectBranchTip, rootDir, wranglerVersion}:
 
 interface Target {
   accountId?: string
-  /** Set once promoted, so that a retry of the triggers doesn't promote again. */
-  promoted?: string
   record: RunRecord['workers'][string]
   step: PlanStep
   worker: ResolvedWorker
@@ -351,18 +349,15 @@ class Applier {
       dependsOn: [],
       run: async (attempt) => {
         const versionId = target.record.uploadedVersionId!
-        if (target.promoted === undefined) {
-          const active = attempt > 1 ? await readActiveVersion(this.call(target), target.step.deployedName, target.accountId) : undefined
-          if (active?.state !== 'active' || active.versionId !== versionId) {
-            const {env, message} = this.argvOptions(target)
-            await this.wrangler(target, {action: 'versions-deploy', configPath: configPath(), versionId}, {env, message})
-          }
-
-          await this.verify(target, versionId)
-          target.promoted = versionId
-          target.record.newVersionId = versionId
-          target.record.changed = true
+        const active = attempt > 1 ? await readActiveVersion(this.call(target), target.step.deployedName, target.accountId) : undefined
+        if (active?.state !== 'active' || active.versionId !== versionId) {
+          const {env, message} = this.argvOptions(target)
+          await this.wrangler(target, {action: 'versions-deploy', configPath: configPath(), versionId}, {env, message})
         }
+
+        await this.verify(target, versionId)
+        target.record.newVersionId = versionId
+        target.record.changed = true
 
         if (target.step.triggersChanged) {
           try {
