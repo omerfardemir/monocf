@@ -19,6 +19,7 @@ export type PlanReason =
   | 'needs-deploy'
   | 'new'
   | 'provider-recreated'
+  | 'secret-changed'
   | 'split'
   | 'state-missing'
   | 'triggers-changed'
@@ -50,7 +51,7 @@ export interface PlanStep {
   worker: string
 }
 
-export type PlanNoteKind = 'baseline' | 'caller-not-selected' | 'drift' | 'orphan' | 'recreated' | 'renamed' | 'state-behind'
+export type PlanNoteKind = 'baseline' | 'caller-not-selected' | 'drift' | 'orphan' | 'recreated' | 'renamed' | 'secret-changed' | 'state-behind'
 
 export interface PlanNote {
   deployedName?: string
@@ -152,6 +153,22 @@ function stateBehind(decision: Decision): Decision {
   return {...decision, notes: [{kind: 'state-behind', message}]}
 }
 
+/**
+ * A secret command made the active version, from the latest upload. The upload that follows tags known code, and inherits
+ * the secret, so it heals this whichever upload the secret version came from. A rotation is routine, so this isn't drift.
+ */
+function secretChanged(worker: ManifestWorker, entry: StateWorker): Decision {
+  const base = compareToState(worker, entry)
+  const reasons = base.reasons.filter((reason) => reason !== 'unchanged' && reason !== 'triggers-changed')
+  const message = 'A secret command made the active version, so this commit uploads over it to tag it. The secret carries over.'
+  return {
+    action: base.action === 'full-deploy' ? 'full-deploy' : 'upload',
+    notes: [{kind: 'secret-changed', message}],
+    reasons: ['secret-changed', ...reasons],
+    triggersChanged: base.triggersChanged,
+  }
+}
+
 function classify(worker: ManifestWorker, entry: StateWorker | undefined, active: ActiveInfo, onDrift: OnDrift): Decision {
   if (active.state === 'missing') {
     const notes = entry ? [{kind: 'recreated' as const, message: 'The state manifest knows this worker, but it no longer exists on Cloudflare.'}] : []
@@ -176,6 +193,7 @@ function classify(worker: ManifestWorker, entry: StateWorker | undefined, active
   // The tag of this very bundle means the crashed run already deployed what this plan would.
   if (active.tag === tagFor(worker.fingerprint)) return stateBehind(triggersOnly(worker, entry))
   if (active.tag === tagFor(entry.fingerprint)) return stateBehind(compareToState(worker, entry))
+  if (active.triggeredBy === 'secret') return secretChanged(worker, entry)
   return drifted(worker, entry, false, onDrift)
 }
 

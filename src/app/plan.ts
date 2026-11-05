@@ -16,7 +16,7 @@ import {writeFileAtomic} from '../runtime/atomic.js'
 import {manifestKey, parseStateManifest, type StateManifest} from '../state/manifest.js'
 import {openStateStore, parseStateUrl} from '../state/store.js'
 import {locateWrangler} from '../wrangler/locate.js'
-import {readActiveVersion, readVersionTag, type ActiveInfo, type WranglerCall} from '../wrangler/read.js'
+import {readActiveVersion, readVersionOrigin, type ActiveInfo, type WranglerCall} from '../wrangler/read.js'
 import {withReadRetries} from '../wrangler/retry.js'
 import {configHash, doHash, triggersHash, triggersOf} from '../fingerprint/fingerprint.js'
 import {buildBundle, checkEntrypoints, readBundleManifest, type BundleManifest, type ManifestWorker} from './bundle.js'
@@ -135,7 +135,7 @@ async function readActiveVersions(
         const info = await readActiveVersion(call, deployedName, accountId)
         const tagged =
           info.state === 'active' && needsTag(info, stored.get(dir), deployedName)
-            ? {...info, tag: await readVersionTag(call, deployedName, info.versionId, accountId)}
+            ? {...info, ...(await readVersionOrigin(call, deployedName, info.versionId, accountId))}
             : info
         active.set(dir, tagged)
       },

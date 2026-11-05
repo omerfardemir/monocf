@@ -16,7 +16,7 @@ export interface ActiveShare {
 
 /** What Cloudflare serves for a worker. `tag` is only there when it was worth a request. */
 export type ActiveInfo =
-  | {state: 'active'; tag?: string; versionId: string}
+  | {state: 'active'; tag?: string; triggeredBy?: string; versionId: string}
   | {state: 'missing'}
   | {shares: ActiveShare[]; state: 'split'}
 
@@ -84,6 +84,14 @@ export function parseVersionTag(label: string, stdout: string): string | undefin
   return typeof tag === 'string' ? tag : undefined
 }
 
+/** Reads who made a version. `secret` for what `secret put` and `secret bulk` make, as seen on real Cloudflare. */
+export function parseTriggeredBy(label: string, stdout: string): string | undefined {
+  const parsed = parseJson(label, stdout)
+  const annotations = isPlainObject(parsed) ? parsed.annotations : undefined
+  const triggeredBy = isPlainObject(annotations) ? annotations['workers/triggered_by'] : undefined
+  return typeof triggeredBy === 'string' ? triggeredBy : undefined
+}
+
 const WORKER_NOT_FOUND = /code: 10007\b/
 
 /**
@@ -97,13 +105,24 @@ export async function readActiveVersion(call: WranglerCall, name: string, accoun
   throw readFailure(name, result)
 }
 
+export async function readVersionOrigin(
+  call: WranglerCall,
+  name: string,
+  versionId: string,
+  accountId?: string,
+): Promise<{tag?: string; triggeredBy?: string}> {
+  const result = await call({action: 'version-view', name, versionId}, accountId)
+  if (!isSuccessful(result)) throw readFailure(name, result)
+  const tag = parseVersionTag(name, result.stdout)
+  const triggeredBy = parseTriggeredBy(name, result.stdout)
+  return {...(tag !== undefined && {tag}), ...(triggeredBy !== undefined && {triggeredBy})}
+}
+
 export async function readVersionTag(
   call: WranglerCall,
   name: string,
   versionId: string,
   accountId?: string,
 ): Promise<string | undefined> {
-  const result = await call({action: 'version-view', name, versionId}, accountId)
-  if (!isSuccessful(result)) throw readFailure(name, result)
-  return parseVersionTag(name, result.stdout)
+  return (await readVersionOrigin(call, name, versionId, accountId)).tag
 }

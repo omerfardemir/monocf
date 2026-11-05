@@ -244,7 +244,7 @@ export interface FakeCloudflare {
   /** Bucket name to its objects by key. */
   buckets?: Record<string, Record<string, string>>
   /** By deployed name. A worker that isn't here doesn't exist. */
-  workers?: Record<string, {active: [versionId: string, percentage: number][]; tags?: Record<string, null | string>}>
+  workers?: Record<string, {active: [versionId: string, percentage: number][]; tags?: Record<string, null | string>; triggeredBy?: Record<string, string>}>
 }
 
 export interface RunOptions {

@@ -133,7 +133,9 @@ function versionAnswer(state, name, id) {
   if (!worker) return {exitCode: 1, stderr: apiError('This Worker does not exist on your account. [code: 10007]')}
   if (!worker.tags || !(id in worker.tags)) return {exitCode: 1, stderr: apiError('Unknown version. [code: 100146]')}
   const tag = worker.tags[id]
-  return {stdout: JSON.stringify({annotations: tag === null ? {} : {'workers/tag': tag}, id, metadata: {}, resources: {}})}
+  const triggeredBy = worker.triggeredBy?.[id]
+  const annotations = {...(tag !== null && {'workers/tag': tag}), ...(triggeredBy && {'workers/triggered_by': triggeredBy})}
+  return {stdout: JSON.stringify({annotations, id, metadata: {}, resources: {}})}
 }
 
 function r2Answer(state, path) {
