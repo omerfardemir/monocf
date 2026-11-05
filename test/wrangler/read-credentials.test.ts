@@ -23,6 +23,10 @@ describe('readFailure', () => {
     expect(error.message).toContain('wait')
   })
 
+  it('counts an API rate limit as passing by itself', () => {
+    expect(isTransient(failed('A request to the Cloudflare API failed. Rate limited. Please wait [code: 10429]'))).toBe(true)
+  })
+
   it('does not hammer after too many authentication failures', () => {
     expect(isTransient(failed('Too many authentication failures [code: 10502]'))).toBe(false)
   })

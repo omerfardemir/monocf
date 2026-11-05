@@ -72,6 +72,8 @@ function fileStore({dir, url}: Extract<StateLocation, {kind: 'file'}>): StateSto
 
 // `r2 object get` says this for a missing bucket too, which is why check() has to look at the bucket first.
 const MISSING_KEY = /specified key does not exist/i
+// What the API says for a bucket that isn't there, as code 10006.
+const MISSING_BUCKET = /specified bucket does not exist|\bcode: 10006\b/i
 
 /**
  * Through wrangler, so CI needs no credentials beyond its Cloudflare token. Wrangler offers no conditional write, so this
@@ -85,10 +87,9 @@ function r2Store({bucket, prefix, url}: Extract<StateLocation, {kind: 'r2'}>, ca
       if (result.signal) throw readFailure(`state bucket ${bucket}`, result)
       if (!isSuccessful(result)) {
         const {message} = readFailure(`state bucket ${bucket}`, result)
-        throw new MonocfError(
-          `Can't use the state bucket ${bucket}. If it doesn't exist, create it with: wrangler r2 bucket create ${bucket}\n${message}`,
-          EXIT_ENVIRONMENT,
-        )
+        // A rate limit or an outage left after the retries isn't a missing bucket, so only that answer gets the hint.
+        const hint = MISSING_BUCKET.test(result.stderr) ? ` It doesn't exist. Create it with: wrangler r2 bucket create ${bucket}` : ''
+        throw new MonocfError(`Can't use the state bucket ${bucket}.${hint}\n${message}`, EXIT_ENVIRONMENT)
       }
     },
     describe: () => url,

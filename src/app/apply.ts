@@ -55,6 +55,10 @@ function readPlanFile(path: string): Plan {
   try {
     text = readFileSync(path, 'utf8')
   } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      throw new ConfigError(`There's no plan at ${path}. A plan that fails writes none, and removes an earlier one there, so check that plan succeeded.`)
+    }
+
     throw new ConfigError(`Can't read the plan ${path}: ${(error as Error).message}`)
   }
 

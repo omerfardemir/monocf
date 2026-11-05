@@ -6,13 +6,15 @@ import {isSuccessful, type WranglerCall} from './read.js'
 export const MAX_ATTEMPTS = 3
 const BASE_DELAY_MS = 2000
 
-const TRANSIENT = /fetch failed|too many requests|\b(?:status|code|http)\b[ :=]*(?:429|5\d\d)\b|internal server error|bad gateway|service unavailable|gateway time-?out/i
+// 10429 is the Cloudflare API's own rate limit, which R2 gives with "Rate limited".
+const TRANSIENT =
+  /fetch failed|too many requests|rate limited|\b(?:status|code|http)\b[ :=]*(?:10429|429|5\d\d)\b|internal server error|bad gateway|service unavailable|gateway time-?out/i
 
 /** What can pass by itself: a request that never got an answer, a rate limit, and a 5xx. */
 export function isTransient(result: WranglerResult): boolean {
   if (isSuccessful(result) || result.signal) return false
   const {code, message = ''} = result.output.failure ?? {}
-  if (code === 429 || (code !== undefined && code >= 500 && code < 600)) return true
+  if (code === 429 || code === 10_429 || (code !== undefined && code >= 500 && code < 600)) return true
   return TRANSIENT.test(`${message}\n${result.stderr}`)
 }
 

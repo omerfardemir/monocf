@@ -95,6 +95,8 @@ function statusOf(calls: WranglerCall[]): string[] {
   return reads(calls, 'deployments status')
 }
 
+const rateLimited = '✘ [ERROR] A request to the Cloudflare API (/accounts/x/r2/buckets/monocf-state) failed. Rate limited. Please wait and consider throttling your request speed [code: 10429]\n'
+
 describe('a read that fails for a moment', {timeout: 60_000}, () => {
   it('is tried again after fetch failed, and the plan comes out', async () => {
     const fixture = project()
@@ -119,6 +121,31 @@ describe('a read that fails for a moment', {timeout: 60_000}, () => {
 
     expect(result.exitCode, result.stderr).toBe(0)
     expect(result.calls.filter(({argv}) => argv[0] === 'r2' && argv[1] === 'bucket')).toHaveLength(2)
+  })
+
+  it('is tried again after an R2 rate limit on the state bucket', async () => {
+    const fixture = project()
+
+    const result = await runCli(fixture, ['plan', '-e', 'staging', '--state', 'r2://monocf-state/ci', '--first-run'], {
+      cloudflare: {buckets: {'monocf-state': {}}},
+      rules: [{command: 'r2 bucket info', exitCode: 1, stderr: rateLimited, times: 1}],
+    })
+
+    expect(result.exitCode, result.stderr).toBe(0)
+    expect(result.calls.filter(({argv}) => argv[0] === 'r2' && argv[1] === 'bucket')).toHaveLength(2)
+  })
+
+  it('suggests creating the state bucket only when it does not exist', async () => {
+    const plan = ['plan', '-e', 'staging', '--state', 'r2://monocf-state/ci', '--first-run']
+    const missing = await runCli(project(), plan, {cloudflare: {}})
+    const limited = await runCli(project(), plan, {cloudflare: {buckets: {'monocf-state': {}}}, rules: [{command: 'r2 bucket info', exitCode: 1, stderr: rateLimited}]})
+
+    expect(missing.exitCode).toBe(3)
+    expect(missing.stderr).toContain("It doesn't exist. Create it with: wrangler r2 bucket create monocf-state")
+    expect(limited.exitCode).toBe(3)
+    expect(limited.stderr).toContain("Can't use the state bucket monocf-state.")
+    expect(limited.stderr).toContain('Rate limited')
+    expect(limited.stderr).not.toContain('Create it with')
   })
 
   it('stops after three attempts', async () => {

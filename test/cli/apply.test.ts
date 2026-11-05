@@ -681,7 +681,7 @@ describe('apply, refusing a stale plan', () => {
   it('without a readable plan', async () => {
     const fixture = await planned()
     rmSync(join(fixture.root, 'plan.json'))
-    await refuses(fixture, /Can't read the plan/)
+    await refuses(fixture, /There's no plan at .*plan\.json\. A plan that fails writes none/)
   })
 
   it('without valid JSON', async () => {
