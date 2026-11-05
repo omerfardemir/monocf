@@ -42,7 +42,7 @@ flags + monocf.config + wrangler.jsonc files
 Rules that follow from this:
 
 - **The source tree is never written to** by build, deploy, preview or dev. No temp configs and no `.dev.vars` edits next to the source.
-- **One run directory per process:** `<root>/.monocf/runs/<random-id>/<worker>/`. It is created with mode `0700`, and secret files with `0600`. It is removed on every exit path. A crash leaves only ignorable files, and stale runs are removed at startup.
+- **One run directory per process:** `<root>/.monocf/runs/<random-id>/<worker>/`. It is created with mode `0700`, and secret files with `0600`. It is removed on every exit path. A crash leaves only ignorable files, and at startup a run is removed if its owner PID is dead or if it is older than a day. MonoCF doesn't touch a consumer's `.gitignore` except in `worker create`, and the docs advise adding `.monocf/`.
 - **No shell, no wrapper.** Wrangler is spawned as `process.execPath <wrangler package>/wrangler-dist/cli.js ...argv`, with `shell: false`, resolved from the project root. With `shell: true`, or through `bin/wrangler.js`, a killed wrangler can keep deploying. The `bin/wrangler.js` wrapper also turns a signal death of its child into exit 0, which looks like success. The wrapper's version check is replaced by monocf's own floor check.
 - **stdout carries results only.** Diagnostics and wrangler output go to stderr.
 - **Everything before `materialise` is pure,** so it can be tested without a disk or a process.
@@ -73,6 +73,9 @@ src/
 | 2 | Usage or config error; nothing was attempted |
 | 3 | Environment error: wrangler missing, wrong version, no auth |
 | 130 / 143 | Interrupted; partial results reported |
+| 128 + n | A wrangler process was killed by signal n, without monocf being interrupted |
+
+A `wrangler` that fails gives exit 1, and its own exit code appears in the message.
 
 ### Option precedence
 
@@ -84,9 +87,9 @@ src/
 - **Merge semantics stay compatible by default.** Arrays are concatenated, objects merge recursively, and scalars from the worker win. Any change needs an opt-in and a diff tool.
 - Placeholders are replaced on parsed strings. An unknown placeholder is an error. A string that needs literal braces maps the variable to itself: `"id": "{id}"`.
 - Injected vars: `NAME`, `ENVIRONMENT`, `VERSION`. A value set in the worker's own config is kept. A value from the base config is overwritten, as before.
-- The resolved config is the form `deploy` and `preview` receive: a service binding given by directory name becomes the target's deployed name for the env. `build` and `dev` used to leave out the env suffix.
+- Every command receives the same resolved config: a service binding given by directory name becomes the target's deployed name for the env. `build` and `dev` used to leave out the env suffix. For `dev` that form fails with an env: real `wrangler dev` answers 503 "Worker not found", in one session and across `dev --all`, because the target runs under its name for the env. A test against real wrangler covers both.
 - A worker that can't be resolved stops only a run that selects it or has a service binding to it, so one broken config doesn't block unrelated deploys.
-- `RELEASE` is **not** part of the resolved config. It is passed at deploy time with `--var RELEASE:<sha>`, so a new commit with an unchanged bundle has an unchanged fingerprint. The SHA is resolved once per run, from `GITHUB_SHA` when set, else `git rev-parse --short HEAD`.
+- `RELEASE` is **not** part of the resolved config. It is passed with `--var RELEASE:<sha>` to `deploy`, `versions upload` and `dev`, and not to a dry-run build, so a new commit with an unchanged bundle has an unchanged fingerprint. A `RELEASE` in a wrangler config is overridden. The SHA is resolved once per run, from `GITHUB_SHA` (cut to 7 characters) when set, else `git rev-parse --short HEAD`, else `unknown` with a notice.
 - An unknown `--env` is an error, so a typo can't create an orphan worker.
 - Moving a config into the run directory means relative path fields must be rebased. The list of these fields lives in one file. A test reads wrangler's `config-schema.json` and fails when a new path-like field appears.
 
@@ -203,3 +206,5 @@ CI should authenticate with an API token. Wrangler has no lock around OAuth refr
 ## Testing
 
 Black-box tests run the built CLI against generated fixtures with a fake wrangler installed at `node_modules/wrangler`. The fake records argv, cwd and the config it receives. These tests describe behaviour rather than structure, so they survive the refactor. Pure modules get unit tests. Fixtures are synthetic.
+
+Some facts only real wrangler can show: bundling through rebased paths, env values surviving the trip through its own `.dev.vars` reader, service bindings in `dev`, and a kill of the process doing the work. Those tests link the wrangler from this repository's dev dependencies into the fixture, with a dummy token, a closed port as the API base, `CLOUDFLARE_CF_FETCH_ENABLED=false` and metrics off, so nothing reaches Cloudflare.

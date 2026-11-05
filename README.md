@@ -27,49 +27,21 @@ MonoCF streamlines the development workflow by wrapping Wrangler commands with a
 * **Service Bindings**: Simplified management of service bindings between workers for development
 * **Configuration Management**: Centralized configuration with environment-specific overrides
 * **Worker Creation**: Quickly scaffold new worker projects with best practices
-* **Command Pattern**: Implementation of command pattern for extensibility
 
 ## Architecture
 
-The codebase follows a clean architecture with separation of concerns:
-
-* **Commands**: Implementation of oclif commands that handle CLI interactions
-* **Core**: Business logic and command pattern implementation for extensibility
-* **Services**: Reusable services for handling specific functionality
-* **Types**: TypeScript type definitions for strong typing
-* **Utils**: Utility functions for common operations
-
-### Directory Structure
+Flags and configs are resolved first, with no writes. Everything wrangler reads is then written to one private run directory, and wrangler runs with no shell. The design is in [docs/design/ci-foundation.md](docs/design/ci-foundation.md).
 
 ```markdown
 src/
-  commands/       -- oclif command implementations
-    whoami/       -- Whoami command for checking Cloudflare identity
-    worker/       -- Worker-related commands
-      create.ts   -- Worker creation command
-      index.ts    -- Main worker command (dev/deploy)
-  core/           -- Core business logic
-    commands/     -- Command pattern implementations
-      command.ts   -- Abstract base class for commands
-      command-factory.ts    -- Factory for creating commands
-      registry.ts           -- Command registry for auto-discovery
-      whoami/               -- Whoami command implementation
-      worker/               -- Worker command implementations
-    worker-command-factory/ -- Factory for worker-specific commands
-  services/       -- Service implementations
-    configuration-service.ts -- Configuration loading and management
-    error-service.ts        -- Error handling and reporting
-    file-service.ts         -- File system operations
-    service-binding-service.ts -- Service binding management
-    wrangler-service.ts     -- Wrangler CLI integration
-  types/          -- Type definitions
-    command-types.ts        -- Command-related types
-    config-types.ts         -- Configuration types
-    oclif-types.ts          -- oclif-specific types
-    error-types.ts          -- Error types
-    wrangler-types.ts       -- Wrangler-specific types and constants
-  flags/          -- Command flags definitions
-  utils/          -- Utility functions
+  commands/  -- oclif classes: parse flags, call one app function
+  app/       -- what each command does, run setup, error handling
+  project/   -- monocf.config.json, option precedence, worker discovery, .monocfignore
+  config/    -- merge, placeholders, resolve, validate
+  graph/     -- nodes and edges, levels, cycles
+  runtime/   -- run directory, materialised configs, secrets, signals, dev proxy
+  wrangler/  -- locate wrangler, build argv, spawn and capture
+  report/    -- events, human output, NDJSON
 ```
 
 ## Getting Started
@@ -89,6 +61,15 @@ $ pnpm create monocf
 ```
 
 This will set up a new monorepo with Turbo Repo configured and ready to use with MonoCF.
+
+### Requirements
+
+* Node.js 22 or newer.
+* `wrangler` 4.151.0 or newer, installed in your project: `npm install --save-dev wrangler`. MonoCF has it as a peer dependency and uses the one your project root resolves, so the bundle follows your lockfile. If there is none, or it is too old, MonoCF exits with code 3.
+
+### The `.monocf` directory
+
+While it runs, MonoCF writes generated configs and secrets files to `.monocf/runs/` in the project root, and never next to your source. The directory is private and is removed when the run ends, also after a failure or a signal. `dev --all` keeps local data in `.monocf/local-storage/`. Add `.monocf/` to your `.gitignore`. MonoCF only does this for you in `worker create`.
 
 ## Usage
 
@@ -204,7 +185,9 @@ You can also create environment-specific `.dev.vars` files for both root and wor
 
 When deploying a worker with `deploySecrets: true`, MonoCF automatically combines the environment variables from both the root and worker-specific `.dev.vars` files, with worker-specific variables taking precedence over root variables.
 
-Secret uploads are strict. With `--env <name>`, the worker must have `.dev.vars.<name>`, and the root file is only read from `.dev.vars.<name>` too. Without `--env`, the file is `.dev.vars`. A missing worker file fails the run before anything is deployed, and `.dev.vars` is never used as a fallback. Local `dev` still falls back to `.dev.vars`. `dev` is an ordinary environment name, so `--env dev` reads `.dev.vars.dev`.
+Secret uploads are strict. With `--env <name>`, the only files read are `.dev.vars.<name>` of the worker and of the root, and at least one of them has to exist. Without `--env`, the file is `.dev.vars`. When neither exists, the run fails before anything is deployed, and the error names both paths. Another environment's file is never used as a fallback. Local `dev` still falls back to `.dev.vars`. `dev` is an ordinary environment name, so `--env dev` reads `.dev.vars.dev`.
+
+`secrets deploy` first checks that the worker exists, because `wrangler secret bulk` would create a missing one. Pass `--create` to allow that.
 
 For example, if both files contain an `API_KEY` variable:
 
@@ -212,6 +195,10 @@ For example, if both files contain an `API_KEY` variable:
 2. Other workers without their own `API_KEY` will use the root value
 
 This allows you to define common variables at the root level and override them as needed for specific workers.
+
+## The RELEASE variable
+
+`deploy`, `preview` and `dev` give your worker a `RELEASE` variable holding the short commit: the first 7 characters of `GITHUB_SHA` when it is set, otherwise `git rev-parse --short HEAD`, otherwise `unknown`. It is passed as `--var RELEASE:<sha>`, so it overrides a `RELEASE` you set in a wrangler config. A `build` doesn't get it, so a bundle doesn't change with the commit alone.
 
 ## Environments
 
@@ -248,7 +235,7 @@ Deploy secrets for one or multiple workers.
 
 ```sh-session
 USAGE
-  $ monocf secrets deploy [WORKERNAME] [-a] [-b <value>] [-e <value>] [-r <value>] [-w <value>]
+  $ monocf secrets deploy [WORKERNAME] [-a] [-b <value>] [-e <value>] [-r <value>] [-w <value>] [--create] [--json]
 
 ARGUMENTS
   WORKERNAME  Worker name
@@ -259,6 +246,8 @@ FLAGS
   -e, --env=<value>               Environment to use (dev, production etc.)
   -r, --root-dir=<value>          Root directory of the project
   -w, --workers-dir-name=<value>  Workers directory name in monorepo
+      --create                    Create the worker if it does not exist yet
+      --json                      Print results as NDJSON on stdout
 
 DESCRIPTION
   Deploy secrets for the worker. When using --all, secrets for all workers will be deployed.
@@ -277,7 +266,7 @@ Workers command for running dev or deploy for a worker or all workers
 
 ```sh-session
 USAGE
-  $ monocf worker [WORKERNAME] -c build|deploy|dev|preview [-a] [-b <value>] [-s] [-e <value>] [-r <value>] [-w <value>] [-d] [-p <value>] [-m] [-M <value>] [-f] [-F <value>]
+  $ monocf worker [WORKERNAME] -c build|deploy|dev|preview [-a] [-b <value>] [-s] [-e <value>] [-r <value>] [-w <value>] [-d] [-p <value>] [-m] [-M <value>] [-f] [-F <value>] [--json]
 
 ARGUMENTS
   WORKERNAME  Worker name
@@ -292,11 +281,12 @@ FLAGS
   -f, --from-version              Deploy an uploaded version: the latest one, or the one from -F (deploy, one named worker)
   -F, --deploy-from-version-id=<value>  Version ID to deploy. Requires -f
   -m, --minify                    Minify the worker script (build, deploy, preview)
-  -M, --message=<value>           Message for the version (preview, or deploy with -f)
+  -M, --message=<value>           Message for the version (deploy, preview)
   -p, --port=<value>              Port for dev: of the worker, or of the proxy with --all (default for the proxy: 8787)
   -r, --root-dir=<value>          Root directory of the project
   -s, --deploy-secrets            Deploy secrets for the worker (deploy, preview)
   -w, --workers-dir-name=<value>  Workers directory name in monorepo
+      --json                      Print results as NDJSON on stdout
 
 DESCRIPTION
   Workers command for running dev or deploy for a worker or all workers.
@@ -331,7 +321,8 @@ FLAGS
   -w, --workersDirName=<value>  Workers directory name in monorepo
 
 DESCRIPTION
-  Create a new worker in the workers directory
+  Create a new worker in the workers directory, from a small built-in template. Nothing is downloaded or installed, so
+  install its dependencies afterwards. Adds .wrangler and .monocf to the .gitignore in the project root.
 
 EXAMPLES
   $ monocf worker create my-worker
@@ -387,97 +378,13 @@ We welcome contributions to the MonoCF! Here's how you can help:
 
 ### Adding a New Command
 
-To add a new command to the CLI:
-
-1. **Create args and flags types** in the appropriate directory under `src/flags/`
-
-   ```typescript
-   // src/flags/example.ts
-   export interface ExampleArgs {
-     arg1: string;
-     arg2: number;
-   }
-   
-   export interface ExampleFlags {
-     flag1: boolean;
-     flag2: string;
-   }
-   ```
-
-2. **Create a new command class** in the appropriate directory under `src/core/commands/`
-
-   ```typescript
-   // src/core/commands/example/example-command.ts
-   import { Commander } from "../../../types/command-types.js";
-   import { MonocfCommand } from "../command.js";
-   
-   export class ExampleCommand extends MonocfCommand<ExampleArgs, ExampleFlags> {
-    // add your services
-    private wranglerService: WranglerService
-
-    constructor(command: Commander) {
-      super(command)
-      this.wranglerService = new WranglerService(this.errorService, this.fileService, command.cmdEvents())
-
-    }
-     // Implement your command logic here
-     public async execute(args: ExampleArgs, flags: ExampleFlags): Promise<void> {
-       // Command implementation
-     }
-     
-     public async finally(): Promise<void> {
-       // Cleanup logic
-       return Promise.resolve();
-     }
-   }
-   ```
-
-3. **Register the command** in the command registry (`src/core/commands/registry.ts`)
-
-   ```typescript
-   // In the registerBuiltInCommands method
-   this.registerCommand('example', ExampleCommand);
-   ```
-
-4. **Create an oclif command** in `src/commands/`
-
-   ```typescript
-   // src/commands/example.ts
-   import { CommandBase } from '../types/oclif-types.js';
-   import { CommandRegistry } from '../core/commands/registry.js';
-   
-   export default class Example extends CommandBase {
-     static description = 'Example command description';
-     static examples = ['<%= config.bin %> example'];
-     static args = {
-      name: Args.string({
-        description: 'Worker name',
-        required: false,
-      }),
-     }
-     static flags = {
-      flag: Flags.boolean({
-        char: 'a',
-        default: false,
-        description: 'example flag',
-        required: false,
-      }),
-     }
-     
-     async run() {
-      const {args, flags} = await this.parse(Example)
-      this.command = await CommandRegistry.createCommand('example', this)
-      return this.command.execute(args, flags)
-     }
-   }
-   ```
+Add an oclif class under `src/commands/` that extends `BaseCommand` from `src/app/base-command.ts`, parses its flags and calls one function in `src/app/`. Add a step to `src/wrangler/argv.ts` if it needs a new wrangler call. Throw `MonocfError` with an exit code from `src/errors.ts`, or `ConfigError` for a usage problem.
 
 ### Code Style
 
 We follow these coding practices:
 
 * Use TypeScript for type safety
-* Follow the command pattern for all commands
 * Write unit tests for new functionality
 * Document your code with JSDoc comments
 * Use meaningful variable and function names
