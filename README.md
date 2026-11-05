@@ -861,13 +861,14 @@ monocf apply plan.json --expect-branch-tip origin/main --summary-file "$GITHUB_S
 
 `plan` then `apply` does this:
 
-1. New workers are created with `wrangler deploy`, callees first.
-2. Everything else is uploaded with `wrangler versions upload`, in parallel. Nothing receives traffic yet.
-3. Promotes run callees first: `wrangler versions deploy`, then `wrangler triggers deploy` when the triggers changed. A `full-deploy` runs `wrangler deploy` here instead.
+1. Queue consumers the config dropped are detached, before anything can attach one. Cloudflare takes one worker consumer per queue, so this is what lets one commit move a consumer from one worker to another.
+2. New workers are created with `wrangler deploy`, callees first.
+3. Everything else is uploaded with `wrangler versions upload`, in parallel. Nothing receives traffic yet.
+4. Promotes run callees first: `wrangler versions deploy`, then `wrangler triggers deploy` when the triggers changed. A `full-deploy` runs `wrangler deploy` here instead.
 
 Here "triggers" means everything a new version doesn't carry, so that a promote alone can't change it: crons, routes, `workers_dev`, `preview_urls`, `queues.consumers`, the Workflows a worker defines, `tail_consumers` and `streaming_tail_consumers`. A change to any of them runs `triggers deploy` after the promote, which attaches and updates queue consumers and registers Workflows. Tail consumers are set by the promote itself. Wrangler never takes these away when a config drops them, not even `wrangler deploy`, so `apply` does what it can itself:
 
-- A queue consumer the config dropped is detached with `wrangler queues consumer remove`, if it's still attached.
+- A queue consumer the config dropped is detached with `wrangler queues consumer remove`, if it's still attached, in step 1. If the run stops after that and before the worker taking the consumer over attaches it, the queue has no consumer until the next `apply`, which attaches it. Messages wait in the queue meanwhile. A failed detach fails its worker before any of its new code goes live.
 - Tail consumer lists the config dropped are written as empty lists, which is what clears them, as `"crons": []` does for crons.
 - A Workflow the config dropped stays registered, still pointing at the worker, as nothing in wrangler deletes one and deleting it deletes its instances. `plan` says so with a `workflow-removed` note that names the command, `wrangler workflows delete <name>`.
 

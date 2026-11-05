@@ -233,8 +233,6 @@ function cloudflareAnswer() {
   })
 }
 
-const cloudflare = Object.keys(rule).length === 0 ? cloudflareAnswer() : null
-
 function writeOutputEntry(value) {
   if (process.env.WRANGLER_OUTPUT_FILE_PATH) {
     appendFileSync(process.env.WRANGLER_OUTPUT_FILE_PATH, `${JSON.stringify(value)}\n`)
@@ -264,6 +262,10 @@ if (delay) {
     setTimeout(done, delay)
   })
 }
+
+// A rule that only says when, as `delayMs` does, leaves the answer to Cloudflare, which gives it once the wait is over.
+const TIMING = new Set(['command', 'delayMs', 'skip', 'times', 'worker'])
+const cloudflare = Object.keys(rule).every((key) => TIMING.has(key)) ? cloudflareAnswer() : null
 
 const outdir = flagValues(['--outdir'])[0]
 if (startsWithCommand('deploy') && argv.includes('--dry-run') && outdir) {
@@ -304,12 +306,17 @@ function ownSection() {
   return (envName ? config?.env?.[envName] : config) ?? {}
 }
 
-/** `triggers deploy`, and `deploy` after its upload: consumers are added or updated and Workflows registered. Neither is ever removed. */
+/**
+ * `triggers deploy`, and `deploy` after its upload: consumers are added or updated and Workflows registered. Neither is ever
+ * removed. Cloudflare takes one worker consumer per queue, so a queue another worker consumes is refused, and the rest stays.
+ */
 function applyTriggerResources(state) {
   const own = ownSection()
+  const refused = []
   for (const consumer of own.queues?.consumers ?? []) {
     state.consumers ??= {}
-    state.consumers[consumer.queue] = {...state.consumers[consumer.queue], [deployedName]: consumer}
+    if (Object.keys(state.consumers[consumer.queue] ?? {}).some((script) => script !== deployedName)) refused.push(consumer.queue)
+    else state.consumers[consumer.queue] = {...state.consumers[consumer.queue], [deployedName]: consumer}
   }
 
   for (const workflow of own.workflows ?? []) {
@@ -317,6 +324,14 @@ function applyTriggerResources(state) {
       state.workflows = {...state.workflows, [workflow.name]: {className: workflow.class_name, script: deployedName}}
     }
   }
+
+  return refused
+}
+
+/** As real wrangler 4.151 says it, with exit 1, once every other trigger has been applied. */
+function partiallyUpdated(refused) {
+  const lines = refused.map((queue) => `    - A request to the Cloudflare API (/accounts/0123456789abcdef0123456789abcdef/queues/q/consumers) failed.\n      - Queue '${queue}' (UUID 'q') already has a consumer. [code: 11004]\n`)
+  return {exitCode: 1, stderr: `✘ [ERROR] Trigger configuration for "${deployedName}" was only partially updated:\n\n  Queue consumers:\n${lines.join('')}\nSuccessful trigger changes were not rolled back.\n`}
 }
 
 /** `versions deploy` and `deploy` set a tail consumer list the config names, and leave an absent one as it is. */
@@ -353,9 +368,9 @@ function cloudflareWrite() {
     const versionId = nextVersion(worker)
     worker.active = [[versionId, 100]]
     worker.triggers = effectiveTriggers()
-    applyTriggerResources(state)
+    const refused = applyTriggerResources(state)
     applyTails(worker)
-    return save({versionId})
+    return save(refused.length > 0 ? {...partiallyUpdated(refused), versionId} : {versionId})
   }
 
   const worker = state.workers[deployedName]
@@ -363,8 +378,8 @@ function cloudflareWrite() {
   if (startsWithCommand('versions upload')) return save({versionId: nextVersion(worker)})
   if (startsWithCommand('triggers deploy')) {
     worker.triggers = effectiveTriggers()
-    applyTriggerResources(state)
-    return save({})
+    const refused = applyTriggerResources(state)
+    return save(refused.length > 0 ? partiallyUpdated(refused) : {})
   }
 
   const versionId = argv[2].replace(/@100%$/, '')

@@ -186,6 +186,8 @@ interface Target {
   accountId?: string
   /** A write that can change what's live has started, so what happened has to be read rather than assumed. */
   attempted?: boolean
+  /** A consumer this run detached, so Cloudflare changed even if the version didn't. */
+  detached?: true
   /** What was live before this run's first attempt, as read then. */
   liveBefore?: string
   record: RunRecord['workers'][string]
@@ -264,6 +266,8 @@ class Applier {
     const marks = [...new Set(targets.flatMap(({step}) => step.markCallers ?? []))]
     if (marks.length > 0) await this.writer.mark(marks)
 
+    // Cloudflare takes one worker consumer per queue, so a consumer moving to another worker has to go before anything attaches.
+    await this.phase(targets.filter(({step}) => (step.removedConsumers?.length ?? 0) > 0).map((target) => this.detachStep(target)), {final: false})
     await this.phase(ofAction('create').map((target) => this.deployStep(target)))
     await this.phase(ofAction('upload').map((target) => this.uploadStep(target)), {final: false})
     await this.phase(
@@ -293,7 +297,7 @@ class Applier {
       if (active.state === 'split') return
       const live = active.state === 'active' ? active.versionId : undefined
       if (live === (target.liveBefore ?? step.previousVersionId)) {
-        record.changed = false
+        record.changed = target.detached === true
       } else if (live !== undefined && (live === record.uploadedVersionId || (await readVersionTag(call, step.deployedName, live, target.accountId)) === tagFor(step.fingerprint))) {
         record.newVersionId = live
         record.changed = true
@@ -457,12 +461,30 @@ class Applier {
     }
   }
 
-  /** No deploy removes a consumer. Only one still attached is removed, so a retry or the next run can finish the job. */
-  private async detachRemovedConsumers(target: Target): Promise<void> {
+  /**
+   * No deploy removes a consumer. Only one still attached is removed, so a retry or the next run can finish the job. Before it
+   * goes, the entry stops matching any triggers, so if the rest of the step never happens, the next plan applies them again,
+   * also for a commit that brings the consumer back.
+   */
+  private detachStep(target: Target): DeployStep {
     const {deployedName, removedConsumers = []} = target.step
-    for (const queue of removedConsumers) {
-      const consumers = await readQueueConsumers(this.call(target), queue, target.accountId)
-      if (consumers.includes(deployedName)) await this.wrangler(target, {action: 'queue-consumer-remove', queue, script: deployedName}, {})
+    return {
+      action: 'detach',
+      dependsOn: [],
+      run: async () => {
+        for (const queue of removedConsumers) {
+          const consumers = await readQueueConsumers(this.call(target), queue, target.accountId)
+          if (consumers.includes(deployedName)) {
+            const entry = this.writer.manifest.workers[target.worker.dir]
+            if (entry !== undefined) this.writer.update(target.worker.dir, {...entry, triggersHash: TRIGGERS_NOT_APPLIED})
+            target.record.changed = 'unknown'
+            await this.wrangler(target, {action: 'queue-consumer-remove', queue, script: deployedName}, {})
+            target.detached = true
+            target.record.changed = true
+          }
+        }
+      },
+      worker: target.worker.dir,
     }
   }
 
@@ -485,16 +507,15 @@ class Applier {
     await this.verify(target, versionId)
   }
 
-  /** What the version doesn't carry: triggers, then the consumers that have to go. `deployed` says `wrangler deploy` did the first. */
-  private async applyNonVersioned(target: Target, {deployed = false}: {deployed?: boolean} = {}): Promise<void> {
-    if (!deployed) await this.wrangler(target, {action: 'triggers-deploy', configPath: this.configOf(target)}, {env: this.env})
-    await this.detachRemovedConsumers(target)
+  /** What the version doesn't carry. */
+  private async triggersDeploy(target: Target): Promise<void> {
+    await this.wrangler(target, {action: 'triggers-deploy', configPath: this.configOf(target)}, {env: this.env})
   }
 
   /** If this fails, the entry says so with a hash that matches nothing, and the next plan gives `triggers`. */
-  private async applyTriggers(target: Target, versionId: string, options: {deployed?: boolean} = {}): Promise<void> {
+  private async applyTriggers(target: Target, versionId: string): Promise<void> {
     try {
-      await this.applyNonVersioned(target, options)
+      await this.triggersDeploy(target)
     } catch (error) {
       const previous = target.record.previous?.triggers ?? NO_TRIGGERS
       this.writer.update(target.worker.dir, {...this.entryFor(target, versionId), triggers: previous, triggersHash: TRIGGERS_NOT_APPLIED}, {newVersion: true})
@@ -517,7 +538,7 @@ class Applier {
         target.record.newVersionId = versionId
         target.record.changed = true
         // Wrangler applies triggers after `Uploaded`, so a failure in between leaves them unapplied, and workers_dev off.
-        await this.applyTriggers(target, versionId, {deployed: earlier === undefined})
+        if (earlier !== undefined) await this.applyTriggers(target, versionId)
         this.writer.update(target.worker.dir, this.entryFor(target, versionId), {newVersion: true})
         return versionId
       },
@@ -583,7 +604,7 @@ class Applier {
         if (attempt === 1) await this.assertLiveAsPlanned(target)
         target.attempted = true
         await this.syncTails(target)
-        await this.applyNonVersioned(target)
+        await this.triggersDeploy(target)
         target.record.changed = true
         this.writer.update(target.worker.dir, this.entryFor(target, target.step.previousVersionId!))
       },
@@ -600,7 +621,7 @@ class Applier {
         if (attempt === 1) await this.assertLiveAsPlanned(target)
         target.attempted = true
         await this.syncTails(target)
-        await this.applyNonVersioned(target)
+        await this.triggersDeploy(target)
         this.writer.update(target.worker.dir, this.entryFor(target, target.step.previousVersionId!))
       },
       worker: target.worker.dir,
@@ -619,7 +640,8 @@ function writeSummaryFile(context: RunContext, path: string | undefined, body: s
 }
 
 /**
- * `monocf apply`: runs a plan. New workers first, then every upload in parallel, then promotes, callees first. A failure skips
+ * `monocf apply`: runs a plan. Dropped queue consumers are detached first, then new workers go out, then every upload in
+ * parallel, then promotes, callees first. A failure skips
  * what calls that worker, and independent branches carry on. State follows each step, and a run record ends the run.
  */
 export async function runApply(planPath: string, flags: ApplyFlags): Promise<void> {

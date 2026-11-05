@@ -260,10 +260,12 @@ The older plan and markdown at the output paths are removed right after flag par
 
 ## Deploy
 
-Two phases, so a bad build can't leave half the chain updated:
+Before anything else, `apply` runs `wrangler queues consumer remove` for each queue in a step's `removedConsumers` that `queues consumer worker list --json` still shows that worker consuming, for every step, whatever its action. Cloudflare takes one worker consumer per queue and refuses a second with 11004, so a consumer that one commit moves from A to B has to leave A before B's `triggers deploy` or `deploy` attaches it. Before the remove, the worker's entry gets a `triggersHash` that matches nothing, so if the rest of its step never happens, the next plan applies its triggers again, also for a commit that brings the consumer back. A failed detach fails the worker, and skips its callers, before any of its code changes.
+
+Then two phases, so a bad build can't leave half the chain updated:
 
 1. **Upload,** in parallel: `wrangler versions upload --tag … --message … --var RELEASE:<sha>`. Nothing receives traffic yet.
-2. **Promote,** callees first: `wrangler versions deploy <id>@100% --yes -c <config>`, then `wrangler triggers deploy` when the triggers hash changed, then `wrangler queues consumer remove` for each queue in the step's `removedConsumers` that `queues consumer worker list --json` still shows this worker consuming. A `full-deploy` or `create` goes through the same removal after its `wrangler deploy`.
+2. **Promote,** callees first: `wrangler versions deploy <id>@100% --yes -c <config>`, then `wrangler triggers deploy` when the triggers hash changed.
 
 Exceptions that need a plain `wrangler deploy`:
 

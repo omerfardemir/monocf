@@ -1,3 +1,5 @@
+import {writeFileSync} from 'node:fs'
+import {join} from 'node:path'
 import {describe, expect, it} from 'vitest'
 
 import {
@@ -67,12 +69,71 @@ describe('apply, with a queue consumer on a live worker', () => {
     await planFor(fixture, cloudflare)
     const failed = await applyPlan(fixture, cloudflare, {rules: [{command: 'queues consumer remove', exitCode: 1, failMessage: 'outage', times: 1}]})
     expect(failed.exitCode).toBe(1)
+    // The detach comes first, so its failure stops the worker before its new version goes live.
+    expect(writesOf(failed.calls)).toEqual([])
 
     const plan = await planFor(fixture, failed.cloudflare!)
-    expect(stepOf(plan, 'reports')).toMatchObject({action: 'triggers', removedConsumers: ['jobs']})
+    expect(stepOf(plan, 'reports')).toMatchObject({action: 'upload', removedConsumers: ['jobs']})
     const healed = await applyPlan(fixture, failed.cloudflare!)
     expect(healed.exitCode, healed.stderr).toBe(0)
     expect(healed.cloudflare!.consumers?.jobs).toEqual({})
+  })
+})
+
+/** billing consumes jobs, and then one commit moves it to reports. */
+async function moved() {
+  const fixture = deployFixture()
+  const live = await firstRun(fixture)
+  changeConfig(fixture, 'billing', {env: {staging: consumer(1)}})
+  await planFor(fixture, live)
+  const before = await applyPlan(fixture, live)
+  expect(before.exitCode, before.stderr).toBe(0)
+  writeFileSync(join(fixture.worker('billing'), 'wrangler.jsonc'), JSON.stringify({env: {staging: {}}}))
+  changeConfig(fixture, 'reports', {env: {staging: consumer(1)}})
+  const plan = await planFor(fixture, before.cloudflare!)
+  return {cloudflare: before.cloudflare!, fixture, names: {billing: stepOf(plan, 'billing').deployedName, reports: stepOf(plan, 'reports').deployedName}}
+}
+
+describe('apply, moving a queue consumer to another worker in one commit', () => {
+  it('detaches it from the worker that drops it before the other attaches it, so one run does it', async () => {
+    const {cloudflare, fixture, names} = await moved()
+    // A slow detach: one that ran beside the other worker's attach would come after it.
+    const result = await applyPlan(fixture, cloudflare, {rules: [{command: 'queues consumer remove', delayMs: 3000}]})
+
+    expect(result.exitCode, result.stderr).toBe(0)
+    expect(Object.keys(result.cloudflare!.consumers!.jobs)).toEqual([names.reports])
+    const next = await planFor(fixture, result.cloudflare!)
+    expect(next.steps.filter(({action}: {action: string}) => action !== 'skip')).toEqual([])
+  })
+
+  it('attaches it on the next run, when the attach failed after the detach', async () => {
+    const {cloudflare, fixture, names} = await moved()
+    const failed = await applyPlan(fixture, cloudflare, {rules: [{command: 'triggers deploy', exitCode: 1, stderr: 'boom\n', worker: 'reports'}]})
+    expect(failed.exitCode).toBe(1)
+    expect(failed.cloudflare!.consumers!.jobs).toEqual({})
+
+    const plan = await planFor(fixture, failed.cloudflare!)
+    expect(stepOf(plan, 'billing')).toMatchObject({action: 'skip'})
+    expect(stepOf(plan, 'reports')).toMatchObject({action: 'triggers'})
+    const healed = await applyPlan(fixture, failed.cloudflare!)
+    expect(healed.exitCode, healed.stderr).toBe(0)
+    expect(Object.keys(healed.cloudflare!.consumers!.jobs)).toEqual([names.reports])
+  })
+
+  it('attaches it again, when the worker it was detached from fails and the commit is reverted', async () => {
+    const {cloudflare, fixture, names} = await moved()
+    const failed = await applyPlan(fixture, cloudflare, {rules: [{command: 'versions upload', exitCode: 1, stderr: 'boom\n', worker: 'billing'}]})
+    expect(failed.exitCode).toBe(1)
+    expect(Object.keys(failed.cloudflare!.consumers!.jobs)).toEqual([names.reports])
+
+    writeFileSync(join(fixture.worker('billing'), 'wrangler.jsonc'), JSON.stringify({env: {staging: consumer(1)}}))
+    changeConfig(fixture, 'reports', {env: {staging: {}}})
+    const plan = await planFor(fixture, failed.cloudflare!)
+    expect(stepOf(plan, 'billing')).toMatchObject({action: 'triggers'})
+    const reverted = await applyPlan(fixture, failed.cloudflare!)
+
+    expect(reverted.exitCode, reverted.stderr).toBe(0)
+    expect(Object.keys(reverted.cloudflare!.consumers!.jobs)).toEqual([names.billing])
   })
 })
 
