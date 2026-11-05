@@ -116,6 +116,11 @@ export function envSection(config: RawConfig, env?: string): RawConfig {
   return isPlainObject(section) ? section : {}
 }
 
+/** A field that an env inherits from the top level unless it sets its own, read the way wrangler's `inheritable` does. */
+export function effectiveField(config: RawConfig, env: string | undefined, field: string): unknown {
+  return envSection(config, env)[field] ?? config[field]
+}
+
 /** Replaces every character a worker name can't hold with a dash. Uppercase letters aren't lowercased. */
 export function sanitizeWorkerName(name: string): string {
   return name.replaceAll(/[^a-z0-9-]/g, '-')

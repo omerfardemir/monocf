@@ -63,6 +63,20 @@ function resolvedEnvKeys(config: RawConfig | undefined, variables: Record<string
   return substituteConfig({env: config?.env}, variables)
 }
 
+function envSources(raw: {config: RawConfig; dir: string}, options: Options, inputs: ProjectInputs): EnvSources {
+  const variables = {workerName: raw.dir, ...options.variables}
+  return {
+    base: resolvedEnvKeys(inputs.base?.config, variables),
+    worker: resolvedEnvKeys(raw.config, variables),
+  }
+}
+
+/** True when a readable worker doesn't define the selected env. */
+export function isEnvMissing(dir: string, options: Options, inputs: ProjectInputs): boolean {
+  const raw = inputs.workers.find((candidate) => candidate.dir === dir)
+  return raw !== undefined && options.env !== undefined && !isEnvDefined(envSources(raw, options, inputs), options.env)
+}
+
 /** Stops a run whose selected workers can't be resolved, or don't define the env. */
 export function validateSelection(
   selected: string[],
@@ -73,13 +87,6 @@ export function validateSelection(
   assertResolved(selected, project)
   for (const dir of selected) {
     const raw = inputs.workers.find((candidate) => candidate.dir === dir)
-    if (raw) {
-      const variables = {workerName: raw.dir, ...options.variables}
-      const sources = {
-        base: resolvedEnvKeys(inputs.base?.config, variables),
-        worker: resolvedEnvKeys(raw.config, variables),
-      }
-      validateEnv(dir, sources, options.env)
-    }
+    if (raw) validateEnv(dir, envSources(raw, options, inputs), options.env)
   }
 }

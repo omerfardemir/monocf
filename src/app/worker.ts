@@ -1,4 +1,3 @@
-import {cpus} from 'node:os'
 import {join} from 'node:path'
 
 import {readProjectInputs, resolveProject, type ResolvedProject} from '../config/resolve.js'
@@ -15,7 +14,17 @@ import {buildArgv, type ArgvOptions} from '../wrangler/argv.js'
 import {locateWrangler} from '../wrangler/locate.js'
 import {spawnWrangler} from '../wrangler/process.js'
 import {loadOptions, resolveRelease, selectFromArguments, type Selection} from './project.js'
-import {aloneMode, failureOf, isSuccess, reportStep, runStep, runWorkerSteps, withRun, type RunContext} from './run.js'
+import {
+  aloneMode,
+  defaultBuildConcurrency,
+  failureOf,
+  isSuccess,
+  reportStep,
+  runStep,
+  runWorkerSteps,
+  withRun,
+  type RunContext,
+} from './run.js'
 
 export type WorkerAction = 'build' | 'deploy' | 'dev' | 'preview'
 
@@ -27,7 +36,6 @@ export interface WorkerFlags extends OptionFlags {
 
 const BASE_WORKER_PORT = 9001
 const BASE_INSPECTOR_PORT = 9230
-const MAX_BUILD_CONCURRENCY = 8
 
 /** The optional flags each command acts on. Anything else is rejected instead of being dropped. */
 const FLAGS_BY_ACTION: Record<WorkerAction, (keyof WorkerFlags)[]> = {
@@ -76,11 +84,6 @@ function validateFlags(flags: WorkerFlags): void {
       throw new ConfigError('--deploy-secrets has no effect with --from-version, which uploads nothing')
     }
   }
-}
-
-/** One process per worker is mostly waiting on esbuild, so this tracks the CPU count, up to a limit. */
-export function defaultBuildConcurrency(): number {
-  return Math.min(cpus().length, MAX_BUILD_CONCURRENCY)
 }
 
 interface WorkerPlan {

@@ -1,3 +1,5 @@
+import {cpus} from 'node:os'
+
 import {EXIT_FAILED, EXIT_OK, MonocfError} from '../errors.js'
 import type {EventSink} from '../report/events.js'
 import {humanSink} from '../report/human.js'
@@ -93,6 +95,12 @@ export async function reportStep(
     emit({action, message: (error as Error).message, status: 'failed', type: 'step-finished', worker})
     throw error
   }
+}
+
+const MAX_BUILD_CONCURRENCY = 8
+
+export function defaultBuildConcurrency(): number {
+  return Math.min(cpus().length, MAX_BUILD_CONCURRENCY)
 }
 
 export interface WorkerStep {

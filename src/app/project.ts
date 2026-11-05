@@ -31,20 +31,49 @@ export function selectFromArguments(options: Options, name?: string, cwd: string
   return {ignored, selected: selectWorkers(workers, ignored, target)}
 }
 
-/** The commit a deployed version is labelled with. Resolved once per run. */
-export function resolveRelease(rootDir: string, notice: (message: string) => void): string {
-  const {GITHUB_SHA: sha} = process.env
-  if (sha) return sha.slice(0, SHORT_SHA_LENGTH)
+/** Every worker the ignore file leaves in. */
+export function selectAll(options: Options): Selection {
+  const workers = discoverWorkers(options)
+  const ignored = findIgnoredWorkers(options, workers)
+  return {ignored, selected: selectWorkers(workers, ignored)}
+}
 
+/** The named workers, or all of them when none is named. */
+export function selectNamed(options: Options, names: string[]): Selection {
+  if (names.length === 0) return selectAll(options)
+  const workers = discoverWorkers(options)
+  const ignored = findIgnoredWorkers(options, workers)
+  return {ignored, selected: [...new Set(names.flatMap((name) => selectWorkers(workers, ignored, name)))].sort()}
+}
+
+function gitRevParse(rootDir: string, ...args: string[]): string | undefined {
   try {
-    return execFileSync('git', ['rev-parse', '--short', 'HEAD'], {
+    return execFileSync('git', ['rev-parse', ...args, 'HEAD'], {
       cwd: rootDir,
       encoding: 'utf8',
       shell: false,
       stdio: ['ignore', 'pipe', 'ignore'],
     }).trim()
   } catch {
-    notice('Could not read the git commit, so RELEASE is "unknown".')
-    return 'unknown'
+    return undefined
   }
+}
+
+/** The commit a deployed version is labelled with. Resolved once per run. */
+export function resolveRelease(rootDir: string, notice: (message: string) => void): string {
+  const {GITHUB_SHA: sha} = process.env
+  if (sha) return sha.slice(0, SHORT_SHA_LENGTH)
+
+  const short = gitRevParse(rootDir, '--short')
+  if (short !== undefined) return short
+  notice('Could not read the git commit, so RELEASE is "unknown".')
+  return 'unknown'
+}
+
+/** The full commit a bundle manifest records. */
+export function resolveCommit(rootDir: string, notice: (message: string) => void): string {
+  const commit = process.env.GITHUB_SHA || gitRevParse(rootDir)
+  if (commit) return commit
+  notice('Could not read the git commit, so the manifest says "unknown".')
+  return 'unknown'
 }

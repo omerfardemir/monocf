@@ -1,6 +1,7 @@
 import {Args, Flags} from '@oclif/core'
 
 import {BaseCommand} from '../../app/base-command.js'
+import {projectFlags} from '../../app/flags.js'
 import {runWorker, type WorkerAction} from '../../app/worker.js'
 
 const workerCommand = Flags.custom<WorkerAction>({
@@ -21,8 +22,8 @@ export default class Worker extends BaseCommand {
     '<%= config.bin %> worker -c deploy -a -e production',
   ]
   static flags = {
+    ...projectFlags,
     all: Flags.boolean({char: 'a', default: false, description: 'Run command for all workers'}),
-    'base-config': Flags.string({char: 'b', description: 'Base wrangler config file'}),
     command: workerCommand(),
     concurrency: Flags.integer({
       description: 'How many workers run at once. default: the CPU count up to 8 for build, 1 for deploy and preview',
@@ -47,8 +48,6 @@ export default class Worker extends BaseCommand {
       char: 'p',
       description: 'Port for dev: of the worker, or of the proxy with --all. default for the proxy: 8787',
     }),
-    'root-dir': Flags.string({char: 'r', description: 'Root directory of the project'}),
-    'workers-dir-name': Flags.string({char: 'w', description: 'Workers directory name in monorepo'}),
   }
 
   async run(): Promise<void> {

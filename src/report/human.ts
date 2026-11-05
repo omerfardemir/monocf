@@ -7,6 +7,10 @@ export function formatHuman(event: ReportEvent): string | undefined {
       return `notice: ${event.message}`
     }
 
+    case 'finding': {
+      return `${event.level} ${event.rule}: ${event.message}`
+    }
+
     case 'step-started': {
       return `${event.worker}: ${event.action}`
     }
