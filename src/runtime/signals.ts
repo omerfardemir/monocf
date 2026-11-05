@@ -10,11 +10,16 @@ export function signalExitCode(signal: NodeJS.Signals): number {
   return 128 + (constants.signals[signal] ?? 0)
 }
 
+/** Without /F, taskkill only asks. Force is for what is still there when the grace period is over. */
+export function taskkillArguments(pid: number, signal: NodeJS.Signals): string[] {
+  return ['/pid', String(pid), '/T', ...(signal === 'SIGKILL' ? ['/F'] : [])]
+}
+
 /** On Windows a kill ends only the process itself, which would leave workerd running under a dead wrangler. */
 function terminate(child: ChildProcess, signal: NodeJS.Signals): void {
   if (process.platform === 'win32' && child.pid !== undefined) {
-    spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], {shell: false, stdio: 'ignore'}).once('error', () => {
-      child.kill(signal)
+    spawn('taskkill', taskkillArguments(child.pid, signal), {shell: false, stdio: 'ignore'}).once('error', () => {
+      if (signal === 'SIGKILL') child.kill(signal)
     })
     return
   }
