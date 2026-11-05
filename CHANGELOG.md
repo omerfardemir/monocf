@@ -40,6 +40,7 @@ monocf can now run a Cloudflare Workers monorepo from CI: a dependency graph, a 
 - A Cloudflare API rate limit (`[code: 10429]`, "Rate limited") is retried like a 429, on the state bucket too. A state bucket that can't be used gets the advice to create it only when it doesn't exist. `apply` on a plan file that isn't there says there's no plan, and that a plan that fails removes an earlier one.
 - With `CI` set, wrangler's output is piped and has the account ID taken out even on a terminal, as a CI can allocate a pty.
 - `monocf build`, `deploy`, `preview` and `dev`, over the same code as `monocf worker -c`.
+- The README has a starting `.gitignore` for CI, and lists two Windows limits of local development and what wasn't verified against real Cloudflare.
 - `dev <worker>` also starts the workers it reaches through a Durable Object or Workflow binding with a `script_name`, gives every worker in the session `RELEASE`, and says when a queue consumer or tail consumer it sends to isn't in the session.
 - `--json` on every command that runs workers, with a `schemaVersion`.
 - A `check` warning, `worker-name`, for a name that deploys as something other than what's written, such as `orDers`, which deploys as `or-ers`, or that starts or ends with a dash. The same notice shows on every command that resolves the worker.

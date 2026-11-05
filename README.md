@@ -79,6 +79,26 @@ A worker is a direct child of the workers directory that holds a `wrangler.jsonc
 
 Add `.monocf/` to your `.gitignore` in any case. monocf keeps its private run directories, default bundles and plans there.
 
+**Ignore what your build and tools write before your first CI run.** `apply` refuses a checkout with changes git doesn't ignore, so anything written into the tree between checkout and `apply` stops it. A starting `.gitignore`:
+
+```text
+node_modules/
+.monocf/
+.wrangler/
+# Wherever your build writes:
+dist/
+.dev.vars*
+!.dev.vars.example
+.env*
+# If plan writes its files into the tree:
+plan.json
+plan.md
+# Only with --state file:state:
+state/
+```
+
+Keep `.dev.vars*` and `.env*` out of git in any case, as they hold secrets. In CI, prefer writing plans and summaries to `$RUNNER_TEMP` over ignoring them.
+
 monocf never writes configs or `.dev.vars` next to your source. It writes what wrangler needs to a private directory under `.monocf/runs/` and removes it when the run ends.
 
 ## Configuration
@@ -1140,6 +1160,9 @@ Removing every cron is handled too: `apply` writes an explicit `"crons": []`, si
 - A Python entry at the top of a worker's directory fails with wrangler's message about `python_modules`. Move the entry into a subdirectory.
 - `site` and containers follow wrangler's source, and haven't been run against real Cloudflare by this project's tests.
 - `dev -a` starts one wrangler process per worker, so memory grows with the number of workers.
+- On Windows, `dev -a` calls between workers fail with "Network connection lost" when any worker sets `tail_consumers`. It works on Linux and macOS, and in a single `dev <worker>` session. Remove `tail_consumers` from the env you run locally, or use WSL.
+- On Windows, local D1, KV and Durable Object storage can fail under a long project path, as their files nest deep below it. Keep the project at a short path, such as `C:\Users\you\src\app`, or use WSL.
+- Not verified against real Cloudflare: that streaming tail consumers receive events, as the test's consumer received none, and that `observability: {"enabled": false}` takes effect, as the settings API didn't show the field. monocf passes both to wrangler as written.
 
 ## Migrating from 0.2
 
