@@ -2,7 +2,7 @@
 // this file. Every invocation appends one JSON line to FAKE_WRANGLER_LOG; behaviour comes from FAKE_WRANGLER_RULES.
 // What Cloudflare holds comes from the JSON file at FAKE_WRANGLER_CF, which a rule for the same command overrides.
 import {spawn} from 'node:child_process'
-import {appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync} from 'node:fs'
+import {appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync} from 'node:fs'
 import {basename, dirname, join, resolve} from 'node:path'
 import dotenv from 'dotenv'
 import {parse} from 'jsonc-parser'
@@ -121,6 +121,27 @@ function apiError(detail) {
   return `✘ [ERROR] A request to the Cloudflare API (${url}) failed.\n\n  ${detail}\n`
 }
 
+/** Parallel runs share the one Cloudflare file, so each change of it has to see the last one. */
+function withCloudflareLock(path, work) {
+  const lock = `${path}.lock`
+  const deadline = Date.now() + 30_000
+  for (;;) {
+    try {
+      mkdirSync(lock)
+      break
+    } catch (error) {
+      if (error.code !== 'EEXIST' || Date.now() > deadline) throw error
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10)
+    }
+  }
+
+  try {
+    return work()
+  } finally {
+    rmSync(lock, {force: true, recursive: true})
+  }
+}
+
 function deploymentsAnswer(state, name) {
   const worker = state.workers?.[name]
   if (!worker) return {exitCode: 1, stderr: apiError('This Worker does not exist on your account. [code: 10007]')}
@@ -135,7 +156,8 @@ function versionAnswer(state, name, id) {
   const tag = worker.tags[id]
   const triggeredBy = worker.triggeredBy?.[id]
   const annotations = {...(tag !== null && {'workers/tag': tag}), ...(triggeredBy && {'workers/triggered_by': triggeredBy})}
-  return {stdout: JSON.stringify({annotations, id, metadata: {}, resources: {}})}
+  const bindings = (worker.secrets ?? []).map((secret) => ({name: secret, text: 'never-printed', type: 'secret_text'}))
+  return {stdout: JSON.stringify({annotations, id, metadata: {}, resources: {bindings: [...bindings, {name: 'PLAIN', text: 'x', type: 'plain_text'}]}})}
 }
 
 function r2Answer(state, path) {
@@ -165,9 +187,11 @@ function cloudflareAnswer() {
   if (!isRead && !startsWithCommand('r2')) return null
   const path = process.env.FAKE_WRANGLER_CF
   if (!path) return {exitCode: 1, stderr: 'fake wrangler: this test set no Cloudflare state\n'}
-  const state = JSON.parse(readFileSync(path, 'utf8'))
-  if (startsWithCommand('r2')) return r2Answer(state, path)
-  return startsWithCommand('versions view') ? versionAnswer(state, name, argv[2]) : deploymentsAnswer(state, name)
+  return withCloudflareLock(path, () => {
+    const state = JSON.parse(readFileSync(path, 'utf8'))
+    if (startsWithCommand('r2')) return r2Answer(state, path)
+    return startsWithCommand('versions view') ? versionAnswer(state, name, argv[2]) : deploymentsAnswer(state, name)
+  })
 }
 
 const cloudflare = Object.keys(rule).length === 0 ? cloudflareAnswer() : null
@@ -227,7 +251,63 @@ if (rule.stdoutAfterExit === undefined) {
   spawn(process.execPath, ['-e', script], {detached: true, stdio: ['ignore', 1, 2]}).unref()
 }
 
-const stderrText = rule.stderr ?? cloudflare?.stderr
+function effectiveTriggers() {
+  return (envName && config?.env?.[envName]?.triggers) ?? config?.triggers ?? null
+}
+
+/** What a real write leaves behind. Nothing happens without a Cloudflare to keep it in. */
+function cloudflareWrite() {
+  const path = process.env.FAKE_WRANGLER_CF
+  const isDeploy = startsWithCommand('deploy') && !argv.includes('--dry-run')
+  const isWrite = isDeploy || startsWithCommand('versions upload') || startsWithCommand('versions deploy') || startsWithCommand('triggers deploy')
+  if (!path || !isWrite) return null
+  const state = JSON.parse(readFileSync(path, 'utf8'))
+  state.workers ??= {}
+  const notFound = {exitCode: 1, stderr: apiError('This Worker does not exist on your account. [code: 10007]')}
+  const save = (answer) => {
+    writeFileSync(path, JSON.stringify(state))
+    return answer
+  }
+
+  const nextVersion = (worker) => {
+    state.nextVersion = (state.nextVersion ?? 0) + 1
+    const id = `version-${state.nextVersion}-of-${workerDir}`
+    worker.tags = {...worker.tags, [id]: flagValues(['--tag'])[0] ?? null}
+    return id
+  }
+
+  if (isDeploy) {
+    state.workers[deployedName] ??= {active: [], tags: {}}
+    const worker = state.workers[deployedName]
+    const versionId = nextVersion(worker)
+    worker.active = [[versionId, 100]]
+    worker.triggers = effectiveTriggers()
+    return save({versionId})
+  }
+
+  const worker = state.workers[deployedName]
+  if (!worker) return notFound
+  if (startsWithCommand('versions upload')) return save({versionId: nextVersion(worker)})
+  if (startsWithCommand('triggers deploy')) {
+    worker.triggers = effectiveTriggers()
+    return save({})
+  }
+
+  const versionId = argv[2].replace(/@100%$/, '')
+  if (!worker.tags || !(versionId in worker.tags)) {
+    return {exitCode: 1, failCode: 100_146, stderr: apiError('Unknown version. [code: 100146]')}
+  }
+
+  worker.active = [[versionId, 100]]
+  return save({})
+}
+
+// `effectThenFail` takes effect and then fails anyway, as a process killed right after `Uploaded` does. `noEffect` exits 0 and
+// changes nothing, as the loser of two parallel writes does.
+const failsAnyway = (rule.exitCode ?? cloudflare?.exitCode ?? 0) !== 0
+const written = !rule.noEffect && (!failsAnyway || rule.effectThenFail) && process.env.FAKE_WRANGLER_CF ? withCloudflareLock(process.env.FAKE_WRANGLER_CF, cloudflareWrite) : null
+
+const stderrText = rule.stderr ?? cloudflare?.stderr ?? written?.stderr
 if (stderrText) process.stderr.write(stderrText)
 
 if (rule.signal) {
@@ -237,15 +317,15 @@ if (rule.signal) {
   })
 }
 
-const exitCode = rule.exitCode ?? cloudflare?.exitCode ?? 0
+const exitCode = rule.exitCode ?? cloudflare?.exitCode ?? written?.exitCode ?? 0
 if (exitCode === 0 && !rule.noOutputEntry) {
-  const uploaded = {version_id: `version-of-${workerDir}`, worker_name: deployedName}
+  const uploaded = {version_id: written?.versionId ?? `version-of-${workerDir}`, worker_name: deployedName}
   if (startsWithCommand('deploy') && !argv.includes('--dry-run')) writeOutputEntry({type: 'deploy', ...uploaded})
   if (startsWithCommand('versions upload')) writeOutputEntry({type: 'version-upload', ...uploaded})
 }
 
-if (exitCode !== 0 && (rule.failCode !== undefined || rule.failMessage !== undefined)) {
-  writeOutputEntry({code: rule.failCode, message: rule.failMessage, type: 'command-failed'})
+if (exitCode !== 0 && (rule.failCode !== undefined || rule.failMessage !== undefined || written?.failCode !== undefined)) {
+  writeOutputEntry({code: rule.failCode ?? written?.failCode, message: rule.failMessage ?? written?.stderr, type: 'command-failed'})
 }
 
 process.exitCode = exitCode

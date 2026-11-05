@@ -19,6 +19,7 @@ export type ReportEvent =
   | {env?: string; level: 'error' | 'warning'; message: string; rule: string; type: 'finding'; worker?: string}
   | {manifest: object; path: string; type: 'bundle-written'}
   | {path: string; plan: object; type: 'plan'}
+  | {extra?: string[]; missing?: string[]; note?: string; present?: string[]; type: 'secrets-check'; worker: string}
   | {exitCode: number; status: 'failed' | 'interrupted' | 'ok'; type: 'run-finished'}
 
 export type EventSink = (event: ReportEvent) => void

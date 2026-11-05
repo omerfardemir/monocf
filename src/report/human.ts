@@ -22,6 +22,16 @@ export function formatHuman(event: ReportEvent): string | undefined {
       return `${event.worker}: ${event.action} done${event.versionId ? `, version ${event.versionId}` : ''}`
     }
 
+    case 'secrets-check': {
+      const parts = [
+        ...(event.missing?.length ? [`missing ${event.missing.join(', ')}`] : []),
+        ...(event.extra?.length ? [`warning: not expected ${event.extra.join(', ')}`] : []),
+        ...(event.present?.length ? [`has ${event.present.join(', ')}`] : []),
+        ...(event.note ? [event.note] : []),
+      ]
+      return `${event.worker}: ${parts.join('; ') || 'nothing expected'}`
+    }
+
     default: {
       return undefined
     }

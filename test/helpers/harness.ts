@@ -108,9 +108,15 @@ export interface WranglerRule {
   delayMs?: number
   /** Applies this many times, and then the command behaves as if the rule weren't there. */
   times?: number
+  /** Takes effect on the fake Cloudflare, and then fails anyway. */
+  effectThenFail?: boolean
+  /** Exits 0 and changes nothing on the fake Cloudflare. */
+  noEffect?: boolean
 }
 
 export interface CliResult {
+  /** What the fake Cloudflare holds after the run, to hand to the next one. */
+  cloudflare?: FakeCloudflare
   exitCode: number | null
   signal: NodeJS.Signals | null
   stdout: string
@@ -244,7 +250,17 @@ export interface FakeCloudflare {
   /** Bucket name to its objects by key. */
   buckets?: Record<string, Record<string, string>>
   /** By deployed name. A worker that isn't here doesn't exist. */
-  workers?: Record<string, {active: [versionId: string, percentage: number][]; tags?: Record<string, null | string>; triggeredBy?: Record<string, string>}>
+  workers?: Record<
+    string,
+    {
+      active: [versionId: string, percentage: number][]
+      /** The names on the active version. */
+      secrets?: string[]
+      tags?: Record<string, null | string>
+      triggeredBy?: Record<string, string>
+      triggers?: null | {crons?: string[]}
+    }
+  >
 }
 
 export interface RunOptions {
@@ -356,7 +372,8 @@ export function startCli(fixture: Fixture, args: string[], options: RunOptions =
         return
       }
 
-      resolve({calls, exitCode, signal, stderr, stdout})
+      const cloudflare = options.cloudflare ? (JSON.parse(readFileSync(cloudflarePath, 'utf8')) as FakeCloudflare) : undefined
+      resolve({calls, cloudflare, exitCode, signal, stderr, stdout})
     })
   })
 

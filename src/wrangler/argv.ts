@@ -18,6 +18,8 @@ export interface ArgvOptions {
   minify?: boolean
   /** Goes to a real upload or a dev session, as `--var RELEASE:<value>`. A dry run has no use for it. */
   release?: string
+  /** Goes to a real upload, as `--tag`. It's how `plan` knows monocf put a version there. */
+  tag?: string
 }
 
 function flag(name: string, value: number | string | undefined): string[] {
@@ -31,12 +33,13 @@ function config(configPath: string): string[] {
 function upload(
   command: string[],
   step: {configPath: string; secretsFile?: string},
-  {env, message, minify, release}: ArgvOptions,
+  {env, message, minify, release, tag}: ArgvOptions,
 ): string[] {
   return [
     ...command,
     ...flag('--env', env),
     ...(minify ? ['--minify'] : []),
+    ...flag('--tag', tag),
     ...flag('--message', message),
     ...flag('--var', release === undefined ? undefined : `RELEASE:${release}`),
     ...flag('--secrets-file', step.secretsFile),
@@ -129,9 +132,8 @@ export function buildArgv(step: Step, options: ArgvOptions = {}): string[] {
       return [
         'versions',
         'deploy',
+        `${step.versionId}@100%`,
         '--yes',
-        '--version-id',
-        step.versionId,
         ...envFlag,
         ...flag('--message', message),
         ...config(step.configPath),

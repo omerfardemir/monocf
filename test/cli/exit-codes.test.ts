@@ -83,7 +83,7 @@ describe('exit codes', () => {
     })
 
     expect(result.exitCode).toBe(0)
-    expect(result.calls.find((call) => call.argv[1] === 'deploy')?.argv).toContain('version-written-late')
+    expect(result.calls.find((call) => call.argv[1] === 'deploy')?.argv).toContain('version-written-late@100%')
   })
 
   describe('versions list in deploy -f', () => {
@@ -124,7 +124,7 @@ describe('exit codes', () => {
 
       expect(result.exitCode).toBe(0)
       const deploy = result.calls.find((call) => call.argv[1] === 'deploy')
-      expect(deploy?.argv).toContain('version-1999')
+      expect(deploy?.argv).toContain('version-1999@100%')
     })
   })
 })

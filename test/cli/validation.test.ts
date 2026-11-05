@@ -533,7 +533,7 @@ describe('flag combinations (F11, F23)', () => {
 
     expect(result.exitCode).toBe(0)
     expect(result.calls.map((call) => argvWithoutConfig(call))).toEqual([
-      ['versions', 'deploy', '--yes', '--version-id', 'abc123'],
+      ['versions', 'deploy', 'abc123@100%', '--yes'],
       ['triggers', 'deploy'],
     ])
   })
@@ -546,7 +546,7 @@ describe('flag combinations (F11, F23)', () => {
     expect(result.exitCode).toBe(0)
     expect(result.calls.map((call) => argvWithoutConfig(call))).toEqual([
       ['versions', 'list', '--json'],
-      ['versions', 'deploy', '--yes', '--version-id', 'version-latest'],
+      ['versions', 'deploy', 'version-latest@100%', '--yes'],
       ['triggers', 'deploy'],
     ])
   })
@@ -569,7 +569,7 @@ describe('flag combinations (F11, F23)', () => {
 
     expect(result.exitCode).toBe(0)
     expect(result.calls.map((call) => argvWithoutConfig(call))).toEqual([
-      ['versions', 'deploy', '--yes', '--version-id', 'abc123'],
+      ['versions', 'deploy', 'abc123@100%', '--yes'],
       ['triggers', 'deploy'],
     ])
   })

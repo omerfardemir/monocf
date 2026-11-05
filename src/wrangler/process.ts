@@ -52,8 +52,14 @@ function collect(child: ChildProcess, mode: OutputMode): () => {stderr: string; 
   if (typeof mode === 'object') {
     const out = linePrefixer(mode.prefix, (text) => process.stderr.write(text))
     const err = linePrefixer(mode.prefix, (text) => process.stderr.write(text))
-    child.stdout?.on('data', (chunk) => out.write(String(chunk)))
-    child.stderr?.on('data', (chunk) => err.write(String(chunk)))
+    child.stdout?.on('data', (chunk) => {
+      stdout += chunk
+      out.write(String(chunk))
+    })
+    child.stderr?.on('data', (chunk) => {
+      stderr += chunk
+      err.write(String(chunk))
+    })
     child.once('close', () => {
       out.end()
       err.end()

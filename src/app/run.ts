@@ -15,6 +15,7 @@ import {readWorkerEnvironment} from '../runtime/worker-env.js'
 import {buildArgv, type ArgvOptions, type Step} from '../wrangler/argv.js'
 import type {Wrangler} from '../wrangler/locate.js'
 import {spawnWrangler, type OutputMode, type WranglerResult} from '../wrangler/process.js'
+import {scrubAccountIds} from '../wrangler/read.js'
 
 export interface RunContext {
   emit: EventSink
@@ -54,15 +55,30 @@ export function isSuccess({code, signal}: WranglerResult): boolean {
   return code === 0 && signal === null
 }
 
+/** Keeps what happened, so a retry policy can tell an outage from an answer. */
+export class WranglerFailure extends MonocfError {
+  constructor(
+    message: string,
+    exitCode: number,
+    readonly result: WranglerResult,
+  ) {
+    super(message, exitCode)
+  }
+}
+
 /** The error for a finished process. A signal keeps its own exit code, so CI can tell a kill from a failure. */
 export function failureOf(label: string, action: Step['action'], result: WranglerResult): MonocfError {
   const name = `${label}wrangler ${COMMAND_NAMES[action]}`
-  if (result.signal) return new MonocfError(`${name} was killed by ${result.signal}.`, signalExitCode(result.signal))
-  const detail = result.output.failure?.message ? `: ${result.output.failure.message}` : '.'
-  return new MonocfError(`${name} failed with exit code ${result.code}${detail}`, EXIT_FAILED)
+  if (result.signal) return new WranglerFailure(`${name} was killed by ${result.signal}.`, signalExitCode(result.signal), result)
+  const {code, message} = result.output.failure ?? {}
+  const withCode = message && code !== undefined && !message.includes(String(code)) ? `${message} [code: ${code}]` : message
+  const detail = withCode ? `: ${scrubAccountIds(withCode)}` : '.'
+  return new WranglerFailure(`${name} failed with exit code ${result.code}${detail}`, EXIT_FAILED, result)
 }
 
 export interface StepRun {
+  /** A worker's own account. Its config says so too, and a config with none leaves it to the environment. */
+  accountId?: string
   argvOptions?: ArgvOptions
   mode: OutputMode
   step: Step
@@ -70,10 +86,11 @@ export interface StepRun {
 }
 
 /** Runs one wrangler process to its end. Exit 0 from an upload isn't proof, so a version ID has to be there too. */
-export async function runStep(context: RunContext, {argvOptions, mode, step, worker}: StepRun) {
+export async function runStep(context: RunContext, {accountId, argvOptions, mode, step, worker}: StepRun) {
   const {environmentOf, interrupts, runDir, wrangler} = context
   interrupts.throwIfInterrupted()
   const running = spawnWrangler(wrangler, buildArgv(step, argvOptions), {
+    accountId,
     cwd: runDir.workerDir(worker),
     environment: environmentOf(worker),
     mode,
@@ -102,12 +119,14 @@ export async function runStep(context: RunContext, {argvOptions, mode, step, wor
 export async function callWrangler(
   context: RunContext,
   step: Step,
-  {accountId, worker}: {accountId?: string; worker?: string} = {},
+  {accountId, persist = false, worker}: {accountId?: string; persist?: boolean; worker?: string} = {},
 ): Promise<WranglerResult> {
   const {environmentOf, interrupts, readDir, wrangler} = context
-  interrupts.throwIfInterrupted()
+  if (!persist) interrupts.throwIfInterrupted()
   const environment = worker === undefined ? undefined : environmentOf(worker)
   const running = spawnWrangler(wrangler, buildArgv(step), {accountId, cwd: readDir, environment, mode: 'quiet'})
+  // State has to reach the store after a signal too, so `persist` leaves a signal out of it.
+  if (persist) return running.done
   interrupts.track(running.child)
   const result = await running.done
   interrupts.throwIfInterrupted()

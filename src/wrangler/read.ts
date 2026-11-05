@@ -28,6 +28,10 @@ const NO_CREDENTIALS = /CLOUDFLARE_API_TOKEN|not authenticated|authentication er
 const TOO_MANY_FAILURES = /code: 10502\b|too many authentication failures/i
 const ACCOUNT_ID = /\b[0-9a-f]{32}\b/gi
 
+export function scrubAccountIds(text: string): string {
+  return text.replaceAll(ACCOUNT_ID, '<account>')
+}
+
 /** The lines worth quoting from wrangler's stderr. API errors quote a URL holding the account ID, which stays out of logs. */
 function errorDetail(stderr: string): string {
   const lines = stripVTControlCharacters(stderr)
@@ -35,7 +39,7 @@ function errorDetail(stderr: string): string {
     .map((line) => line.trim())
     .filter((line) => line !== '')
   const errors = lines.filter((line) => line.includes('[ERROR]') || /code: \d+/.test(line))
-  return (errors.length > 0 ? errors : lines.slice(-1)).join(' ').replaceAll(ACCOUNT_ID, '<account>')
+  return scrubAccountIds((errors.length > 0 ? errors : lines.slice(-1)).join(' '))
 }
 
 /** A read that failed. No credentials is an environment error, so CI can tell it from a Cloudflare problem. */
