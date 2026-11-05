@@ -278,7 +278,8 @@ function giveNewVersion(decision: Decision): void {
   if (decision.action === 'skip' || decision.action === 'adopt' || decision.action === 'triggers') {
     decision.reasons = decision.action === 'triggers' ? [...decision.reasons, 'provider-recreated'] : ['provider-recreated']
     decision.action = 'upload'
-  } else if (decision.action === 'upload' && !decision.reasons.includes('provider-recreated')) {
+  } else if ((decision.action === 'upload' || decision.action === 'full-deploy') && !decision.reasons.includes('provider-recreated')) {
+    // It gets a new version anyway, but a rollback of that version has to know what it's going back across.
     decision.reasons = [...decision.reasons, 'provider-recreated']
   }
 }

@@ -245,6 +245,50 @@ describe('rollback, and crons', () => {
   })
 })
 
+/** reports' code is what the state says, and its triggers are behind, so the run only runs `triggers deploy`. */
+async function triggersOnlyRun() {
+  const fixture = deployFixture()
+  changeConfig(fixture, 'reports', {triggers: {crons: ['0 1 * * *']}})
+  const cloudflare = await firstRun(fixture)
+  const manifest = manifestOf(fixture)
+  manifest.workers.reports = {...manifest.workers.reports, triggers: {...manifest.workers.reports.triggers, crons: ['0 9 * * *']}, triggersHash: 'earlier'}
+  writeFileSync(join(fixture.root, 'state', 'staging', 'manifest.json'), JSON.stringify(manifest))
+  const plan = await planFor(fixture, cloudflare)
+  expect(stepOf(plan, 'reports').action).toBe('triggers')
+  const applied = await applyPlan(fixture, cloudflare)
+  expect(applied.exitCode, applied.stderr).toBe(0)
+  return {cloudflare: applied.cloudflare!, fixture, plan, runId: lastRunRecord(fixture).runId as string}
+}
+
+describe('rollback of a run that only changed triggers (R1)', () => {
+  it('records what was live, though it restores no version', async () => {
+    const {cloudflare, fixture, plan, runId} = await triggersOnlyRun()
+    const live = activeOf(cloudflare, stepOf(plan, 'reports'))
+
+    const result = await rollback(fixture, ['--to-run', runId], {cloudflare})
+
+    expect(result.exitCode, result.stderr).toBe(0)
+    expect(writesOf(result.calls)).toEqual(['triggers reports'])
+    expect(lastRunRecord(fixture).workers.reports).toMatchObject({changed: true, previousVersionId: live, result: 'ok'})
+  })
+
+  it('can be undone by a later --to-run, which puts the triggers forward again', async () => {
+    const {cloudflare, fixture, plan, runId} = await triggersOnlyRun()
+    const step = stepOf(plan, 'reports')
+    const live = activeOf(cloudflare, step)
+    const back = await rollback(fixture, ['--to-run', runId], {cloudflare})
+    expect(back.cloudflare!.workers![step.deployedName].triggers).toEqual({crons: ['0 9 * * *']})
+
+    const forward = await rollback(fixture, ['--to-run', lastRunRecord(fixture).runId], {cloudflare: back.cloudflare})
+
+    expect(forward.exitCode, forward.stderr).toBe(0)
+    expect(writesOf(forward.calls)).toEqual(['triggers reports'])
+    expect(forward.cloudflare!.workers![step.deployedName].triggers).toEqual({crons: ['0 1 * * *']})
+    expect(activeOf(forward.cloudflare, step)).toBe(live)
+    expect(manifestOf(fixture).workers.reports).toMatchObject({triggersHash: step.triggersHash, versionId: live})
+  })
+})
+
 describe('rollback <worker> --to', () => {
   it('asks for --force, because no record can vouch for the version', async () => {
     const {before, cloudflare, fixture} = await deployedTwice(['billing'])

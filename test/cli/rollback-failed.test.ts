@@ -2,7 +2,7 @@ import {readFileSync, rmSync, writeFileSync} from 'node:fs'
 import {join} from 'node:path'
 import {describe, expect, it} from 'vitest'
 
-import {actionsOf, activeOf, applyPlan, callsOf, changeConfig, deployFixture, firstRun, lastRunRecord, manifestOf, newCode, planFor, stepOf, waitForWrite, writesOf} from '../helpers/deploy-fixtures.js'
+import {actionsOf, activeOf, applyPlan, callsOf, changeConfig, commitAll, deployFixture, firstRun, lastRunRecord, manifestOf, newCode, planFor, stepOf, waitForWrite, writesOf} from '../helpers/deploy-fixtures.js'
 import {runCli, startCli, type FakeCloudflare, type Fixture, type RunOptions, type WranglerRule} from '../helpers/harness.js'
 
 const rollback = (fixture: Fixture, runId: string, cloudflare: FakeCloudflare, {flags = [], ...options}: RunOptions & {flags?: string[]} = {}) =>
@@ -208,6 +208,46 @@ describe('rollback to a version the state entry does not describe (WP6-4)', () =
   })
 })
 
+/** A failed run: billing went through, and reports failed with nothing changed. */
+async function failedWithReportsUntouched() {
+  const fixture = deployFixture({workers: [{name: 'billing'}, {config: {site: {bucket: './site'}}, name: 'reports'}]})
+  const cloudflare = await firstRun(fixture)
+  const old = structuredClone(manifestOf(fixture).workers)
+  const plan = await planFor(fixture, cloudflare, {rules: newCode('billing', 'reports')})
+  const failed = await applyPlan(fixture, cloudflare, {rules: [{...partly, effectThenFail: false}]})
+  expect(failed.exitCode).toBe(1)
+  const record = lastRunRecord(fixture)
+  expect(record.workers.reports).toMatchObject({changed: false, result: 'failed'})
+  expect(record.workers.billing).toMatchObject({changed: true, result: 'ok'})
+  return {cloudflare: failed.cloudflare!, fixture, old, plan, runId: record.runId as string}
+}
+
+describe('a worker in a failed run that has left the checkout (R6)', () => {
+  it('skips one the run left unchanged, says so, and restores the rest', async () => {
+    const {cloudflare, fixture, old, plan, runId} = await failedWithReportsUntouched()
+    rmSync(fixture.worker('reports'), {force: true, recursive: true})
+
+    const result = await rollback(fixture, runId, cloudflare)
+
+    expect(result.exitCode, result.stderr).toBe(0)
+    expect(result.stderr).toContain("reports: This run didn't change it, and this checkout has no such worker")
+    expect(writesOf(result.calls)).toEqual(['promote billing'])
+    expect(activeOf(result.cloudflare, stepOf(plan, 'billing'))).toBe(old.billing.versionId)
+    expect(lastRunRecord(fixture).workers.reports.result).toBe('skipped')
+  })
+
+  it('still stops for one the run may have changed, as nothing could put it back', async () => {
+    const {cloudflare, fixture, runId} = await failedWithReportsUntouched()
+    rmSync(fixture.worker('billing'), {force: true, recursive: true})
+
+    const result = await rollback(fixture, runId, cloudflare, {noCalls: true})
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain('billing is in the run record, and this checkout has no such worker')
+    expect(writesOf(result.calls)).toEqual([])
+  })
+})
+
 /** billing was gone, and this run created it and gave orders a new version to reach it. */
 async function recreatedAndApplied() {
   const fixture = deployFixture()
@@ -279,6 +319,68 @@ describe('rollback across a recreated provider (WP6-5)', () => {
 
     expect(result.exitCode, result.stderr).toBe(0)
     expect(manifestOf(fixture).needsNewVersion).toEqual(['orders'])
+  })
+})
+
+describe('rollback across a recreated provider, of a caller with its own full-deploy (R4)', () => {
+  const withDo = {
+    durable_objects: {bindings: [{class_name: 'Counter', name: 'COUNTER'}]},
+    env: {staging: {services: [{binding: 'BILLING', service: 'billing'}]}},
+    migrations: [{new_sqlite_classes: ['Counter'], tag: 'v1'}],
+  }
+
+  /** orders gets a Durable Object in the same run that recreates billing, which it calls. */
+  async function recreatedWithClassChange() {
+    const fixture = deployFixture()
+    const cloudflare = await firstRun(fixture)
+    const old = structuredClone(manifestOf(fixture).workers.orders)
+    const provider = stepOf(await planFor(fixture, cloudflare), 'billing').deployedName
+    const original = readFileSync(join(fixture.worker('orders'), 'wrangler.jsonc'), 'utf8')
+    changeConfig(fixture, 'orders', withDo)
+    const {[provider]: gone, ...rest} = cloudflare.workers!
+    expect(gone).toBeDefined()
+    const without = {...cloudflare, workers: rest}
+    const plan = await planFor(fixture, without, {flags: ['--allow-recreate']})
+    const applied = await applyPlan(fixture, without)
+    expect(applied.exitCode, applied.stderr).toBe(0)
+    return {cloudflare: applied.cloudflare!, fixture, old, original, runId: lastRunRecord(fixture).runId as string, step: stepOf(plan, 'orders')}
+  }
+
+  it('gives the step both reasons', async () => {
+    const {step} = await recreatedWithClassChange()
+
+    expect(step).toMatchObject({action: 'full-deploy', reasons: ['do-changed', 'provider-recreated']})
+  })
+
+  it('names the recreated provider when it refuses', async () => {
+    const {cloudflare, fixture, runId, step} = await recreatedWithClassChange()
+
+    const result = await rollback(fixture, runId, cloudflare, {noCalls: true})
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toMatch(/this run recreated billing/)
+    expect(activeOf(result.cloudflare, step)).toBe(activeOf(cloudflare, step))
+  })
+
+  it('after a forced rollback and a revert, the next plan still gives the caller a new version, and that heals it', async () => {
+    const {cloudflare, fixture, old, original, runId, step} = await recreatedWithClassChange()
+
+    const forced = await rollback(fixture, runId, cloudflare, {flags: ['--force']})
+
+    expect(forced.exitCode, forced.stderr).toBe(0)
+    expect(activeOf(forced.cloudflare, step)).toBe(old.versionId)
+    expect(manifestOf(fixture).needsNewVersion).toEqual(['orders'])
+
+    writeFileSync(join(fixture.worker('orders'), 'wrangler.jsonc'), original)
+    commitAll(fixture)
+    const next = await planFor(fixture, forced.cloudflare!)
+    expect(stepOf(next, 'orders')).toMatchObject({action: 'upload', reasons: ['provider-recreated']})
+
+    const healed = await applyPlan(fixture, forced.cloudflare!)
+    expect(healed.exitCode, healed.stderr).toBe(0)
+    expect(activeOf(healed.cloudflare, step)).not.toBe(old.versionId)
+    expect(manifestOf(fixture).needsNewVersion).toBeUndefined()
+    expect(actionsOf(await planFor(fixture, healed.cloudflare!)).orders).toBe('skip')
   })
 })
 

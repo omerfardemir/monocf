@@ -219,9 +219,14 @@ function targetsFromRun(
       const reason = ignored.includes(name) ? {message: `${IGNORE_FILE} leaves it out of ${env} now, so this rollback doesn't touch it, and it stays as it is.`} : noTarget(entry)
       if (reason === undefined) {
         const worker = workers.get(name)
-        if (worker === undefined) throw new MonocfError(`${name} is in the run record, and this checkout has no such worker.`, EXIT_FAILED)
-        const createdCallees = created.filter((provider) => directBindingCallers(graph, provider).includes(name))
-        targets.push(targetFor(entry, {createdCallees, env, force, manifest, runId: record.runId, worker}))
+        if (worker !== undefined) {
+          const createdCallees = created.filter((provider) => directBindingCallers(graph, provider).includes(name))
+          targets.push(targetFor(entry, {createdCallees, env, force, manifest, runId: record.runId, worker}))
+        } else if (entry.changed === false) {
+          skip(name, {message: "This run didn't change it, and this checkout has no such worker, so there is nothing to put back."})
+        } else {
+          throw new MonocfError(`${name} is in the run record, and this checkout has no such worker.`, EXIT_FAILED)
+        }
       } else {
         skip(name, reason)
       }
@@ -296,10 +301,12 @@ async function restore({context, env, runId, writer}: Execution, target: Target,
   const shared = {accountId, mode: {prefix: `[${dir}] `}, worker: dir}
   const call = workerCall(context, dir)
 
+  // Whatever this step changes, its record has to say what was live for a later `--to-run` to undo it.
+  const active = versionId !== undefined || restoreTriggers ? await readActiveVersion(call, deployedName, accountId) : undefined
+  if (attempt === 1 && active?.state === 'active') record.previousVersionId = active.versionId
+
   if (versionId !== undefined) {
-    const active = await readActiveVersion(call, deployedName, accountId)
-    if (attempt === 1 && active.state === 'active') record.previousVersionId = active.versionId
-    const alreadyLive = active.state === 'active' && active.versionId === versionId
+    const alreadyLive = active?.state === 'active' && active.versionId === versionId
     if (verifyOnly) {
       if (!alreadyLive) throw new MonocfError(`${dir}: ${versionId} isn't live any more, and this run didn't change it, so there's nothing of its to undo. Use --to to choose a version.`, EXIT_FAILED)
       record.message = 'Already live, nothing to restore.'
