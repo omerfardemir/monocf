@@ -16,9 +16,9 @@ export interface ExternalInput {
   type: 'assets' | 'file' | 'tree'
 }
 
-// Monocf's own output, wrangler's, and git's are never the input, and all three change with no change to the worker.
+// Monocf's own output, wrangler's, and git's are never the input, and all three change with no change to the worker. Under
+// assets, wrangler uploads whatever .assetsignore lets through, whatever it's called, so a name there proves nothing.
 const NEVER_INPUT = new Set(['.git', '.monocf', '.wrangler'])
-const NEVER_ASSET = new Set(['.monocf'])
 
 // Wrangler leaves these three out of the asset manifest, but it sends _headers and _redirects as configuration, and
 // .assetsignore decides what the others are.
@@ -167,7 +167,7 @@ function withoutIgnoredAssets(root: string, files: InputFile[]): InputFile[] {
 
 function inputFiles({path, type}: ExternalInput, outside: string[]): InputFile[] {
   if (statSync(path).isFile()) return [{absolute: path, path: ''}]
-  if (type === 'assets') return withoutIgnoredAssets(path, listFiles(path, NEVER_ASSET, outside))
+  if (type === 'assets') return withoutIgnoredAssets(path, listFiles(path, new Set(), outside))
   return listFiles(path, NEVER_INPUT, outside)
 }
 
@@ -199,6 +199,14 @@ export function externalHash(inputs: ExternalInput[], outside: string[] = []): s
   const sorted = [...inputs].sort((a, b) => (a.label === b.label ? comparePaths(a, b) : comparePaths({path: a.label}, {path: b.label})))
   for (const input of sorted) hashInput(hash, input, outside)
   return hash.digest('hex')
+}
+
+/**
+ * A worker's hash as a plan compares it. The project's own `.monocf` holds run directories with random names and the default
+ * bundle, and `bundleDir` is the bundle's output, so neither counts even if an input is configured to contain it.
+ */
+export function workerExternalHash({config, path}: {config: RawConfig; path: string}, env: string | undefined, rootDir: string, bundleDir?: string): string {
+  return externalHash(externalInputs(config, env, path), [join(rootDir, '.monocf'), ...(bundleDir === undefined ? [] : [bundleDir])])
 }
 
 /** What `wrangler versions upload` can't carry, so that a change to it needs a plain `wrangler deploy`. */

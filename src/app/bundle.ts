@@ -5,7 +5,7 @@ import {effectiveField, envSection, readProjectInputs, resolveProject} from '../
 import {ConfigError, isPlainObject, type RawConfig, type ResolvedWorker} from '../config/types.js'
 import {validateSelection} from '../config/validate.js'
 import {EXIT_FAILED, MonocfError} from '../errors.js'
-import {externalHash, externalInputs, fieldsNeedingDeploy} from '../fingerprint/external.js'
+import {fieldsNeedingDeploy, workerExternalHash} from '../fingerprint/external.js'
 import {
   bundleHash,
   configHash,
@@ -96,12 +96,12 @@ function withoutMinify(config: RawConfig): RawConfig {
   return {...strip(config), ...(env && {env})}
 }
 
-function describeWorker(worker: ResolvedWorker, out: string, env: string): ManifestWorker {
-  const {config, deployedName, path} = worker
+function describeWorker(worker: ResolvedWorker, out: string, {env, rootDir}: {env: string; rootDir: string}): ManifestWorker {
+  const {config, deployedName} = worker
   const bundle = bundleHash(readBundleFiles(join(out, worker.dir)))
   const hash = configHash(config, env)
   // After the dry run, because build.command can generate these inputs.
-  const external = externalHash(externalInputs(config, env, path), [out])
+  const external = workerExternalHash(worker, env, rootDir, out)
   const triggers = triggersOf(config, env)
   const {vars} = envSection(config, env)
   const version = isPlainObject(vars) ? vars.VERSION : undefined
@@ -221,7 +221,7 @@ export async function buildBundle(context: RunContext, job: BundleJob): Promise<
           },
           worker: worker.dir,
         })
-        described.set(worker.dir, describeWorker(worker, out, env))
+        described.set(worker.dir, describeWorker(worker, out, {env, rootDir}))
       },
       worker: worker.dir,
     })),

@@ -19,6 +19,7 @@ import {locateWrangler} from '../wrangler/locate.js'
 import {readActiveVersion, readVersionOrigin, type ActiveInfo, type WranglerCall} from '../wrangler/read.js'
 import {withReadRetries} from '../wrangler/retry.js'
 import {configHash, doHash, triggersHash, triggersOf} from '../fingerprint/fingerprint.js'
+import {workerExternalHash} from '../fingerprint/external.js'
 import {buildBundle, checkEntrypoints, readBundleManifest, type BundleManifest, type ManifestWorker} from './bundle.js'
 import {checkoutHead, isTreeDirty, loadOptions, resolveCommit, selectNamed} from './project.js'
 import {accountOf, callWrangler, createSink, runWorkerSteps, withRun, type RunContext} from './run.js'
@@ -90,7 +91,10 @@ function reusableBundle(
   if (manifest.head !== checkoutHead(expected.rootDir)) return {mismatch: 'another commit was checked out'}
   if (isTreeDirty(expected.rootDir, dir)) return {mismatch: 'this checkout has changes'}
   const stale = expected.workers.find((worker) => !describesConfig(manifest.workers[worker.dir], worker, expected.env))
-  return stale ? {mismatch: `it doesn't describe ${stale.dir}`} : {manifest}
+  if (stale) return {mismatch: `it doesn't describe ${stale.dir}`}
+  // git status can't see a gitignored input, and built assets usually are.
+  const rebuilt = expected.workers.find((worker) => manifest.workers[worker.dir].externalHash !== workerExternalHash(worker, expected.env, expected.rootDir, dir))
+  return rebuilt ? {mismatch: `the external inputs of ${rebuilt.dir} have changed since it was built`} : {manifest}
 }
 
 async function bundleFor(

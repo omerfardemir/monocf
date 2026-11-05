@@ -3,7 +3,7 @@ import {tmpdir} from 'node:os'
 import {dirname, join} from 'node:path'
 import {afterEach, describe, expect, it} from 'vitest'
 
-import {externalHash, externalInputs, fieldsNeedingDeploy, type ExternalInput} from '../../src/fingerprint/external.js'
+import {externalHash, externalInputs, fieldsNeedingDeploy, workerExternalHash, type ExternalInput} from '../../src/fingerprint/external.js'
 
 const dirs: string[] = []
 
@@ -102,6 +102,27 @@ describe('externalHash', () => {
     })
   })
 
+  it('takes a file under .monocf among assets, as wrangler uploads it (WP6-18)', () => {
+    const root = tree({'a.txt': 'x', '.monocf/page.html': 'one'})
+    const before = externalHash([assets(root)])
+
+    write(root, '.monocf/page.html', 'two')
+
+    expect(externalHash([assets(root)])).not.toBe(before)
+  })
+
+  it("leaves out the project's own .monocf, even from an input that holds it (WP6-18)", () => {
+    const root = tree({'public/a.txt': 'x'})
+    const worker = {config: {assets: {directory: '..'}}, path: join(root, 'public')}
+    const before = workerExternalHash(worker, undefined, root)
+
+    write(root, '.monocf/runs/abc/index.js', 'x')
+    expect(workerExternalHash(worker, undefined, root)).toBe(before)
+
+    write(root, 'other/.monocf/page.html', 'x')
+    expect(workerExternalHash(worker, undefined, root)).not.toBe(before)
+  })
+
   it('takes everything under a site bucket or a build context, but never git or monocf output', () => {
     const root = tree({'.dockerignore': 'x', 'a.txt': 'x'})
     const before = externalHash([site(root)])
@@ -138,6 +159,11 @@ describe('externalHash', () => {
 const labels = (config: Record<string, unknown>, env?: string) =>
   externalInputs(config, env, '/worker').map(({label}) => label)
 
+const sitePaths = (config: Record<string, unknown>) =>
+  externalInputs(config, 'a', '/worker')
+    .filter(({label}) => label === 'site')
+    .map(({path}) => path.replaceAll('\\', '/'))
+
 describe('externalInputs', () => {
   it('has nothing for a plain worker', () => {
     expect(labels({main: 'src/index.ts'})).toEqual([])
@@ -162,6 +188,11 @@ describe('externalInputs', () => {
 
     expect(pathsOf('a')[0]).toMatch(/\/worker\/own$/)
     expect(pathsOf('b')[0]).toMatch(/\/worker\/top$/)
+  })
+
+  it('takes a site from an env section as well, where wrangler only warns about it', () => {
+    expect(sitePaths({env: {a: {site: {bucket: './own'}}}, site: {bucket: './top'}})).toEqual([expect.stringMatching(/\/worker\/top$/), expect.stringMatching(/\/worker\/own$/)])
+    expect(sitePaths({env: {a: {site: {bucket: './own'}}}})).toEqual([expect.stringMatching(/\/worker\/own$/)])
   })
 
   it('reads containers and unsafe from the env alone, as they do not inherit', () => {

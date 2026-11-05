@@ -148,7 +148,7 @@ Rules for it:
 
 - It uses the values for the env, and it runs after the dry run, since `build.command` can generate these inputs.
 - Each input has a label, so a file moving from one input to another changes the hash, and paths are relative to the input, so a checkout path doesn't.
-- **When in doubt, a file counts.** A false "changed" costs one redeploy, while a false "unchanged" never ships the change. So everything under a site bucket or a build context counts, and `include`, `exclude` and `.dockerignore` aren't read. `.git`, `.wrangler`, `.monocf` and the bundle's own output directory never count, as they change with no change to the worker.
+- **When in doubt, a file counts.** A false "changed" costs one redeploy, while a false "unchanged" never ships the change. So everything under a site bucket or a build context counts, and `include`, `exclude` and `.dockerignore` aren't read. There, `.git`, `.wrangler` and `.monocf` never count, as they change with no change to the worker. Under assets, what wrangler uploads is hashed whatever its name, including a directory called `.monocf`. The project's own `<root>/.monocf` and the bundle's output directory never count anywhere.
 - Assets follow wrangler's `createAssetsIgnoreFunction`: a file `.assetsignore` names isn't uploaded, so it doesn't count. `_headers`, `_redirects` and `.assetsignore` always do. Wrangler leaves them out of the asset manifest, but it sends the first two as configuration, and the third decides what the rest is.
 - A configured input that's missing gets its absence hashed. Whether that's an error is wrangler's call, and the dry run has already made it.
 
@@ -252,7 +252,7 @@ Reads and the state store's wrangler calls run from a new empty directory under 
 
 A read that fails with `fetch failed`, a 429 or a 5xx is tried up to three times, with the backoff of a write.
 
-`--bundle-dir` reuses a bundle only if it describes this run. The env, commit and wrangler version have to match, `configHash`, `doHash` and `triggersHash` are recomputed per selected worker from the resolved config, and the bundle manifest's `head` (the real `git rev-parse HEAD`, not `GITHUB_SHA`) has to be what's checked out. A bundle built on a dirty tree is refused, and so is reuse on one. `apply` and `--expect-branch-tip` use the real `HEAD` too.
+`--bundle-dir` reuses a bundle only if it describes this run. The env, commit and wrangler version have to match, `configHash`, `doHash`, `triggersHash` and `externalHash` are recomputed per selected worker from the resolved config and the files on disk (git can't see a gitignored asset directory, so a tree that looks clean proves nothing about it), and the bundle manifest's `head` (the real `git rev-parse HEAD`, not `GITHUB_SHA`) has to be what's checked out. A bundle built on a dirty tree is refused, and so is reuse on one. `apply` and `--expect-branch-tip` use the real `HEAD` too.
 
 The older plan and markdown at the output paths are removed right after flag parsing, so no failed run can leave one for `apply` or a PR comment. The markdown is written before the plan, so a plan appears only when everything has succeeded. A path that can't be written is exit 3.
 

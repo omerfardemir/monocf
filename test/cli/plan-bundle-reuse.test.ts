@@ -25,7 +25,44 @@ async function bundled(fixture: Fixture, env: Record<string, string> = {}): Prom
   return result
 }
 
+/** A built asset directory, which git can't see. */
+function withIgnoredAssets(): Fixture {
+  const fixture = createFixture({
+    environments: ['staging'],
+    files: {'workers/orders/.gitignore': 'public', 'workers/orders/public/index.html': 'one'},
+    workers: [{config: {assets: {directory: './public'}}, name: 'orders'}],
+  })
+  mkdirSync(join(fixture.root, 'state'))
+  return fixture
+}
+
 describe('plan --bundle-dir', () => {
+  it('builds again when a gitignored input changed after the bundle, and plans the change (WP6-8)', async () => {
+    const fixture = withIgnoredAssets()
+    await bundled(fixture)
+    writeFileSync(join(fixture.worker('orders'), 'public', 'index.html'), 'two')
+    const status = execFileSync('git', ['status', '--porcelain'], {cwd: fixture.root, encoding: 'utf8'})
+    expect(status.trim()).toBe('')
+    const path = join(fixture.root, '.monocf', 'bundle', 'staging', 'manifest.json')
+    const {externalHash: old} = JSON.parse(readFileSync(path, 'utf8')).workers.orders
+
+    const result = await runCli(fixture, plan, {cloudflare: {}})
+
+    expect(result.exitCode, result.stderr).toBe(0)
+    expect(built(result.calls)).toBe(1)
+    expect(result.stderr).toContain('the external inputs of orders have changed')
+    expect(JSON.parse(readFileSync(path, 'utf8')).workers.orders.externalHash).not.toBe(old)
+  })
+
+  it('reuses a bundle whose gitignored input is as it was', async () => {
+    const fixture = withIgnoredAssets()
+    await bundled(fixture)
+
+    const result = await runCli(fixture, plan, {cloudflare: {}})
+
+    expect(built(result.calls)).toBe(0)
+  })
+
   it.each(['configHash', 'doHash', 'triggersHash'])('bundles again when %s is not what this config gives', async (field) => {
     const fixture = project()
     await bundled(fixture)
