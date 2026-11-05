@@ -1,5 +1,5 @@
 import {BaseCommand} from '../../app/base-command.js'
-import {runWorkerCommand, workerArgs, workerFlags} from '../../app/worker-command.js'
+import {deployFlags, runWorkerCommand, workerArgs} from '../../app/worker-command.js'
 
 export default class Deploy extends BaseCommand {
   static args = workerArgs
@@ -9,7 +9,7 @@ export default class Deploy extends BaseCommand {
     '<%= config.bin %> deploy orders -e dev --deploy-bindings',
     '<%= config.bin %> deploy -a -e production',
   ]
-  static flags = workerFlags
+  static flags = deployFlags
 
   async run(): Promise<void> {
     const {args, flags} = await this.parse(Deploy)

@@ -38,9 +38,33 @@ export const workerFlags = {
 
 type ParsedFlags = Interfaces.InferredFlags<typeof workerFlags>
 
-export function runWorkerCommand(command: WorkerAction, workerName: string | undefined, flags: ParsedFlags): Promise<void> {
+function pick<T extends object, K extends keyof T>(source: T, keys: readonly K[]): Pick<T, K> {
+  return Object.fromEntries(keys.map((key) => [key, source[key]])) as Pick<T, K>
+}
+
+const COMMON = ['base-config', 'root-dir', 'workers-dir-name', 'all', 'env', 'json'] as const
+
+/**
+ * What each command's `--help` lists: only the flags it acts on. `monocf worker -c` still takes them all, and refuses the ones
+ * its action doesn't use with a message naming the flag.
+ */
+export const buildFlags = pick(workerFlags, [...COMMON, 'concurrency', 'minify'])
+export const deployFlags = pick(workerFlags, [
+  ...COMMON,
+  'concurrency',
+  'deploy-bindings',
+  'deploy-from-version-id',
+  'deploy-secrets',
+  'from-version',
+  'message',
+  'minify',
+])
+export const devFlags = pick(workerFlags, [...COMMON, 'port'])
+export const previewFlags = pick(workerFlags, [...COMMON, 'concurrency', 'deploy-bindings', 'deploy-secrets', 'message', 'minify'])
+
+export function runWorkerCommand(command: WorkerAction, workerName: string | undefined, flags: Partial<ParsedFlags>): Promise<void> {
   return runWorker(workerName, {
-    all: flags.all,
+    all: flags.all ?? false,
     baseConfig: flags['base-config'],
     command,
     concurrency: flags.concurrency,

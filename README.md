@@ -327,30 +327,22 @@ Build workers into each worker's dist directory, without uploading
 
 ```
 USAGE
-  $ monocf build [WORKERNAME] [-b <value>] [-r <value>] [-w <value>] [-a] [--concurrency <value>] [-d] [-F
-    <value>] [-s] [-e <value>] [-f] [--json] [-M <value>] [-m] [-p <value>]
+  $ monocf build [WORKERNAME] [-b <value>] [-r <value>] [-w <value>] [-a] [-e <value>] [--json]
+    [--concurrency <value>] [-m]
 
 ARGUMENTS
   WORKERNAME  Worker name. default: the worker whose directory you are in
 
 FLAGS
-  -F, --deploy-from-version-id=<value>  Version ID to deploy instead of the latest uploaded version. Requires
-                                        --from-version
-  -M, --message=<value>                 Message for the version: on deploy, preview or --from-version
-  -a, --all                             Run command for all workers
-  -b, --base-config=<value>             Base wrangler config file
-  -d, --[no-]deploy-bindings            Also deploy or upload the workers it binds to, first
-  -e, --env=<value>                     Environment to use (dev, production etc.)
-  -f, --from-version                    Deploy from an existing version or latest uploaded version
-  -m, --[no-]minify                     Minify the worker script during build/deploy
-  -p, --port=<value>                    Port for dev: of the worker, or of the proxy with --all. default for the proxy:
-                                        8787
-  -r, --root-dir=<value>                Root directory of the project
-  -s, --[no-]deploy-secrets             Also upload secrets, from the exact .dev.vars files for the env
-  -w, --workers-dir-name=<value>        Workers directory name in monorepo
-      --concurrency=<value>             How many workers run at once. default: the CPU count up to 8 for build, 1 for
-                                        deploy and preview
-      --json                            Print results as NDJSON on stdout
+  -a, --all                       Run command for all workers
+  -b, --base-config=<value>       Base wrangler config file
+  -e, --env=<value>               Environment to use (dev, production etc.)
+  -m, --[no-]minify               Minify the worker script during build/deploy
+  -r, --root-dir=<value>          Root directory of the project
+  -w, --workers-dir-name=<value>  Workers directory name in monorepo
+      --concurrency=<value>       How many workers run at once. default: the CPU count up to 8 for build, 1 for deploy
+                                  and preview
+      --json                      Print results as NDJSON on stdout
 
 DESCRIPTION
   Build workers into each worker's dist directory, without uploading
@@ -431,8 +423,8 @@ Deploy workers straight away with wrangler deploy, with no plan and no state. Fo
 
 ```
 USAGE
-  $ monocf deploy [WORKERNAME] [-b <value>] [-r <value>] [-w <value>] [-a] [--concurrency <value>] [-d] [-F
-    <value>] [-s] [-e <value>] [-f] [--json] [-M <value>] [-m] [-p <value>]
+  $ monocf deploy [WORKERNAME] [-b <value>] [-r <value>] [-w <value>] [-a] [-e <value>] [--json]
+    [--concurrency <value>] [-d] [-F <value>] [-s] [-f] [-M <value>] [-m]
 
 ARGUMENTS
   WORKERNAME  Worker name. default: the worker whose directory you are in
@@ -447,8 +439,6 @@ FLAGS
   -e, --env=<value>                     Environment to use (dev, production etc.)
   -f, --from-version                    Deploy from an existing version or latest uploaded version
   -m, --[no-]minify                     Minify the worker script during build/deploy
-  -p, --port=<value>                    Port for dev: of the worker, or of the proxy with --all. default for the proxy:
-                                        8787
   -r, --root-dir=<value>                Root directory of the project
   -s, --[no-]deploy-secrets             Also upload secrets, from the exact .dev.vars files for the env
   -w, --workers-dir-name=<value>        Workers directory name in monorepo
@@ -475,30 +465,19 @@ Run a worker locally with the workers it binds to, or every worker behind one pr
 
 ```
 USAGE
-  $ monocf dev [WORKERNAME] [-b <value>] [-r <value>] [-w <value>] [-a] [--concurrency <value>] [-d] [-F
-    <value>] [-s] [-e <value>] [-f] [--json] [-M <value>] [-m] [-p <value>]
+  $ monocf dev [WORKERNAME] [-b <value>] [-r <value>] [-w <value>] [-a] [-e <value>] [--json] [-p <value>]
 
 ARGUMENTS
   WORKERNAME  Worker name. default: the worker whose directory you are in
 
 FLAGS
-  -F, --deploy-from-version-id=<value>  Version ID to deploy instead of the latest uploaded version. Requires
-                                        --from-version
-  -M, --message=<value>                 Message for the version: on deploy, preview or --from-version
-  -a, --all                             Run command for all workers
-  -b, --base-config=<value>             Base wrangler config file
-  -d, --[no-]deploy-bindings            Also deploy or upload the workers it binds to, first
-  -e, --env=<value>                     Environment to use (dev, production etc.)
-  -f, --from-version                    Deploy from an existing version or latest uploaded version
-  -m, --[no-]minify                     Minify the worker script during build/deploy
-  -p, --port=<value>                    Port for dev: of the worker, or of the proxy with --all. default for the proxy:
-                                        8787
-  -r, --root-dir=<value>                Root directory of the project
-  -s, --[no-]deploy-secrets             Also upload secrets, from the exact .dev.vars files for the env
-  -w, --workers-dir-name=<value>        Workers directory name in monorepo
-      --concurrency=<value>             How many workers run at once. default: the CPU count up to 8 for build, 1 for
-                                        deploy and preview
-      --json                            Print results as NDJSON on stdout
+  -a, --all                       Run command for all workers
+  -b, --base-config=<value>       Base wrangler config file
+  -e, --env=<value>               Environment to use (dev, production etc.)
+  -p, --port=<value>              Port for dev: of the worker, or of the proxy with --all. default for the proxy: 8787
+  -r, --root-dir=<value>          Root directory of the project
+  -w, --workers-dir-name=<value>  Workers directory name in monorepo
+      --json                      Print results as NDJSON on stdout
 
 DESCRIPTION
   Run a worker locally with the workers it binds to, or every worker behind one proxy with --all
@@ -594,30 +573,25 @@ Upload a new version of workers with wrangler versions upload, without sending i
 
 ```
 USAGE
-  $ monocf preview [WORKERNAME] [-b <value>] [-r <value>] [-w <value>] [-a] [--concurrency <value>] [-d] [-F
-    <value>] [-s] [-e <value>] [-f] [--json] [-M <value>] [-m] [-p <value>]
+  $ monocf preview [WORKERNAME] [-b <value>] [-r <value>] [-w <value>] [-a] [-e <value>] [--json]
+    [--concurrency <value>] [-d] [-s] [-M <value>] [-m]
 
 ARGUMENTS
   WORKERNAME  Worker name. default: the worker whose directory you are in
 
 FLAGS
-  -F, --deploy-from-version-id=<value>  Version ID to deploy instead of the latest uploaded version. Requires
-                                        --from-version
-  -M, --message=<value>                 Message for the version: on deploy, preview or --from-version
-  -a, --all                             Run command for all workers
-  -b, --base-config=<value>             Base wrangler config file
-  -d, --[no-]deploy-bindings            Also deploy or upload the workers it binds to, first
-  -e, --env=<value>                     Environment to use (dev, production etc.)
-  -f, --from-version                    Deploy from an existing version or latest uploaded version
-  -m, --[no-]minify                     Minify the worker script during build/deploy
-  -p, --port=<value>                    Port for dev: of the worker, or of the proxy with --all. default for the proxy:
-                                        8787
-  -r, --root-dir=<value>                Root directory of the project
-  -s, --[no-]deploy-secrets             Also upload secrets, from the exact .dev.vars files for the env
-  -w, --workers-dir-name=<value>        Workers directory name in monorepo
-      --concurrency=<value>             How many workers run at once. default: the CPU count up to 8 for build, 1 for
-                                        deploy and preview
-      --json                            Print results as NDJSON on stdout
+  -M, --message=<value>           Message for the version: on deploy, preview or --from-version
+  -a, --all                       Run command for all workers
+  -b, --base-config=<value>       Base wrangler config file
+  -d, --[no-]deploy-bindings      Also deploy or upload the workers it binds to, first
+  -e, --env=<value>               Environment to use (dev, production etc.)
+  -m, --[no-]minify               Minify the worker script during build/deploy
+  -r, --root-dir=<value>          Root directory of the project
+  -s, --[no-]deploy-secrets       Also upload secrets, from the exact .dev.vars files for the env
+  -w, --workers-dir-name=<value>  Workers directory name in monorepo
+      --concurrency=<value>       How many workers run at once. default: the CPU count up to 8 for build, 1 for deploy
+                                  and preview
+      --json                      Print results as NDJSON on stdout
 
 DESCRIPTION
   Upload a new version of workers with wrangler versions upload, without sending it traffic

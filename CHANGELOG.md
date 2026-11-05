@@ -47,6 +47,7 @@ monocf can now run a Cloudflare Workers monorepo from CI: a dependency graph, a 
 - A `note` level in `check`, which `--strict` doesn't count. A cycle that only a queue closes is a note, as it's fine at deploy time, so it no longer fails `check --strict`. `check --json` has a `notes` count.
 - `--no-` forms of `--deploy-bindings`, `--deploy-secrets` and `--minify`.
 - `--concurrency` on `build`, `deploy` and `preview`.
+- `build`, `dev`, `preview` and `deploy` list in `--help` only the flags each one takes. A flag another of them takes is refused with exit 2, as before.
 - Bindings to workers outside the monorepo pass through, with a notice.
 - JSONC in `monocf.config.json`.
 

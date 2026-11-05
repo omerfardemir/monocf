@@ -22,6 +22,11 @@ function expectRejected(result: CliResult, message: string): void {
   expect(result.calls).toEqual([])
 }
 
+/** A flag's own line in `--help`, not a mention in another's description. One with a negated form shows as --[no-]minify. */
+function helpLineOf(flag: string): RegExp {
+  return new RegExp(String.raw`^ {2,6}(?:-\w, )?--(?:\[no-\])?${flag.slice(2)}(?![-\w])`, 'm')
+}
+
 function effectiveConfigServices(result: CliResult) {
   return result.calls[0].config?.services
 }
@@ -601,6 +606,30 @@ describe('flag combinations', () => {
     const result = await runRejected(fixture, ['worker', 'orders', ...flags])
 
     expectRejected(result, `--${flagName} is not supported`)
+  })
+
+  it.each([
+    ['build', ['--concurrency', '--minify'], ['--port', '--message', '--deploy-bindings', '--deploy-secrets', '--from-version', '--deploy-from-version-id']],
+    ['dev', ['--port', '--all'], ['--concurrency', '--minify', '--message', '--deploy-bindings', '--deploy-secrets', '--from-version']],
+    ['preview', ['--message', '--deploy-bindings', '--deploy-secrets', '--minify'], ['--port', '--from-version', '--deploy-from-version-id']],
+    ['deploy', ['--message', '--from-version', '--deploy-from-version-id', '--deploy-bindings'], ['--port']],
+  ])('%s --help lists only the flags it takes', async (command, listed, unlisted) => {
+    const result = await runCli(createFixture({workers}), [command, '--help'], {noCalls: true})
+
+    expect(result.exitCode, result.stderr).toBe(0)
+    for (const flag of listed) expect(result.stdout).toMatch(helpLineOf(flag))
+    for (const flag of unlisted) expect(result.stdout).not.toMatch(helpLineOf(flag))
+  })
+
+  it.each([
+    ['build -p', ['build', 'orders', '-p', '9999']],
+    ['dev -M', ['dev', 'orders', '-M', 'x']],
+    ['preview -f', ['preview', 'orders', '-f']],
+  ])('%s is refused', async (_, args) => {
+    const result = await runRejected(createFixture({workers}), args)
+
+    expect(result.exitCode).toBe(2)
+    expect(result.calls).toEqual([])
   })
 
   it('preview passes -M to the upload', async () => {
