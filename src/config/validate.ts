@@ -21,6 +21,16 @@ export function validateEnv(dir: string, sources: EnvSources, env?: string): voi
   }
 }
 
+/** Every env the base config or a worker defines, after placeholders, sorted. */
+export function definedEnvs(inputs: ProjectInputs, options: Pick<Options, 'variables'>): string[] {
+  const sources = [inputs.base?.config, ...inputs.workers.map(({config}) => config)]
+  const names = sources.flatMap((config) => {
+    const {env} = substituteConfig({env: config?.env}, options.variables)
+    return isPlainObject(env) ? Object.keys(env) : []
+  })
+  return [...new Set(names)].sort()
+}
+
 /** Returns a config's name, which must be a non-empty string by the time placeholders are replaced. */
 export function validateName(config: RawConfig, file: string): string {
   const {name} = config

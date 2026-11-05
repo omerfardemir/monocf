@@ -10,7 +10,7 @@ import {workerExternalHash} from '../fingerprint/external.js'
 import {configHash, doHash, triggersHash, triggersOf, type Triggers} from '../fingerprint/fingerprint.js'
 import {PLAN_SCHEMA_VERSION, tagFor, type Plan, type PlanStep} from '../plan/plan.js'
 import type {OptionFlags, Options} from '../project/options.js'
-import {discoverWorkers} from '../project/workers.js'
+import {discoverWorkers, findIgnoredWorkers, IGNORE_FILE} from '../project/workers.js'
 import {formatRunMarkdown, formatRunSummary} from '../report/run-summary.js'
 import {materialiseConfig} from '../runtime/materialise.js'
 import type {StateWorker} from '../state/manifest.js'
@@ -104,6 +104,12 @@ function assertCanApply(plan: Plan, {expectBranchTip, rootDir, wranglerVersion}:
     if (tip === undefined) throw new ConfigError(`--expect-branch-tip ${expectBranchTip} doesn't resolve to a commit.`)
     if (tip !== plan.commit) throw new ConfigError(`${expectBranchTip} is at ${tip}, and the plan is for ${plan.commit}, so a newer commit has taken over.`)
   }
+}
+
+/** The clean checkout says the ignore file is what the plan saw, unless git ignores it. A plan never gets to touch what it leaves out. */
+function assertNotIgnored(names: string[], options: Options): void {
+  const ignored = findIgnoredWorkers(options, names)
+  if (ignored.length > 0) throw new ConfigError(`The plan deploys ${ignored.join(', ')}, and ${IGNORE_FILE} leaves that out of ${options.env}. Plan again.`)
 }
 
 const MAX_NAMED_PATHS = 5
@@ -535,6 +541,7 @@ export async function runApply(planPath: string, flags: ApplyFlags): Promise<voi
   }
 
   assertCleanCheckout(plan, {location, planPath: fullPlanPath, rootDir, summaryFile: flags.summaryFile})
+  assertNotIgnored(names, options)
   const notices: {message: string; worker?: string}[] = []
   assertDescribes(plan, workers, {notice: (message, worker) => notices.push({message, worker}), rootDir})
 

@@ -2,13 +2,12 @@ import {join} from 'node:path'
 
 import {runRules, type Finding} from '../check/rules.js'
 import {readProjectInputs, resolveProject, type ProjectInputs} from '../config/resolve.js'
-import {substituteConfig} from '../config/substitute.js'
-import {isPlainObject} from '../config/types.js'
+import {definedEnvs} from '../config/validate.js'
 import {EXIT_OK, EXIT_USAGE} from '../errors.js'
 import {nodeReader} from '../project/load.js'
 import type {OptionFlags, Options} from '../project/options.js'
 import {SCHEMA_VERSION} from '../report/events.js'
-import {loadOptions, selectAll} from './project.js'
+import {loadOptions, selectPerEnv} from './project.js'
 
 export interface CheckFlags extends OptionFlags {
   allEnvs?: boolean
@@ -16,14 +15,10 @@ export interface CheckFlags extends OptionFlags {
   strict?: boolean
 }
 
-/** Every env the base config or a worker defines, after placeholders. A project with none is checked with no env. */
+/** A project with no env is checked with no env. */
 function allEnvs(inputs: ProjectInputs, options: Options): (string | undefined)[] {
-  const sources = [inputs.base?.config, ...inputs.workers.map(({config}) => config)]
-  const names = sources.flatMap((config) => {
-    const {env} = substituteConfig({env: config?.env}, options.variables)
-    return isPlainObject(env) ? Object.keys(env) : []
-  })
-  return names.length > 0 ? [...new Set(names)].sort() : [undefined]
+  const names = definedEnvs(inputs, options)
+  return names.length > 0 ? names : [undefined]
 }
 
 function formatFinding({env, level, message, rule}: Finding): string {
@@ -33,14 +28,14 @@ function formatFinding({env, level, message, rule}: Finding): string {
 /** `monocf check`: finds what would go wrong without running anything. It needs no wrangler and no credentials. */
 export function runCheck(flags: CheckFlags): void {
   const options = loadOptions(flags)
-  const {ignored, selected} = selectAll(options)
   const inputs = readProjectInputs(options)
   const envs = flags.allEnvs ? allEnvs(inputs, options) : [options.env]
+  const selections = selectPerEnv(options, envs)
   const directories = nodeReader.readDir(join(options.rootDir, options.workersDirName))
 
   const seen = new Set<string>()
-  const findings = envs
-    .flatMap((env) => {
+  const findings = selections
+    .flatMap(({env, ignored, selected}) => {
       const envOptions = {...options, env}
       return runRules({
         directories,

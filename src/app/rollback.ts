@@ -10,6 +10,7 @@ import {buildGraph} from '../graph/graph.js'
 import {nearestWithin} from '../graph/order.js'
 import {directBindingCallers} from '../plan/plan.js'
 import type {OptionFlags} from '../project/options.js'
+import {IGNORE_FILE} from '../project/workers.js'
 import {formatRunSummary} from '../report/run-summary.js'
 import {materialiseConfig} from '../runtime/materialise.js'
 import type {RunDir} from '../runtime/run-dir.js'
@@ -208,14 +209,14 @@ function noTarget({action, changed, previousVersionId}: RecordEntry): NoTarget |
 
 function targetsFromRun(
   record: RunRecord,
-  {env, force, graph, manifest, skip, workers}: Omit<TargetInputs, 'createdCallees' | 'runId' | 'worker'> & {graph: ReturnType<typeof buildGraph>; skip: (name: string, reason: NoTarget) => void; workers: Map<string, ResolvedWorker>},
+  {env, force, graph, ignored, manifest, skip, workers}: Omit<TargetInputs, 'createdCallees' | 'runId' | 'worker'> & {graph: ReturnType<typeof buildGraph>; ignored: string[]; skip: (name: string, reason: NoTarget) => void; workers: Map<string, ResolvedWorker>},
 ): Target[] {
   const created = Object.entries(record.workers).filter(([, {action, changed}]) => action === 'create' && changed !== false).map(([name]) => name)
   const targets: Target[] = []
   for (const [name, entry] of Object.entries(record.workers)) {
     const unsettled = entry.result === 'failed' || entry.result === 'cancelled' || entry.result === 'refused'
     if (entry.changed !== false || unsettled) {
-      const reason = noTarget(entry)
+      const reason = ignored.includes(name) ? {message: `${IGNORE_FILE} leaves it out of ${env} now, so this rollback doesn't touch it, and it stays as it is.`} : noTarget(entry)
       if (reason === undefined) {
         const worker = workers.get(name)
         if (worker === undefined) throw new MonocfError(`${name} is in the run record, and this checkout has no such worker.`, EXIT_FAILED)
@@ -400,7 +401,7 @@ export async function runRollback(workerName: string | undefined, flags: Rollbac
     const before = structuredClone(manifest.workers)
     const records: RunRecord['workers'] = {}
     const skip = (name: string, {message, unresolved}: NoTarget): void => {
-      records[name] = {action: 'rollback', changed: false, deployedName: workers.get(name)?.deployedName ?? name, message, previous: before[name] ?? null, result: unresolved ? 'refused' : 'skipped'}
+      records[name] = {action: 'rollback', changed: false, deployedName: project.workers.find(({dir}) => dir === name)?.deployedName ?? name, message, previous: before[name] ?? null, result: unresolved ? 'refused' : 'skipped'}
       context.emit({message: `${name}: ${message}`, type: 'notice', worker: name})
     }
 
@@ -415,7 +416,8 @@ export async function runRollback(workerName: string | undefined, flags: Rollbac
       if (body === null) throw new ConfigError(`${flags.state} has no run ${flags.toRun} for ${env}.`)
       const record = parseRunRecord(body, env, flags.toRun)
       commit = record.commit
-      targets = targetsFromRun(record, {env, force: flags.force === true, graph: buildGraph(notIgnored), manifest: manifest.workers, skip, workers})
+      // The whole graph: a caller's earlier version can't reach a provider this run recreated, even one that's ignored now.
+      targets = targetsFromRun(record, {env, force: flags.force === true, graph: buildGraph(project.workers), ignored, manifest: manifest.workers, skip, workers})
     }
 
     if (flags.dryRun) {

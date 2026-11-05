@@ -61,6 +61,7 @@ export type PlanNoteKind =
   | 'caller-ignored'
   | 'caller-not-selected'
   | 'drift'
+  | 'ignored-but-deployed'
   | 'orphan'
   | 'recreated'
   | 'renamed'
@@ -116,8 +117,11 @@ export interface PlanOptions {
   createdAt: string
   guards?: PlanGuards
   onDrift: OnDrift
-  /** Every worker that isn't selected through the ignore file, with its edges. A caller here is never touched, so a note names it. */
-  ignored?: {graph: Graph; workers: string[]}
+  /**
+   * Every worker the ignore file leaves out of this env, with its edges. A caller here is never touched, so a note names it.
+   * `byScope` holds the ones only a scope leaves out, which a state entry then gives a note.
+   */
+  ignored?: {byScope?: string[]; graph: Graph; workers: string[]}
   /** Every worker directory in the repository, ignored ones too. A state entry for anything else is an orphan. */
   repositoryWorkers: string[]
   state: string
@@ -223,7 +227,7 @@ function classify(worker: ManifestWorker, entry: StateWorker | undefined, active
     const message = 'The worker exists with no state entry, and its tag differs from this bundle.'
     const notes = [{kind: 'baseline' as const, message}]
     return onDrift === 'fail'
-      ? blocked(['drift', 'baseline'], notes)
+      ? blocked(['drift', 'baseline'], [{kind: 'baseline', message: `${message} To upload this bundle over it, plan with --on-drift warn.`}])
       : {action: 'upload', notes, reasons: ['baseline'], triggersChanged: true}
   }
 
@@ -443,6 +447,9 @@ export function createPlan(
     if (!repositoryWorkers.includes(name)) {
       const message = 'The state manifest knows this worker, but it is gone from the repository. monocf never deletes it.'
       notes.push({deployedName: entry.deployedName, kind: 'orphan', message, worker: name})
+    } else if (ignored?.byScope?.includes(name)) {
+      const message = `The state manifest knows this worker, and .monocfignore leaves it out of ${bundle.env}. monocf leaves it deployed and doesn't touch it. If it's unwanted, deleting it is a person's job.`
+      notes.push({deployedName: entry.deployedName, kind: 'ignored-but-deployed', message, worker: name})
     }
   }
 

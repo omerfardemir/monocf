@@ -3,12 +3,12 @@ import ignore from 'ignore'
 
 import {effectiveField, envSection, type ProjectInputs, type ResolvedProject} from '../config/resolve.js'
 import {isPlainObject, UnknownPlaceholderError, type Notice, type RawConfig, type ResolvedWorker} from '../config/types.js'
-import {isEnvMissing} from '../config/validate.js'
+import {definedEnvs, isEnvMissing} from '../config/validate.js'
 import {buildGraph, type Edge, type Graph} from '../graph/graph.js'
 import {computeOrder} from '../graph/order.js'
 import type {FileReader} from '../project/load.js'
 import type {Options} from '../project/options.js'
-import {IGNORE_FILE} from '../project/workers.js'
+import {IGNORE_FILE, readIgnoreLines} from '../project/workers.js'
 
 export type FindingLevel = 'error' | 'warning'
 
@@ -163,15 +163,18 @@ const missingEnv: Rule = ({env, inputs, options, selected}) =>
     .filter((dir) => isEnvMissing(dir, options, inputs))
     .map((worker) => ({level: 'error', message: `${worker} does not define the env ${env}.`, rule: 'missing-env', worker}))
 
-const ignoredDependency: Rule = ({ignored, project, selected}) =>
-  buildGraph(project.workers)
-    .edges.filter(({from, kind, to}) => selected.includes(from) && ignored.includes(to) && kind !== 'queues')
-    .map(({from, kind, to, via}) => ({
-      level: 'error',
-      message: `${from} has a binding to ${to} through ${kind} ${via}, and ${to} is in ${IGNORE_FILE}.`,
-      rule: 'ignored-dependency',
-      worker: from,
-    }))
+const ignoredDependency: Rule = ({env, ignored, options, project, reader, selected}) => {
+  const edges = buildGraph(project.workers).edges.filter(({from, kind, to}) => selected.includes(from) && ignored.includes(to) && kind !== 'queues')
+  if (edges.length === 0) return []
+  // Only a scope makes this depend on the env. A file with none reads as it always has.
+  const scoped = env !== undefined && readIgnoreLines(options, reader).some(({scope}) => scope !== undefined)
+  return edges.map(({from, kind, to, via}) => ({
+    level: 'error',
+    message: `${from} has a binding to ${to} through ${kind} ${via}, and ${to} is ${scoped ? `ignored in ${env} by` : 'in'} ${IGNORE_FILE}.`,
+    rule: 'ignored-dependency',
+    worker: from,
+  }))
+}
 
 const hardcodedBinding: Rule = (context) =>
   selectedNotices(context, 'hardcoded-name')
@@ -268,24 +271,39 @@ const externalBinding: Rule = (context) =>
   }))
 
 const ignoredStale: Rule = ({directories, options, reader}) => {
-  const path = join(options.rootDir, IGNORE_FILE)
-  if (!reader.exists(path)) return []
   const prefix = options.workersDirName.replaceAll('\\', '/').replace(/\/+$/, '')
-  return reader
-    .readFile(path)
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => line !== '' && !line.startsWith('#'))
-    .filter((line) => {
-      const pattern = ignore().add(line.replace(/^!/, ''))
-      const matches = (path: string) => pattern.ignores(path) || pattern.ignores(`${path}/`)
+  return readIgnoreLines(options, reader)
+    .filter(({problem, text}) => problem === undefined && text.trim() !== '' && !text.trim().startsWith('#'))
+    .filter(({pattern}) => {
+      const matcher = ignore().add(pattern.trim().replace(/^!/, ''))
+      const matches = (path: string) => matcher.ignores(path) || matcher.ignores(`${path}/`)
       return !directories.some((dir) => matches(dir) || (prefix !== '' && matches(`${prefix}/${dir}`)))
     })
-    .map((line) => ({
+    .map(({text}) => ({
       level: 'warning',
-      message: `The ${IGNORE_FILE} line "${line}" matches no directory.`,
+      message: `The ${IGNORE_FILE} line "${text.trim()}" matches no directory.`,
       rule: 'ignored-stale',
     }))
+}
+
+/** A line nothing can read would leave a worker in or out by accident, so it never counts as a pattern. */
+const ignoredMalformed: Rule = ({options, reader}) =>
+  readIgnoreLines(options, reader).flatMap(({problem}) => (problem === undefined ? [] : [{level: 'error' as const, message: problem, rule: 'ignored-malformed'}]))
+
+/** Without this, `except produciton` keeps a worker out of production and nothing says so. */
+const ignoredUnknownEnv: Rule = ({inputs, options, reader}) => {
+  const scoped = readIgnoreLines(options, reader).filter(({problem, scope}) => scope !== undefined && problem === undefined)
+  if (scoped.length === 0) return []
+  const defined = definedEnvs(inputs, options)
+  return scoped.flatMap(({scope, text}) =>
+    scope!.envs
+      .filter((env) => !defined.includes(env))
+      .map((env) => ({
+        level: 'error' as const,
+        message: `The ${IGNORE_FILE} line "${text.trim()}" names the env ${env}, which no worker defines.`,
+        rule: 'ignored-unknown-env',
+      })),
+  )
 }
 
 function effectiveBuildCommand(config: RawConfig, env?: string): unknown {
@@ -376,6 +394,8 @@ const RULES: Rule[] = [
   resolveFailures,
   externalBinding,
   ignoredStale,
+  ignoredMalformed,
+  ignoredUnknownEnv,
   missingMain,
   nameLength,
   noCompatDate,

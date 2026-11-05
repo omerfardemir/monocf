@@ -139,7 +139,7 @@ describe('named workers (F08)', () => {
 
     const result = await runRejected(fixture, ['worker', 'orders', '-c', command])
 
-    expectRejected(result, 'Worker orders is listed in .monocfignore')
+    expectRejected(result, 'Worker orders is ignored by .monocfignore when no env is given')
   })
 
   it('fails for an ignored worker inferred from the current directory', async () => {
@@ -147,7 +147,7 @@ describe('named workers (F08)', () => {
 
     const result = await runCli(fixture, ['worker', '-c', 'deploy'], {cwd: 'workers/orders', noCalls: true})
 
-    expectRejected(result, 'Worker orders is listed in .monocfignore')
+    expectRejected(result, 'Worker orders is ignored by .monocfignore when no env is given')
   })
 
   it('-a fails when every worker is ignored', async () => {
@@ -454,7 +454,7 @@ describe('secrets files (F05, F34)', () => {
         'Unknown environment "prodution"',
       )
       expectRejected(await runRejected(fixture, ['secrets', 'deploy', 'nope']), 'Worker not found')
-      expectRejected(await runRejected(fixture, ['secrets', 'deploy', 'billing']), 'listed in .monocfignore')
+      expectRejected(await runRejected(fixture, ['secrets', 'deploy', 'billing']), 'is ignored by .monocfignore')
     })
 
     it('-a skips ignored workers', async () => {

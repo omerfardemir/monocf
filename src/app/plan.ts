@@ -9,7 +9,7 @@ import {buildGraph} from '../graph/graph.js'
 import {formatMarkdown, formatSummary} from '../plan/format.js'
 import {createPlan, needsTag, type OnDrift, type Plan, type PlanBundle, type PlanGuards} from '../plan/plan.js'
 import {nodeReader} from '../project/load.js'
-import {discoverWorkers} from '../project/workers.js'
+import {discoverWorkers, ignoredByScope} from '../project/workers.js'
 import type {OptionFlags} from '../project/options.js'
 import {SCHEMA_VERSION} from '../report/events.js'
 import {writeFileAtomic} from '../runtime/atomic.js'
@@ -255,13 +255,14 @@ export async function runPlan(flags: PlanFlags): Promise<void> {
 
     const active = await readActiveVersions(context, workers, {env, state})
     const outputs = outputsOf(rootDir, [bundle.reusedFrom, markdownPath])
+    const repositoryWorkers = discoverWorkers(options)
     plan = {
       ...createPlan(pickWorkers(bundle, selected, head), state, active, graph, {
         createdAt: new Date().toISOString(),
         guards: guardsFor(context, workers, env, flags),
-        ignored: {graph: buildGraph(project.workers), workers: ignored},
+        ignored: {byScope: ignoredByScope(options, repositoryWorkers), graph: buildGraph(project.workers), workers: ignored},
         onDrift: flags.onDrift ?? 'warn',
-        repositoryWorkers: discoverWorkers(options),
+        repositoryWorkers,
         state: store.describe(),
       }),
       ...(outputs.length > 0 && {outputs}),

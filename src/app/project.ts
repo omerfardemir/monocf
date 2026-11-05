@@ -6,7 +6,7 @@ import {ConfigError} from '../config/types.js'
 import {isSameOrWithin} from '../fingerprint/external.js'
 import {findConfigFile, loadProjectFile} from '../project/load.js'
 import {resolveOptions, type OptionFlags, type Options} from '../project/options.js'
-import {discoverWorkers, findIgnoredWorkers, inferWorker, selectWorkers} from '../project/workers.js'
+import {discoverWorkers, findIgnoredWorkers, ignoredIn, inferWorker, readIgnoreLines, selectWorkers} from '../project/workers.js'
 
 const SHORT_SHA_LENGTH = 7
 
@@ -30,10 +30,10 @@ export function selectFromArguments(options: Options, name?: string, cwd: string
 
   const workers = discoverWorkers(options)
   const ignored = findIgnoredWorkers(options, workers)
-  return {ignored, selected: selectWorkers(workers, ignored, target)}
+  return {ignored, selected: selectWorkers(workers, ignored, target, options.env)}
 }
 
-/** Every worker the ignore file leaves in. */
+/** Every worker the ignore file leaves in for this env. */
 export function selectAll(options: Options): Selection {
   const workers = discoverWorkers(options)
   const ignored = findIgnoredWorkers(options, workers)
@@ -45,7 +45,22 @@ export function selectNamed(options: Options, names: string[]): Selection {
   if (names.length === 0) return selectAll(options)
   const workers = discoverWorkers(options)
   const ignored = findIgnoredWorkers(options, workers)
-  return {ignored, selected: [...new Set(names.flatMap((name) => selectWorkers(workers, ignored, name)))].sort()}
+  return {ignored, selected: [...new Set(names.flatMap((name) => selectWorkers(workers, ignored, name, options.env)))].sort()}
+}
+
+/**
+ * What each env leaves in, for a command that looks at several and reports a malformed line itself. An env can leave nothing
+ * in while another still has workers, but with nothing left in any env there's nothing to look at.
+ */
+export function selectPerEnv(options: Options, envs: (string | undefined)[]): (Selection & {env?: string})[] {
+  const workers = discoverWorkers(options)
+  const lines = readIgnoreLines(options)
+  const selections = envs.map((env) => {
+    const ignored = ignoredIn(lines, {...options, env}, workers)
+    return {env, ignored, selected: workers.filter((worker) => !ignored.includes(worker))}
+  })
+  if (selections.every(({selected}) => selected.length === 0)) selectWorkers(workers, workers)
+  return selections
 }
 
 function gitRevParse(rootDir: string, ...args: string[]): string | undefined {
