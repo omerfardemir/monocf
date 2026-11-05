@@ -6,6 +6,7 @@ export default class Whoami extends BaseCommand {
   static examples = ['<%= config.bin %> whoami']
 
   async run(): Promise<void> {
+    await this.parse(Whoami)
     await runWhoami()
   }
 }

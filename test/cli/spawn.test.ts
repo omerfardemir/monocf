@@ -19,6 +19,18 @@ describe('spawning wrangler', () => {
     expect(result.stdout).toContain('fake-user')
   })
 
+  it.each([
+    ['a flag', '--nonsense'],
+    ['an argument', 'extra'],
+  ])('whoami rejects %s it does not know', async (_, arg) => {
+    const fixture = createFixture({workers: [{name: 'orders'}]})
+
+    const result = await runCli(fixture, ['whoami', arg], {noCalls: true})
+
+    expect(result.exitCode).toBe(2)
+    expect(result.calls).toEqual([])
+  })
+
   it('resolves wrangler from the project root when run inside a worker directory', async () => {
     const fixture = createFixture({workers: [{name: 'orders'}]})
 
