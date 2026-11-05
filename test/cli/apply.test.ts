@@ -22,6 +22,7 @@ import {
   stepOf,
   writePlan,
   writesOf,
+  waitForWrite,
 } from '../helpers/deploy-fixtures.js'
 import {effectiveConfig, flagValue, releaseOf, runCli, startCli} from '../helpers/harness.js'
 
@@ -830,8 +831,7 @@ describe.skipIf(process.platform === 'win32')('apply, on a signal', () => {
     const planned = await planFor(fixture, cloudflare, {rules: newCode('billing', 'orders')})
 
     const running = startCli(fixture, ['apply', 'plan.json'], {cloudflare, rules: [{command: 'versions deploy', holdMs: 20_000, worker: 'billing'}]})
-    const seen = await running.waitForCalls(3)
-    expect(writesOf(seen).at(-1)).toBe('promote billing')
+    await waitForWrite(running, 'promote billing')
     running.child.kill('SIGTERM')
     const result = await running.done
 

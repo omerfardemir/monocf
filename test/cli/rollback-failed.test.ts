@@ -2,7 +2,7 @@ import {readFileSync, rmSync, writeFileSync} from 'node:fs'
 import {join} from 'node:path'
 import {describe, expect, it} from 'vitest'
 
-import {actionsOf, activeOf, applyPlan, callsOf, changeConfig, deployFixture, firstRun, lastRunRecord, manifestOf, newCode, planFor, stepOf, writesOf} from '../helpers/deploy-fixtures.js'
+import {actionsOf, activeOf, applyPlan, callsOf, changeConfig, deployFixture, firstRun, lastRunRecord, manifestOf, newCode, planFor, stepOf, waitForWrite, writesOf} from '../helpers/deploy-fixtures.js'
 import {runCli, startCli, type FakeCloudflare, type Fixture, type RunOptions, type WranglerRule} from '../helpers/harness.js'
 
 const rollback = (fixture: Fixture, runId: string, cloudflare: FakeCloudflare, {flags = [], ...options}: RunOptions & {flags?: string[]} = {}) =>
@@ -143,8 +143,7 @@ describe('a step that changed what is live, and then failed (WP6-6)', () => {
     const cloudflare = await firstRun(fixture)
     await planFor(fixture, cloudflare, {rules: newCode('billing')})
     const running = startCli(fixture, ['apply', 'plan.json'], {cloudflare, rules: [{command: 'versions deploy', holdMs: 3000, ignoreSignals: true, worker: 'billing'}]})
-    await running.waitForCalls(3)
-    await expect.poll(() => running.stderr()).toContain('promote')
+    await waitForWrite(running, 'promote billing')
     running.child.kill('SIGTERM')
 
     const result = await running.done

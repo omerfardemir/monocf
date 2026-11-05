@@ -3,7 +3,7 @@ import {mkdirSync, readdirSync, readFileSync, writeFileSync} from 'node:fs'
 import {basename, dirname, join} from 'node:path'
 import {expect} from 'vitest'
 
-import {createFixture, runCli, type CliResult, type FakeCloudflare, type Fixture, type RunOptions, type WranglerCall, type WranglerRule} from './harness.js'
+import {createFixture, runCli, type CliResult, type FakeCloudflare, type Fixture, type RunningCli, type RunOptions, type WranglerCall, type WranglerRule} from './harness.js'
 
 /** gateway calls orders, which calls billing. reports stands alone. */
 const CHAIN = [
@@ -69,6 +69,13 @@ export function actionsOf(plan: {steps: {action: string; worker: string}[]}): Re
 }
 
 /** The writes of a run, in order, such as `promote billing`. */
+/** Reads come and go between writes, so a count of calls says nothing about which write has started. */
+export async function waitForWrite(running: RunningCli, write: string): Promise<WranglerCall[]> {
+  let seen = await running.waitForCalls(1)
+  while (!writesOf(seen).includes(write)) seen = await running.waitForCalls(seen.length + 1)
+  return seen
+}
+
 export function writesOf(calls: WranglerCall[]): string[] {
   const kinds: [string, string][] = [
     ['versions upload', 'upload'],
