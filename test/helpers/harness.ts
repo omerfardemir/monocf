@@ -114,6 +114,8 @@ export interface WranglerRule {
   effectThenFail?: boolean
   /** Exits 0 and changes nothing on the fake Cloudflare. */
   noEffect?: boolean
+  /** A version with this ID and no tag goes live on the fake Cloudflare, as a person's own deploy would. */
+  otherDeploy?: string
 }
 
 export interface CliResult {

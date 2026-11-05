@@ -333,6 +333,17 @@ function cloudflareWrite() {
 const failsAnyway = (rule.exitCode ?? cloudflare?.exitCode ?? 0) !== 0
 const written = !rule.noEffect && (!failsAnyway || rule.effectThenFail) && process.env.FAKE_WRANGLER_CF ? withCloudflareLock(process.env.FAKE_WRANGLER_CF, cloudflareWrite) : null
 
+// `otherDeploy` has someone else's version with no monocf tag go live meanwhile, as a person's own `wrangler deploy` does.
+if (rule.otherDeploy) {
+  withCloudflareLock(process.env.FAKE_WRANGLER_CF, () => {
+    const state = JSON.parse(readFileSync(process.env.FAKE_WRANGLER_CF, 'utf8'))
+    const worker = state.workers[deployedName]
+    worker.tags = {...worker.tags, [rule.otherDeploy]: null}
+    worker.active = [[rule.otherDeploy, 100]]
+    writeFileSync(process.env.FAKE_WRANGLER_CF, JSON.stringify(state))
+  })
+}
+
 const stderrText = rule.stderr ?? cloudflare?.stderr ?? written?.stderr
 if (stderrText) process.stderr.write(stderrText)
 

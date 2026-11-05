@@ -19,6 +19,7 @@ import {parseRunRecord, RUN_RECORD_SCHEMA_VERSION, VALID_RUN_ID, type RecordResu
 import {openStateStore, parseStateUrl, type StateStore} from '../state/store.js'
 import {locateWrangler} from '../wrangler/locate.js'
 import {readActiveVersion} from '../wrangler/read.js'
+import {withReadRetries} from '../wrangler/retry.js'
 import {
   accountMarker,
   DEFAULT_CONCURRENCY,
@@ -33,7 +34,7 @@ import {
   type DeployStep,
 } from './deployment.js'
 import {loadOptions, selectNamed} from './project.js'
-import {accountOf, runStep, withRun, type RunContext} from './run.js'
+import {accountOf, callWrangler, runStep, withRun, type RunContext} from './run.js'
 
 export interface RollbackFlags extends OptionFlags {
   dryRun?: boolean
@@ -62,6 +63,8 @@ interface Target {
   /** Why this worker stays as it is, unless forced. */
   refusal?: string
   restoreTriggers?: Triggers
+  /** A `versions deploy` has started and hasn't been verified, so what happened has to be read rather than assumed. */
+  restoring?: boolean
   /** The run says it left this worker alone without finishing, so all that's left is to check that. */
   verifyOnly?: true
   versionId?: string
@@ -315,6 +318,7 @@ async function restore({context, env, runId, writer}: Execution, target: Target,
 
     if (!alreadyLive) {
       record.changed = 'unknown'
+      target.restoring = true
       await runStep(context, {
         ...shared,
         argvOptions: {env, message: `${message} ${runId}`},
@@ -323,6 +327,7 @@ async function restore({context, env, runId, writer}: Execution, target: Target,
     }
 
     await verifyActive(call, {accountId, deployedName, dir}, versionId)
+    target.restoring = false
     record.newVersionId = versionId
     if (record.changed !== false) record.changed = true
   }
@@ -344,6 +349,27 @@ async function restore({context, env, runId, writer}: Execution, target: Target,
   }
 
   return versionId
+}
+
+/**
+ * A `versions deploy` that failed or was cancelled may or may not have taken effect, and what's live says which. A failed read
+ * leaves it unknown, which a later rollback treats as changed. Triggers can't be read back, so a failure there stays unknown too.
+ * `persist`, as this follows a signal too.
+ */
+async function readWhatHappened({context, env}: Execution, {versionId, worker}: Target, record: RunRecord['workers'][string]): Promise<void> {
+  const call = withReadRetries((read, accountId) => callWrangler(context, read, {accountId, persist: true, worker: worker.dir}))
+  try {
+    const active = await readActiveVersion(call, worker.deployedName, accountOf(context, worker, env))
+    if (active.state !== 'active') return
+    if (active.versionId === versionId) {
+      record.newVersionId = versionId
+      record.changed = true
+    } else if (active.versionId === record.previousVersionId) {
+      record.changed = false
+    }
+  } catch {
+    // It stays unknown: this is what a failed read says.
+  }
 }
 
 async function execute(execution: Execution, records: RunRecord['workers']): Promise<void> {
@@ -377,6 +403,8 @@ async function execute(execution: Execution, records: RunRecord['workers']): Pro
     },
     steps,
   })
+
+  await Promise.all(targets.filter(({restoring}) => restoring).map((target) => readWhatHappened(execution, target, records[target.worker.dir])))
 }
 
 /**

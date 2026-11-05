@@ -322,6 +322,91 @@ describe('rollback across a recreated provider (WP6-5)', () => {
   })
 })
 
+/** billing's new code is live, and its rollback is about to go wrong. */
+async function aboutToRollBack() {
+  const fixture = deployFixture({workers: [{name: 'billing'}]})
+  const cloudflare = await firstRun(fixture)
+  const old = structuredClone(manifestOf(fixture).workers.billing)
+  const plan = await planFor(fixture, cloudflare, {rules: newCode('billing')})
+  const applied = await applyPlan(fixture, cloudflare)
+  expect(applied.exitCode, applied.stderr).toBe(0)
+  const step = stepOf(plan, 'billing')
+  return {cloudflare: applied.cloudflare!, fixture, later: activeOf(applied.cloudflare, step), old, runId: lastRunRecord(fixture).runId as string, step}
+}
+
+describe('a rollback that fails (reads what is live, as apply does)', () => {
+  const noPromote: WranglerRule = {command: 'versions deploy', exitCode: 1, stderr: '✘ [ERROR] Something broke\n'}
+  const unreadable = (step: {deployedName: string}): WranglerRule => ({command: 'deployments status', exitCode: 1, skip: 1, stderr: '✘ [ERROR] Something broke\n', worker: step.deployedName})
+
+  it('says nothing changed when nothing did, and a later rollback only checks', async () => {
+    const {cloudflare, fixture, later, runId, step} = await aboutToRollBack()
+
+    const result = await rollback(fixture, runId, cloudflare, {rules: [noPromote]})
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).not.toContain('may have changed what is live')
+    expect(lastRunRecord(fixture).workers.billing).toMatchObject({changed: false, previousVersionId: later, result: 'failed'})
+    expect(activeOf(result.cloudflare, step)).toBe(later)
+
+    const again = await rollback(fixture, lastRunRecord(fixture).runId, result.cloudflare!)
+    expect(again.exitCode, again.stderr).toBe(0)
+    expect(writesOf(again.calls)).toEqual([])
+  })
+
+  it('says what it restored when the restore took effect and then failed', async () => {
+    const {cloudflare, fixture, old, runId, step} = await aboutToRollBack()
+
+    const result = await rollback(fixture, runId, cloudflare, {rules: [{...noPromote, effectThenFail: true}]})
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).not.toContain('may have changed what is live')
+    expect(activeOf(result.cloudflare, step)).toBe(old.versionId)
+    expect(lastRunRecord(fixture).workers.billing).toMatchObject({changed: true, newVersionId: old.versionId, result: 'failed'})
+  })
+
+  it('stays unknown when what is live cannot be read, and a later rollback treats that as changed', async () => {
+    const {cloudflare, fixture, later, old, runId, step} = await aboutToRollBack()
+
+    const result = await rollback(fixture, runId, cloudflare, {rules: [{...noPromote, effectThenFail: true}, unreadable(step)]})
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain('billing may have changed what is live')
+    expect(lastRunRecord(fixture).workers.billing).toMatchObject({changed: 'unknown', result: 'failed'})
+    expect(activeOf(result.cloudflare, step)).toBe(old.versionId)
+
+    const undone = await rollback(fixture, lastRunRecord(fixture).runId, result.cloudflare!)
+    expect(undone.exitCode, undone.stderr).toBe(0)
+    expect(writesOf(undone.calls)).toEqual(['promote billing'])
+    expect(activeOf(undone.cloudflare, step)).toBe(later)
+  })
+
+  it('stays unknown when something else is live by then', async () => {
+    const {cloudflare, fixture, runId, step} = await aboutToRollBack()
+
+    const result = await rollback(fixture, runId, cloudflare, {
+      rules: [{command: 'versions deploy', exitCode: 1, otherDeploy: 'someone-else', stderr: '✘ [ERROR] Something broke\n'}],
+    })
+
+    expect(result.exitCode).toBe(1)
+    expect(activeOf(result.cloudflare, step)).toBe('someone-else')
+    expect(lastRunRecord(fixture).workers.billing.changed).toBe('unknown')
+  })
+
+  it('keeps unknown for a failed triggers restore, which cannot be read back', async () => {
+    const fixture = deployFixture({workers: [{name: 'reports'}]})
+    changeConfig(fixture, 'reports', {triggers: {crons: ['0 1 * * *']}})
+    const cloudflare = await firstRun(fixture)
+    changeConfig(fixture, 'reports', {triggers: {crons: ['0 2 * * *']}})
+    await planFor(fixture, cloudflare)
+    const applied = await applyPlan(fixture, cloudflare)
+
+    const result = await rollback(fixture, lastRunRecord(fixture).runId, applied.cloudflare!, {rules: [{command: 'triggers deploy', exitCode: 1, stderr: 'no\n'}]})
+
+    expect(result.exitCode).toBe(1)
+    expect(lastRunRecord(fixture).workers.reports.changed).toBe('unknown')
+  })
+})
+
 describe('rollback across a recreated provider, of a caller with its own full-deploy (R4)', () => {
   const withDo = {
     durable_objects: {bindings: [{class_name: 'Counter', name: 'COUNTER'}]},
