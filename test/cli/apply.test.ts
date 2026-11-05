@@ -606,6 +606,63 @@ describe('apply, and accounts', () => {
     expect(readFileSync(join(fixture.root, 'state', 'staging', 'manifest.json'), 'utf8')).not.toContain(ACCOUNT)
   })
 
+  it('keeps the stored hash when the account can no longer be determined (WP6-13)', async () => {
+    const fixture = deployFixture()
+    const cloudflare = await firstRun(fixture)
+    const {accountHash} = manifestOf(fixture).workers.billing
+    expect(accountHash).toBeDefined()
+    const env = {CLOUDFLARE_ACCOUNT_ID: ''}
+    await runCli(fixture, ['plan', '-e', 'staging', '--state', 'file:state', '--out', 'plan.json'], {cloudflare, env, rules: newCode('billing')})
+
+    const result = await applyPlan(fixture, cloudflare, {env})
+
+    expect(result.exitCode, result.stderr).toBe(0)
+    expect(writesOf(result.calls)).toContain('promote billing')
+    expect(manifestOf(fixture).workers.billing.accountHash).toBe(accountHash)
+  })
+
+  it("lets a real CLOUDFLARE_ACCOUNT_ID beat a worker's .env, under either name (WP6-14)", async () => {
+    const fixture = deployFixture()
+    writeFileSync(join(fixture.worker('billing'), '.env'), `CF_ACCOUNT_ID=${ACCOUNT}\n`)
+    writeFileSync(join(fixture.worker('orders'), '.env'), `CLOUDFLARE_ACCOUNT_ID=${ACCOUNT}\n`)
+    writeFileSync(join(fixture.root, '.git', 'info', 'exclude'), 'state\nplan.json\n.env\n')
+    const real = '11110000000000000000000000002222'
+
+    await runCli(fixture, ['plan', '-e', 'staging', '--state', 'file:state', '--out', 'plan.json', '--first-run'], {cloudflare: {}, env: {CLOUDFLARE_ACCOUNT_ID: real}})
+    const result = await applyPlan(fixture, {}, {env: {CLOUDFLARE_ACCOUNT_ID: real}})
+
+    expect(result.exitCode, result.stderr).toBe(0)
+    expect(accountOfCall(callsOf(result.calls, 'deploy billing')[0])).toBe(real)
+    expect(accountOfCall(callsOf(result.calls, 'deploy orders')[0])).toBe(real)
+    expect(manifestOf(fixture).workers.billing.accountHash).toBe(createHash('sha256').update(real).digest('hex'))
+  })
+
+  it("takes a worker's .env when the real environment has no account, CLOUDFLARE_ACCOUNT_ID first (WP6-14)", async () => {
+    const fixture = deployFixture()
+    const other = 'ffff0000000000000000000000009999'
+    writeFileSync(join(fixture.worker('billing'), '.env'), `CF_ACCOUNT_ID=${other}\nCLOUDFLARE_ACCOUNT_ID=${ACCOUNT}\n`)
+    writeFileSync(join(fixture.root, '.git', 'info', 'exclude'), 'state\nplan.json\n.env\n')
+
+    await runCli(fixture, ['plan', '-e', 'staging', '--state', 'file:state', '--out', 'plan.json', '--first-run'], {cloudflare: {}, env: {CLOUDFLARE_ACCOUNT_ID: ''}})
+    const result = await applyPlan(fixture, {}, {env: {CLOUDFLARE_ACCOUNT_ID: ''}})
+
+    expect(accountOfCall(callsOf(result.calls, 'deploy billing')[0])).toBe(ACCOUNT)
+  })
+
+  it('reads a padded account as the account, not as another one (WP6-19)', async () => {
+    const fixture = deployFixture()
+    const cloudflare = await firstRun(fixture)
+    const {accountHash} = manifestOf(fixture).workers.billing
+    const env = {CLOUDFLARE_ACCOUNT_ID: '  00000000000000000000000000000000 '}
+
+    const planned = await runCli(fixture, ['plan', '-e', 'staging', '--state', 'file:state', '--out', 'plan.json'], {cloudflare, env, rules: newCode('billing')})
+
+    expect(planned.exitCode, planned.stderr).toBe(0)
+    const result = await applyPlan(fixture, cloudflare, {env})
+    expect(accountOfCall(callsOf(result.calls, 'promote billing')[0])).toBe('00000000000000000000000000000000')
+    expect(manifestOf(fixture).workers.billing.accountHash).toBe(accountHash)
+  })
+
   it('has the next plan refuse the state, once the account has changed', async () => {
     const fixture = deployFixture()
     const cloudflare = await firstRun(fixture)

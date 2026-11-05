@@ -273,7 +273,8 @@ class Applier {
   }
 
   private entryFor({step, worker}: Target, versionId: string): StateWorker {
-    const account = accountMarker(this.context, worker, this.env)
+    // An account that can't be determined says nothing against the one the state knows, and the guard still needs that.
+    const account = accountMarker(this.context, worker, this.env) ?? this.run.targets.get(step.worker)?.record.previous?.accountHash
     return {
       ...(account !== undefined && {accountHash: account}),
       bundleHash: step.bundleHash,

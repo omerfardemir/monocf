@@ -133,20 +133,18 @@ export async function callWrangler(
   return result
 }
 
-/** The account a write of this worker goes to, as wrangler works it out: the config's, then the worker's `.env`, then the environment. */
+/**
+ * The account a write of this worker goes to, as wrangler works it out: the config's, then CLOUDFLARE_ACCOUNT_ID, then the
+ * deprecated name. For each name the real environment beats the worker's `.env`, as it does in wrangler's own startup.
+ */
 export function accountOf(
   {environmentOf}: Pick<RunContext, 'environmentOf'>,
   {config, dir}: Pick<ResolvedWorker, 'config' | 'dir'>,
   env: string | undefined,
 ): string | undefined {
   const added = environmentOf(dir)
-  const found =
-    accountIdOf(config, env) ??
-    added.CLOUDFLARE_ACCOUNT_ID ??
-    added.CF_ACCOUNT_ID ??
-    process.env.CLOUDFLARE_ACCOUNT_ID ??
-    process.env.CF_ACCOUNT_ID
-  return found?.trim() ? found : undefined
+  const {CF_ACCOUNT_ID: realOld, CLOUDFLARE_ACCOUNT_ID: real} = process.env
+  return [accountIdOf(config, env), real, added.CLOUDFLARE_ACCOUNT_ID, realOld, added.CF_ACCOUNT_ID].map((found) => found?.trim()).find(Boolean)
 }
 
 /** Wraps one worker's work in its events. A failure is reported here and carries on upward. */
