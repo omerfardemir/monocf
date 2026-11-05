@@ -246,6 +246,22 @@ describe('a worker in a failed run that has left the checkout', () => {
     expect(result.stderr).toContain('billing is in the run record, and this checkout has no such worker')
     expect(writesOf(result.calls)).toEqual([])
   })
+
+  it('stops for one the run left unknown, as it may have changed', async () => {
+    const {cloudflare, fixture, runId} = await failedWithReportsUntouched()
+    // A read after the failure that fails too leaves `unknown`. The record says so here directly.
+    const path = join(fixture.root, 'state', 'staging', 'runs', `${runId}.json`)
+    const record = JSON.parse(readFileSync(path, 'utf8'))
+    record.workers.reports.changed = 'unknown'
+    writeFileSync(path, JSON.stringify(record))
+    rmSync(fixture.worker('reports'), {force: true, recursive: true})
+
+    const result = await rollback(fixture, runId, cloudflare, {noCalls: true})
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain('reports is in the run record, and this checkout has no such worker')
+    expect(writesOf(result.calls)).toEqual([])
+  })
 })
 
 /** billing was gone, and this run created it and gave orders a new version to reach it. */

@@ -81,6 +81,20 @@ describe('rollback --to-run', () => {
     expect(activeOf(forward.cloudflare, stepOf(plan, 'orders'))).toBe(later)
   })
 
+  it('keeps what was live before a retried promote, so its record can still undo the rollback', async () => {
+    const {before, cloudflare, fixture, plan, runId} = await deployedTwice(['billing'])
+    const later = activeOf(cloudflare, stepOf(plan, 'billing'))
+    const dropped = {command: 'versions deploy', effectThenFail: true, exitCode: 1, failMessage: 'fetch failed', stderr: 'fetch failed\n', times: 1}
+
+    const undone = await rollback(fixture, ['--to-run', runId], {cloudflare, rules: [dropped]})
+
+    // The second attempt finds the earlier version live and has nothing to promote, so the run still succeeds.
+    expect(undone.exitCode, undone.stderr).toBe(0)
+    expect(callsOf(undone.calls, 'promote billing')).toHaveLength(1)
+    expect(activeOf(undone.cloudflare, stepOf(plan, 'billing'))).toBe(before.billing.versionId)
+    expect(lastRunRecord(fixture).workers.billing).toMatchObject({changed: true, previousVersionId: later})
+  })
+
   it('does not promote what is already active', async () => {
     const {before, cloudflare, fixture, plan, runId} = await deployedTwice(['billing'])
     cloudflare.workers![stepOf(plan, 'billing').deployedName].active = [[before.billing.versionId, 100]]

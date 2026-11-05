@@ -162,6 +162,23 @@ describe('apply, against what is on disk', () => {
       expect(stepOf(next, 'billing')).toMatchObject({action: 'skip', reasons: ['unchanged']})
     })
 
+    it('a site whose deploy takes effect and then fails: the state still records what was uploaded', async () => {
+      const fixture = withIgnoredAssets({assets: undefined, build: {command: 'npm run build'}, site: {bucket: './site'}})
+      const file = join(fixture.worker('billing'), 'site', 'index.html')
+      mkdirSync(join(fixture.worker('billing'), 'site'), {recursive: true})
+      writeFileSync(file, 'one')
+      const cloudflare = await firstRun(fixture)
+      const step = stepOf(await planFor(fixture, cloudflare, {rules: newCode('billing')}), 'billing')
+      writeFileSync(file, 'two')
+
+      const applied = await applyPlan(fixture, cloudflare, {rules: [{command: 'deploy', effectThenFail: true, exitCode: 1, stderr: 'the connection dropped\n', worker: 'billing'}]})
+
+      expect(applied.exitCode).not.toBe(0)
+      expect(applied.stderr).toContain('The state records what was uploaded')
+      expect(manifestOf(fixture).workers.billing.fingerprint).toBe(step.fingerprint)
+      expect(manifestOf(fixture).workers.billing.externalHash).not.toBe(step.externalHash)
+    })
+
     it('stores what the plan saw when the build makes the same', async () => {
       const fixture = withIgnoredAssets({build: {command: 'npm run build'}})
       await planFor(fixture, {}, {flags: ['--first-run']})
