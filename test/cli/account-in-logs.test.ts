@@ -1,3 +1,5 @@
+import {dirname, join} from 'node:path'
+import {fileURLToPath} from 'node:url'
 import {describe, expect, it} from 'vitest'
 
 import {applyPlan, deployFixture, planFor} from '../helpers/deploy-fixtures.js'
@@ -48,6 +50,30 @@ describe('the account ID, in what monocf forwards from wrangler (WP6-10)', () =>
     clean(result)
     expect(result.stderr).toContain('/accounts/<account>/workers/services')
     expect(result.stdout).not.toContain('Your account')
+  })
+
+  describe('on a terminal (R12)', () => {
+    const preload = join(dirname(fileURLToPath(import.meta.url)), '..', 'helpers', 'stderr-is-a-tty.cjs')
+    const onTerminal = {...env, NODE_OPTIONS: `--require ${JSON.stringify(preload)}`}
+    const run = async (extra: Record<string, string>) => {
+      const fixture = createFixture({environments: ['staging'], workers: [{name: 'orders'}]})
+      return runCli(fixture, ['deploy', 'orders', '-e', 'staging'], {env: {...onTerminal, ...extra}, rules: [{command: 'deploy', exitCode: 1, stderr: said}]})
+    }
+
+    it('stays out when CI is set, as a CI can allocate a pty', async () => {
+      const result = await run({CI: 'true'})
+
+      expect(result.exitCode).toBe(1)
+      clean(result)
+      expect(result.stderr).toContain('/accounts/<account>/workers/services')
+    })
+
+    it("reaches a person's own terminal as wrangler wrote it, so its colours and prompts stay", async () => {
+      const result = await run({CI: ''})
+
+      expect(result.exitCode).toBe(1)
+      expect(result.stderr).toContain(`/accounts/${OTHER}/workers/services`)
+    })
   })
 
   it('stays out of a capture, on what passes through', async () => {

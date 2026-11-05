@@ -14,7 +14,8 @@ import {readOutputFile, type WranglerOutput} from './output.js'
  * - `{prefix}`: both streams to stderr with a label on each line, for several processes at once.
  *
  * Whatever passes through a pipe here has the account ID taken out, as a line at a time. `inherit` has no pipe, and neither has
- * `stderr` on a terminal, so that wrangler's colours and prompts stay: a person's own terminal isn't a log.
+ * `stderr` on a terminal, so that wrangler's colours and prompts stay: a person's own terminal isn't a log. A CI that allocates a
+ * pty has a terminal that is one, so with `CI` set it's a pipe.
  */
 export type OutputMode = 'capture' | 'inherit' | 'quiet' | 'stderr' | {prefix: string}
 
@@ -45,7 +46,7 @@ export interface RunningWrangler {
 
 function stdioFor(mode: OutputMode): StdioOptions {
   if (mode === 'inherit') return 'inherit'
-  if (mode === 'stderr') return process.stderr.isTTY ? ['inherit', 2, 2] : ['inherit', 'pipe', 'pipe']
+  if (mode === 'stderr') return process.stderr.isTTY && !process.env.CI ? ['inherit', 2, 2] : ['inherit', 'pipe', 'pipe']
   return ['ignore', 'pipe', 'pipe']
 }
 
