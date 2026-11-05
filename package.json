@@ -34,6 +34,7 @@
   "files": [
     "./bin",
     "./dist",
+    "!dist/**/*.d.ts",
     "./oclif.manifest.json"
   ],
   "homepage": "https://github.com/omerfardemir/monocf",
