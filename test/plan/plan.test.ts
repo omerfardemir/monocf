@@ -95,6 +95,23 @@ function one(worker: Partial<ManifestWorker>, entry: null | Partial<StateWorker>
   })
 }
 
+describe('a live worker with migrations and no state entry', () => {
+  const graph = {edges: [], external: [], nodes: ['orders']}
+  const worker = {bundleHash: 'b', configHash: 'c', deployedName: 'orders-v1', doHash: 'd', externalHash: 'e', fingerprint: 'f', triggers: {crons: null, previewUrls: null, routes: [], workersDev: true}, triggersHash: 't'}
+  const options = {createdAt: 'now', onDrift: 'warn' as const, repositoryWorkers: ['orders'], state: 'file:state'}
+  const bundle = (extra: object) => ({commit: 'c', env: 'dev', workers: {orders: {...worker, ...extra}}, wrangler: '4'})
+  const active = {orders: {state: 'active' as const, tag: 'monocf:other', versionId: 'live'}}
+
+  it('takes a full deploy, and keeps the baseline reason', () => {
+    const {steps} = createPlan(bundle({hasMigrations: true}), null, active, graph, options)
+    expect(steps[0]).toMatchObject({action: 'full-deploy', reasons: ['baseline']})
+  })
+
+  it('takes an upload without migrations', () => {
+    expect(createPlan(bundle({}), null, active, graph, options).steps[0].action).toBe('upload')
+  })
+})
+
 describe('classification', () => {
   type Row = [
     title: string,
@@ -446,7 +463,7 @@ describe('order', () => {
     })
 
     expect(stepOf(result, 'orders').dependsOn).toEqual([])
-    expect(stepOf(result, 'shared').dependsOn).toEqual([])
+    expect(stepOf(result, 'shared').dependsOn).toEqual(['orders'])
   })
 })
 

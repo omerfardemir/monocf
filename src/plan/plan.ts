@@ -222,11 +222,17 @@ function uploadCallersOfRecreated(decisions: Map<string, Decision>, recreated: s
   return notes
 }
 
-/** `versions upload` refuses a site, and it would leave a container's image behind with exit 0, so these take `deploy`. */
-function routeToDeploy(decision: Decision, worker: ManifestWorker): void {
-  if (decision.action === 'upload' && worker.needsDeploy?.length) {
+/**
+ * `versions upload` refuses a site, and it would leave a container's image behind with exit 0, so these take `deploy`. It
+ * also refuses pending migrations, and for a live worker with no state entry nothing says which have been applied.
+ */
+function routeToDeploy(decision: Decision, worker: ManifestWorker, entry: StateWorker | undefined): void {
+  if (decision.action !== 'upload') return
+  if (worker.needsDeploy?.length) {
     decision.action = 'full-deploy'
     decision.reasons = [...decision.reasons, 'needs-deploy']
+  } else if (!entry && worker.hasMigrations) {
+    decision.action = 'full-deploy'
   }
 }
 
@@ -278,7 +284,7 @@ export function createPlan(
   }
 
   notes.push(...uploadCallersOfRecreated(decisions, recreated, graph))
-  for (const name of names) routeToDeploy(decisions.get(name)!, bundle.workers[name])
+  for (const name of names) routeToDeploy(decisions.get(name)!, bundle.workers[name], entryOf(name))
 
   for (const [name, entry] of stored) {
     if (!repositoryWorkers.includes(name)) {

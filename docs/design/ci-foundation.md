@@ -219,6 +219,7 @@ The active version comes from `wrangler deployments status --name <deployed-name
 | Situation | Action | Reasons |
 |---|---|---|
 | Worker doesn't exist on Cloudflare | `create` | `new` |
+| Exists, no manifest entry, a different tag, and migrations in the config | `full-deploy`, since `versions upload` refuses pending migrations and nothing says which are applied | `baseline` |
 | Exists, no manifest entry, active tag is `monocf:<fingerprint>` | `adopt`: no deploy, `apply` records it in state | `state-missing` |
 | Exists, no manifest entry, another tag or none | `upload` with `--on-drift warn`, `blocked` with `fail` | `baseline`, or `drift` and `baseline` when blocked |
 | Manifest version is active, same fingerprint, same triggers | `skip` | `unchanged` |

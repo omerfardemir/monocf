@@ -39,6 +39,8 @@ export interface ManifestWorker {
   fingerprint: string
   /** Fields `wrangler versions upload` can't carry, so that this worker only reaches Cloudflare by `wrangler deploy`. */
   needsDeploy?: string[]
+  /** `versions upload` refuses pending migrations, and with no state nothing says whether these are pending. */
+  hasMigrations?: true
   triggers: Triggers
   triggersHash: string
   version?: string
@@ -100,6 +102,8 @@ function describeWorker(worker: ResolvedWorker, out: string, env: string): Manif
   const {vars} = envSection(config, env)
   const version = isPlainObject(vars) ? vars.VERSION : undefined
   const needsDeploy = fieldsNeedingDeploy(config, env)
+  const migrations = effectiveField(config, env, 'migrations')
+  const hasMigrations = Array.isArray(migrations) && migrations.length > 0 ? (true as const) : undefined
   return {
     bundleHash: bundle,
     configHash: hash,
@@ -108,6 +112,7 @@ function describeWorker(worker: ResolvedWorker, out: string, env: string): Manif
     externalHash: external,
     fingerprint: fingerprintOf(bundle, hash, external),
     ...(needsDeploy.length > 0 && {needsDeploy}),
+    ...(hasMigrations && {hasMigrations}),
     triggers,
     triggersHash: triggersHash(triggers),
     ...(version !== undefined && {version: String(version)}),
