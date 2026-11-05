@@ -7,6 +7,8 @@ import {createFixture, runCli} from '../helpers/harness.js'
 interface Project {
   /** Flags after `-c build`. */
   args?: string[]
+  /** Merged over the base config. */
+  base?: Record<string, unknown>
   config?: Record<string, unknown>
   /** Files of the worker, keyed by path relative to its directory. */
   files?: Record<string, string>
@@ -14,8 +16,9 @@ interface Project {
   rootFiles?: Record<string, string>
 }
 
-function project({config, files = {}, rootFiles = {}}: Project) {
+function project({base, config, files = {}, rootFiles = {}}: Project) {
   return createFixture({
+    base,
     environments: ['staging'],
     files: {
       ...rootFiles,
@@ -124,6 +127,31 @@ describe('real wrangler finds what the rebased config points at', {timeout: 180_
       const result = await runCli(fixture, ['worker', 'orders', '-c', 'build'])
 
       expect(result.exitCode).toBe(1)
+    })
+  })
+
+  describe('site', () => {
+    const noMain = {main: undefined}
+    const files = {
+      'static/a.html': 'a',
+      'workers-site/index.js': respondsWith("'from-the-site-entry'"),
+      'workers-site/package.json': JSON.stringify({name: 'site-worker', version: '1.0.0'}),
+    }
+
+    it('reads site.entry-point', async () => {
+      const bundle = await bundleOf({
+        base: noMain,
+        config: {site: {bucket: './static', 'entry-point': 'workers-site/index.js'}},
+        files,
+      })
+
+      expect(bundle).toContain('from-the-site-entry')
+    })
+
+    it('finds the default entry point of a site with no main', async () => {
+      const bundle = await bundleOf({base: noMain, config: {site: {bucket: './static'}}, files})
+
+      expect(bundle).toContain('from-the-site-entry')
     })
   })
 

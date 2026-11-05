@@ -25,6 +25,7 @@ export const REBASED_FIELDS = [
   'main',
   'pages_build_output_dir',
   'site.bucket',
+  'site.entry-point',
   'text_blobs.*',
   'tsconfig',
   'unsafe.capnp.base_path',
@@ -133,9 +134,18 @@ function rebaseSection(section: RawConfig, context: RebaseContext): RawConfig {
   return isPlainObject(result.previews) ? {...result, previews: rebaseSection(result.previews, context)} : result
 }
 
+/** A site with no main uses this default, relative to the config. Wrangler refuses it next to a main. */
+function withSiteEntryPoint(config: RawConfig, context: RebaseContext): RawConfig {
+  const {env, main, site} = config
+  if (!isPlainObject(site) || main !== undefined || site['entry-point'] !== undefined) return config
+  const sections = isPlainObject(env) ? Object.values(env) : []
+  if (sections.some((section) => isPlainObject(section) && section.main !== undefined)) return config
+  return {...config, site: {...site, 'entry-point': rebasePath('workers-site', context)}}
+}
+
 /** Returns the config with every relative path rewritten for its new location. Rebased values stay relative. */
 export function rebaseConfig(config: RawConfig, context: RebaseContext): RawConfig {
-  const result = rebaseSection(config, context)
+  const result = withSiteEntryPoint(rebaseSection(config, context), context)
   if (!isPlainObject(result.env)) return result
   const env = Object.fromEntries(
     Object.entries(result.env).map(([name, section]) => [

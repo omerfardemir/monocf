@@ -18,7 +18,11 @@ describe('rebaseConfig', () => {
     ['base_dir', {base_dir: './src'}, {base_dir: `${up}/src`}],
     ['tsconfig', {tsconfig: 'tsconfig.json'}, {tsconfig: `${up}/tsconfig.json`}],
     ['assets', {assets: {binding: 'A', directory: './public'}}, {assets: {binding: 'A', directory: `${up}/public`}}],
-    ['site', {site: {bucket: './site', include: ['*.html']}}, {site: {bucket: `${up}/site`, include: ['*.html']}}],
+    [
+      'site',
+      {main: 'a.ts', site: {bucket: './site', include: ['*.html']}},
+      {main: `${up}/a.ts`, site: {bucket: `${up}/site`, include: ['*.html']}},
+    ],
     ['the pages output', {pages_build_output_dir: 'dist'}, {pages_build_output_dir: `${up}/dist`}],
     [
       'build fields',
@@ -118,6 +122,26 @@ describe('rebaseConfig', () => {
     })
   })
 
+  it('rewrites site.entry-point', () => {
+    const result = rebaseConfig({site: {bucket: './s', 'entry-point': 'entry'}}, context)
+
+    expect(result.site).toEqual({bucket: `${up}/s`, 'entry-point': `${up}/entry`})
+  })
+
+  it('writes the default entry point of a site with no main', () => {
+    expect(rebaseConfig({site: {bucket: './s'}}, context).site).toEqual({
+      bucket: `${up}/s`,
+      'entry-point': `${up}/workers-site`,
+    })
+  })
+
+  it.each([
+    ['at the top level', {main: 'a.ts', site: {bucket: './s'}}],
+    ['in an env', {env: {e: {main: 'a.ts'}}, site: {bucket: './s'}}],
+  ])('writes no default entry point next to a main %s', (_, config) => {
+    expect(rebaseConfig(config, context).site).toEqual({bucket: `${up}/s`})
+  })
+
   it('does not invent a build section', () => {
     expect(rebaseConfig({}, context)).toEqual({})
   })
@@ -133,7 +157,7 @@ describe('rebaseConfig', () => {
 
 // A string field whose name or description suggests a location. Wording changes in wrangler can only widen this.
 const PATH_NAME = /path|dir|file|location|cwd|folder|bucket|main|root|image|context|module|blob|alias|capnp|include|exclude|glob|pattern|tsconfig/i
-const PATH_DESCRIPTION = /\bpaths?\b|director|relative to|folder|\bfiles?\b/i
+const PATH_DESCRIPTION = /\bpaths?\b|director|relative to|folder|\bfiles?\b|location/i
 
 /** Read as the schema reads, but whose content isn't a location on disk, despite its name or description. */
 const UNRELATED_FIELDS: Record<string, string> = {
