@@ -14,9 +14,12 @@ export interface ActiveShare {
   versionId: string
 }
 
-/** What Cloudflare serves for a worker. `tag` is only there when it was worth a request. */
+/**
+ * What Cloudflare serves for a worker. `tag` is only there when it was worth a request. A secret command's version has no tag
+ * of its own, so `sourceTag` is the tag of the upload it copied.
+ */
 export type ActiveInfo =
-  | {state: 'active'; tag?: string; triggeredBy?: string; versionId: string}
+  | {sourceTag?: string; state: 'active'; tag?: string; triggeredBy?: string; versionId: string}
   | {state: 'missing'}
   | {shares: ActiveShare[]; state: 'split'}
 
@@ -86,20 +89,19 @@ export function parseDeploymentStatus(label: string, stdout: string): ActiveInfo
   return shares.length === 1 ? {state: 'active', versionId: shares[0].versionId} : {shares, state: 'split'}
 }
 
-/** Reads `versions view --json`. A version uploaded with no tag has none. */
-export function parseVersionTag(label: string, stdout: string): string | undefined {
-  const parsed = parseJson(label, stdout)
-  const annotations = isPlainObject(parsed) ? parsed.annotations : undefined
-  const tag = isPlainObject(annotations) ? annotations['workers/tag'] : undefined
-  return typeof tag === 'string' ? tag : undefined
+function annotationOf(version: unknown, name: string): string | undefined {
+  const annotations = isPlainObject(version) ? version.annotations : undefined
+  const value = isPlainObject(annotations) ? annotations[name] : undefined
+  return typeof value === 'string' ? value : undefined
 }
 
-/** Reads who made a version. `secret` for what `secret put` and `secret bulk` make, as seen on real Cloudflare. */
-function parseTriggeredBy(label: string, stdout: string): string | undefined {
-  const parsed = parseJson(label, stdout)
-  const annotations = isPlainObject(parsed) ? parsed.annotations : undefined
-  const triggeredBy = isPlainObject(annotations) ? annotations['workers/triggered_by'] : undefined
-  return typeof triggeredBy === 'string' ? triggeredBy : undefined
+const TAG = 'workers/tag'
+/** Who made a version. `secret` for what `secret put` and `secret bulk` make, as seen on real Cloudflare. */
+const TRIGGERED_BY = 'workers/triggered_by'
+
+/** Reads `versions view --json`. A version uploaded with no tag has none. */
+export function parseVersionTag(label: string, stdout: string): string | undefined {
+  return annotationOf(parseJson(label, stdout), TAG)
 }
 
 const WORKER_NOT_FOUND = /code: 10007\b/
@@ -123,9 +125,26 @@ export async function readVersionOrigin(
 ): Promise<{tag?: string; triggeredBy?: string}> {
   const result = await call({action: 'version-view', name, versionId}, accountId)
   if (!isSuccessful(result)) throw readFailure(name, result)
-  const tag = parseVersionTag(name, result.stdout)
-  const triggeredBy = parseTriggeredBy(name, result.stdout)
+  const parsed = parseJson(name, result.stdout)
+  const tag = annotationOf(parsed, TAG)
+  const triggeredBy = annotationOf(parsed, TRIGGERED_BY)
   return {...(tag !== undefined && {tag}), ...(triggeredBy !== undefined && {triggeredBy})}
+}
+
+/**
+ * The tag of the upload a secret command's version copied: the last version before it that no secret command made, as real
+ * Cloudflare numbers them. Undefined when the list doesn't say, which nothing can tell from code monocf didn't deploy.
+ */
+export async function readSecretSource(call: WranglerCall, name: string, versionId: string, accountId?: string): Promise<string | undefined> {
+  const result = await call({action: 'versions-of', name}, accountId)
+  if (!isSuccessful(result)) throw readFailure(name, result)
+  const parsed = parseJson(name, result.stdout)
+  const versions = (Array.isArray(parsed) ? parsed : [])
+    .filter((version): version is {id: string; number: number} => isPlainObject(version) && typeof version.id === 'string' && typeof version.number === 'number')
+    .sort((a, b) => b.number - a.number)
+  const index = versions.findIndex(({id}) => id === versionId)
+  if (index === -1) return undefined
+  return annotationOf(versions.slice(index + 1).find((version) => annotationOf(version, TRIGGERED_BY) !== 'secret'), TAG)
 }
 
 export async function readVersionTag(

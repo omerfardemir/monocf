@@ -4,6 +4,7 @@ export type Step =
   | {action: 'r2-get'; bucket: string; key: string}
   | {action: 'r2-put'; bucket: string; file: string; key: string}
   | {action: 'version-view'; name: string; versionId: string}
+  | {action: 'versions-of'; name: string}
   | {action: 'build'; configPath: string; outdir: string}
   | {action: 'deploy' | 'preview'; configPath: string; secretsFile?: string}
   | {action: 'deployment-status' | 'triggers-deploy' | 'versions-list'; configPath: string}
@@ -99,6 +100,10 @@ export function buildArgv(step: Step, options: ArgvOptions = {}): string[] {
 
     case 'version-view': {
       return ['versions', 'view', step.versionId, '--name', step.name, '--json']
+    }
+
+    case 'versions-of': {
+      return ['versions', 'list', '--name', step.name, '--json']
     }
 
     // --pipe, not --file: on a miss --file leaves a 0-byte file behind.

@@ -16,7 +16,7 @@ import {writeFileAtomic} from '../runtime/atomic.js'
 import {accountHash, manifestKey, parseStateManifest, type StateManifest} from '../state/manifest.js'
 import {openStateStore, parseStateUrl} from '../state/store.js'
 import {locateWrangler} from '../wrangler/locate.js'
-import {readActiveVersion, readVersionOrigin, type ActiveInfo, type WranglerCall} from '../wrangler/read.js'
+import {readActiveVersion, readSecretSource, readVersionOrigin, type ActiveInfo, type WranglerCall} from '../wrangler/read.js'
 import {withReadRetries} from '../wrangler/retry.js'
 import {configHash, doHash, triggersHash, triggersOf} from '../fingerprint/fingerprint.js'
 import {workerExternalHash} from '../fingerprint/external.js'
@@ -139,11 +139,14 @@ async function readActiveVersions(
           context.interrupts.signal,
         )
         const info = await readActiveVersion(call, deployedName, accountId)
-        const tagged =
-          info.state === 'active' && needsTag(info, stored.get(dir), deployedName)
-            ? {...info, ...(await readVersionOrigin(call, deployedName, info.versionId, accountId))}
-            : info
-        active.set(dir, tagged)
+        if (info.state !== 'active' || !needsTag(info, stored.get(dir), deployedName)) {
+          active.set(dir, info)
+          return
+        }
+
+        const origin = await readVersionOrigin(call, deployedName, info.versionId, accountId)
+        const sourceTag = origin.triggeredBy === 'secret' ? await readSecretSource(call, deployedName, info.versionId, accountId) : undefined
+        active.set(dir, {...info, ...origin, ...(sourceTag !== undefined && {sourceTag})})
       },
       worker: dir,
     })),

@@ -4,7 +4,7 @@ import {tagFor} from '../../src/plan/plan.js'
 import {actions, bundled, entry, live, manifest, planFor, three, threeEntries, threeLive} from '../helpers/plan-fixtures.js'
 
 describe('a version that a secret command made', () => {
-  const rotated = {...threeLive, orders: live('other', {triggeredBy: 'secret'})}
+  const rotated = {...threeLive, orders: live('other', {sourceTag: tagFor('f-orders'), triggeredBy: 'secret'})}
 
   it('takes an upload with its own reason, at note level', () => {
     const plan = planFor(three, manifest(threeEntries), rotated)
@@ -31,6 +31,17 @@ describe('a version that a secret command made', () => {
     const plan = planFor({...three, orders: bundled('orders', {doHash: 'new', fingerprint: 'new'})}, manifest(threeEntries), rotated)
 
     expect(actions(plan).orders).toBe('full-deploy')
+  })
+
+  it("is drift on top of code the state doesn't name, as a manual deploy is", () => {
+    const hidden = {...threeLive, orders: live('other', {sourceTag: 'monocf:f-something-else', triggeredBy: 'secret'})}
+    const unknown = {...threeLive, orders: live('other', {triggeredBy: 'secret'})}
+
+    for (const active of [hidden, unknown]) {
+      const plan = planFor(three, manifest(threeEntries), active, {onDrift: 'fail'})
+      expect(plan.steps.find(({worker}) => worker === 'orders')).toMatchObject({action: 'blocked', reasons: ['drift']})
+      expect(plan.notes.find(({worker}) => worker === 'orders')!.message).toContain('secret command')
+    }
   })
 
   it('stays drift when anything else made it', () => {

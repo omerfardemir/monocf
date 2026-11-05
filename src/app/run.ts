@@ -48,6 +48,7 @@ const COMMAND_NAMES: Record<Step['action'], string> = {
   'version-view': 'versions view',
   'versions-deploy': 'versions deploy',
   'versions-list': 'versions list',
+  'versions-of': 'versions list',
   whoami: 'whoami',
 }
 

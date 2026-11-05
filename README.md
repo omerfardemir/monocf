@@ -952,7 +952,7 @@ Drift means the active version on Cloudflare isn't the one in the manifest, for 
 
 Every upload is tagged `monocf:<fingerprint>`, which is how monocf tells drift from a run that crashed before writing state. If the tag matches, it isn't drift: `plan` notes `state-behind` and recovers.
 
-**A secret rotation isn't drift.** `wrangler secret put`, `wrangler secret bulk` and `monocf secrets deploy` make a new active version with no tag, and Cloudflare marks where it came from. For a worker in the manifest, `plan` gives `upload` with the reason `secret-changed`, even under `--on-drift fail`. That upload tags known code, and the secret carries over.
+**A secret rotation isn't drift.** `wrangler secret put`, `wrangler secret bulk` and `monocf secrets deploy` make a new active version with no tag, and Cloudflare marks where it came from. For a worker in the manifest whose live code is the code the manifest names, `plan` gives `upload` with the reason `secret-changed`, even under `--on-drift fail`. That upload tags known code, and the secret carries over. A secret command on top of anything else, such as a manual deploy, keeps that code live, so it's drift, and `--on-drift` decides.
 
 ### Secrets
 

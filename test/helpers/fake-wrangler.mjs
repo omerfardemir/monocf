@@ -164,6 +164,17 @@ function versionAnswer(state, name, id) {
   return {stdout: JSON.stringify({annotations, id, metadata: {}, resources: {bindings: [...bindings, {name: 'PLAIN', text: 'x', type: 'plain_text'}]}})}
 }
 
+/** As real wrangler: every version, oldest first. A secret version has no tag. */
+function versionsAnswer(state, name) {
+  const worker = state.workers?.[name]
+  if (!worker) return {exitCode: 1, stderr: apiError('This Worker does not exist on your account. [code: 10007]')}
+  const versions = Object.entries(worker.tags ?? {}).map(([id, tag], index) => {
+    const triggeredBy = worker.triggeredBy?.[id]
+    return {annotations: {...(tag !== null && {'workers/tag': tag}), ...(triggeredBy && {'workers/triggered_by': triggeredBy})}, id, metadata: {}, number: index + 1}
+  })
+  return {stdout: JSON.stringify(versions)}
+}
+
 function r2Answer(state, path) {
   if (startsWithCommand('r2 bucket info')) {
     return state.buckets?.[argv[3]]
@@ -187,13 +198,14 @@ function r2Answer(state, path) {
 
 function cloudflareAnswer() {
   const name = flagValues(['--name'])[0]
-  const isRead = name !== undefined && (startsWithCommand('deployments status') || startsWithCommand('versions view'))
+  const isRead = name !== undefined && (startsWithCommand('deployments status') || startsWithCommand('versions view') || startsWithCommand('versions list'))
   if (!isRead && !startsWithCommand('r2')) return null
   const path = process.env.FAKE_WRANGLER_CF
   if (!path) return {exitCode: 1, stderr: 'fake wrangler: this test set no Cloudflare state\n'}
   return withCloudflareLock(path, () => {
     const state = JSON.parse(readFileSync(path, 'utf8'))
     if (startsWithCommand('r2')) return r2Answer(state, path)
+    if (startsWithCommand('versions list')) return versionsAnswer(state, name)
     return startsWithCommand('versions view') ? versionAnswer(state, name, argv[2]) : deploymentsAnswer(state, name)
   })
 }

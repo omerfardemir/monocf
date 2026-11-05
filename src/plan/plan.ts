@@ -167,8 +167,7 @@ function blocked(reasons: PlanReason[], notes: Decision['notes']): Decision {
  * Something else is live. Its triggers are unknown too, since a manual `wrangler deploy` applies its own, so they are
  * applied again. A worker that is otherwise the same still needs an upload, or the other version stays live.
  */
-function drifted(worker: ManifestWorker, entry: StateWorker | undefined, split: boolean, onDrift: OnDrift): Decision {
-  const message = split ? 'A split rollout is live.' : "The active version isn't the one in the state manifest, and its tag doesn't match."
+function drifted(worker: ManifestWorker, entry: StateWorker | undefined, {message, split}: {message: string; split: boolean}, onDrift: OnDrift): Decision {
   const reasons: PlanReason[] = ['drift', ...(split ? (['split'] as const) : [])]
   const notes = [{kind: 'drift' as const, message}]
   if (onDrift === 'fail') return blocked(reasons, notes)
@@ -188,8 +187,8 @@ function stateBehind(decision: Decision): Decision {
 }
 
 /**
- * A secret command made the active version, from the latest upload. The upload that follows tags known code, and inherits
- * the secret, so it heals this whichever upload the secret version came from. A rotation is routine, so this isn't drift.
+ * A secret command made the active version, from an upload carrying the fingerprint the state knows. The upload that follows
+ * tags known code and inherits the secret. A rotation is routine, so this isn't drift.
  */
 function secretChanged(worker: ManifestWorker, entry: StateWorker): Decision {
   const base = compareToState(worker, entry)
@@ -209,7 +208,7 @@ function classify(worker: ManifestWorker, entry: StateWorker | undefined, active
     return {action: 'create', notes, reasons: ['new'], triggersChanged: true}
   }
 
-  if (active.state === 'split') return drifted(worker, entry, true, onDrift)
+  if (active.state === 'split') return drifted(worker, entry, {message: 'A split rollout is live.', split: true}, onDrift)
 
   if (!entry) {
     if (active.tag === tagFor(worker.fingerprint)) {
@@ -227,8 +226,13 @@ function classify(worker: ManifestWorker, entry: StateWorker | undefined, active
   // The tag of this very bundle means the crashed run already deployed what this plan would.
   if (active.tag === tagFor(worker.fingerprint)) return stateBehind(triggersOnly(worker, entry))
   if (active.tag === tagFor(entry.fingerprint)) return stateBehind(compareToState(worker, entry))
-  if (active.triggeredBy === 'secret') return secretChanged(worker, entry)
-  return drifted(worker, entry, false, onDrift)
+  if (active.triggeredBy !== 'secret') {
+    return drifted(worker, entry, {message: "The active version isn't the one in the state manifest, and its tag doesn't match.", split: false}, onDrift)
+  }
+
+  // A secret version copies the latest upload, so a rotation on top of a manual deploy keeps that code live.
+  if (active.sourceTag === tagFor(entry.fingerprint)) return secretChanged(worker, entry)
+  return drifted(worker, entry, {message: "A secret command made the active version, on top of code the state manifest doesn't name.", split: false}, onDrift)
 }
 
 /** A request to Cloudflare per worker that needs it: the tag only matters when the version alone doesn't settle things. */
