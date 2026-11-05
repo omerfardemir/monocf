@@ -100,12 +100,20 @@ if (process.env.FAKE_WRANGLER_LOG) {
 }
 
 const rules = process.env.FAKE_WRANGLER_RULES ? JSON.parse(readFileSync(process.env.FAKE_WRANGLER_RULES, 'utf8')) : []
-const rule =
-  rules.find(
-    (candidate) =>
-      startsWithCommand(candidate.command) &&
-      (candidate.worker === undefined || candidate.worker === workerDir || candidate.worker === deployedName),
-  ) ?? {}
+// A rule with `times` applies that many times, and then the command behaves as if the rule weren't there.
+function timesUsed(index) {
+  const path = `${process.env.FAKE_WRANGLER_RULES}.${index}.used`
+  return existsSync(path) ? Number(readFileSync(path, 'utf8')) : 0
+}
+
+const ruleIndex = rules.findIndex(
+  (candidate, index) =>
+    startsWithCommand(candidate.command) &&
+    (candidate.worker === undefined || candidate.worker === workerDir || candidate.worker === deployedName) &&
+    (candidate.times === undefined || timesUsed(index) < candidate.times),
+)
+const rule = ruleIndex === -1 ? {} : rules[ruleIndex]
+if (rule.times !== undefined) writeFileSync(`${process.env.FAKE_WRANGLER_RULES}.${ruleIndex}.used`, String(timesUsed(ruleIndex) + 1))
 
 // The messages and codes are the ones the Cloudflare spike saw from real wrangler. API errors quote a URL with the account.
 function apiError(detail) {

@@ -240,6 +240,8 @@ Drift with `--on-drift warn` takes the action the table gives, with `drift` firs
 
 `dependsOn` holds the nearest callees that do something. It looks through a `skip` or `adopt`, so an order that runs through one still holds. Members of a cycle only a queue closes don't wait for each other. `callers` and `transitiveCallers` come from the whole graph, whatever `--workers` selects, and give the smoke-test scope.
 
+A read that fails with `fetch failed`, a 429 or a 5xx is tried up to three times, with the backoff of a write.
+
 An older plan at the output path is removed first, so a failed run can't leave one for `apply`.
 
 ## Deploy

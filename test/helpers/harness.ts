@@ -106,6 +106,8 @@ export interface WranglerRule {
   stdoutAfterExit?: string
   stderr?: string
   delayMs?: number
+  /** Applies this many times, and then the command behaves as if the rule weren't there. */
+  times?: number
 }
 
 export interface CliResult {

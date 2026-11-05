@@ -17,6 +17,7 @@ import {manifestKey, parseStateManifest, type StateManifest} from '../state/mani
 import {openStateStore, parseStateUrl} from '../state/store.js'
 import {locateWrangler} from '../wrangler/locate.js'
 import {readActiveVersion, readVersionTag, type ActiveInfo, type WranglerCall} from '../wrangler/read.js'
+import {withReadRetries} from '../wrangler/retry.js'
 import {buildBundle, checkEntrypoints, readBundleManifest, type BundleManifest} from './bundle.js'
 import {loadOptions, resolveCommit, selectNamed} from './project.js'
 import {callWrangler, createSink, runWorkerSteps, withRun, type RunContext} from './run.js'
@@ -97,7 +98,10 @@ async function readActiveVersions(
       async run() {
         const accountField = effectiveField(config, env, 'account_id')
         const accountId = typeof accountField === 'string' ? accountField : undefined
-        const call: WranglerCall = (step, account) => callWrangler(context, step, {accountId: account, worker: dir})
+        const call: WranglerCall = withReadRetries(
+          (step, account) => callWrangler(context, step, {accountId: account, worker: dir}),
+          context.interrupts.signal,
+        )
         const info = await readActiveVersion(call, deployedName, accountId)
         const tagged =
           info.state === 'active' && needsTag(info, stored.get(dir), deployedName)
@@ -168,7 +172,8 @@ export async function runPlan(flags: PlanFlags): Promise<void> {
     rmSync(planPath, {force: true})
     const bundle = await bundleFor(context, flags, {commit, env, rootDir, workers})
 
-    const store = openStateStore(location, (step) => callWrangler(context, step), context.runDir.path)
+    const stateCall = withReadRetries((step) => callWrangler(context, step), context.interrupts.signal)
+    const store = openStateStore(location, stateCall, context.runDir.path)
     await store.check()
     const body = await store.read(manifestKey(env))
     const state = body === null ? null : parseStateManifest(body, env)

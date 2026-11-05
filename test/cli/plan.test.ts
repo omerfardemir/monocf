@@ -91,6 +91,57 @@ function eventsOf({stdout}: CliResult): Record<string, any>[] { // eslint-disabl
 
 const read = (result: CliResult, name: string) => result.calls.find(({argv}) => argv[0] === 'deployments' && argv.includes(name))!
 
+function statusOf(calls: WranglerCall[]): string[] {
+  return reads(calls, 'deployments status')
+}
+
+describe('a read that fails for a moment', {timeout: 60_000}, () => {
+  it('is tried again after fetch failed, and the plan comes out', async () => {
+    const fixture = project()
+
+    const result = await runCli(fixture, args, {
+      cloudflare: {},
+      rules: [{command: 'deployments status', exitCode: 1, stderr: '✘ [ERROR] fetch failed\n', times: 1, worker: 'orders-v1-staging'}],
+    })
+
+    expect(result.exitCode, result.stderr).toBe(0)
+    expect(statusOf(result.calls).filter((name) => name === 'orders-v1-staging')).toHaveLength(2)
+    expect(actionsOf(planOf(fixture)).orders).toBe('create')
+  })
+
+  it('is tried again after a 5xx from the state bucket', async () => {
+    const fixture = project()
+
+    const result = await runCli(fixture, ['plan', '-e', 'staging', '--state', 'r2://monocf-state/ci'], {
+      cloudflare: {buckets: {'monocf-state': {}}},
+      rules: [{command: 'r2 bucket info', exitCode: 1, stderr: 'A request failed with status: 503\n', times: 1}],
+    })
+
+    expect(result.exitCode, result.stderr).toBe(0)
+    expect(result.calls.filter(({argv}) => argv[0] === 'r2' && argv[1] === 'bucket')).toHaveLength(2)
+  })
+
+  it('stops after three attempts', async () => {
+    const result = await runCli(project(), args, {
+      cloudflare: {},
+      rules: [{command: 'deployments status', exitCode: 1, stderr: '✘ [ERROR] fetch failed\n', worker: 'orders-v1-staging'}],
+    })
+
+    expect(result.exitCode).toBe(1)
+    expect(statusOf(result.calls).filter((name) => name === 'orders-v1-staging')).toHaveLength(3)
+  })
+
+  it('is not tried again after an answer', async () => {
+    const result = await runCli(project(), args, {
+      cloudflare: {},
+      rules: [{command: 'deployments status', exitCode: 1, stderr: '✘ [ERROR] Authentication error [code: 10000]\n', worker: 'orders-v1-staging'}],
+    })
+
+    expect(result.exitCode).toBe(3)
+    expect(statusOf(result.calls).filter((name) => name === 'orders-v1-staging')).toHaveLength(1)
+  })
+})
+
 describe('monocf plan', () => {
   describe('a first run, with nothing deployed', () => {
     it('plans to create everything, callees first, and asks no more than it must', async () => {
