@@ -288,7 +288,7 @@ describe('selectWorkers', () => {
   })
 
   it('names the env and the way out when a named worker is ignored', () => {
-    expect(() => selectWorkers(all, ['orders'], 'orders', 'dev')).toThrow('Worker orders is ignored in dev by .monocfignore. To run it in dev, change its line in that file')
+    expect(() => selectWorkers(all, ['orders'], 'orders', 'dev')).toThrow('Worker orders is ignored in dev by .monocfignore. To run it in dev, change its line in that file: remove it, or scope it, as in `orders except dev`, which runs it in dev and ignores it everywhere else.')
     expect(() => selectWorkers(all, ['orders'], 'orders')).toThrow("Pass an env it isn't ignored in with -e, or change its line in that file")
   })
 

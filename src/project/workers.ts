@@ -177,10 +177,10 @@ export function ignoredByScope(options: IgnoreOptions, workers: string[], reader
   return ignoredIn(lines, options, workers).filter((worker) => !always.includes(worker))
 }
 
-function ignoredMessage(name: string, env: string | undefined): string {
+export function ignoredMessage(name: string, env: string | undefined): string {
   return env === undefined
     ? `Worker ${name} is ignored by ${IGNORE_FILE} when no env is given. Pass an env it isn't ignored in with -e, or change its line in that file.`
-    : `Worker ${name} is ignored in ${env} by ${IGNORE_FILE}. To run it in ${env}, change its line in that file: remove it, or give it a scope that leaves ${env} out.`
+    : `Worker ${name} is ignored in ${env} by ${IGNORE_FILE}. To run it in ${env}, change its line in that file: remove it, or scope it, as in \`${name} except ${env}\`, which runs it in ${env} and ignores it everywhere else.`
 }
 
 /**

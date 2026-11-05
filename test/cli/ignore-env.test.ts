@@ -211,6 +211,18 @@ describe('a named worker', () => {
     expect(namesOf(result)).toEqual(['nightly-v1-production'])
   })
 
+  it('names a line that does what the message says it does', async () => {
+    const fixture = project(['nightly except production'])
+    const refused = await rejected(fixture, ['build', 'nightly', '-e', 'dev'])
+    const [, line] = /as in `([^`]+)`, which runs it in dev/.exec(refused.stderr.replaceAll(/\s+/g, ' ').replaceAll(' › ', ' '))!
+
+    writeFileSync(join(fixture.root, '.monocfignore'), `${line}\n`)
+
+    const result = await runCli(fixture, ['build', 'nightly', '-e', 'dev'])
+    expect(result.exitCode, result.stderr).toBe(0)
+    expectRefused(await rejected(fixture, ['build', 'nightly', '-e', 'staging']), 'Worker nightly is ignored in staging')
+  })
+
   it('is refused when inferred from the current directory', async () => {
     const fixture = project(['nightly in dev'])
 
@@ -290,6 +302,15 @@ describe('graph', () => {
     const inProduction = await graphJson(fixture, ['-e', 'production'])
     expect(inProduction.nodes.map(({name}) => name)).toEqual(['billing', 'gateway', 'nightly'])
     expect(inProduction.ignored).toEqual([])
+  })
+
+  it('--callers says a worker ignored in this env is ignored, not missing', async () => {
+    const fixture = project(['nightly except production'])
+
+    expectRefused(await rejected(fixture, ['graph', '--callers', 'nightly', '-e', 'dev']), 'Worker nightly is ignored in dev by .monocfignore')
+    expectRefused(await rejected(fixture, ['graph', '--callers', 'nightly']), 'Worker nightly is ignored by .monocfignore when no env is given')
+    expectRefused(await rejected(fixture, ['graph', '--callers', 'nope', '-e', 'dev']), 'Worker not found: nope')
+    expect((await rejected(fixture, ['graph', '--callers', 'nightly', '-e', 'production'])).exitCode).toBe(0)
   })
 
   it('with no env, applies except lines and no in lines', async () => {
@@ -416,7 +437,7 @@ describe('-d', () => {
     const inDev = await runCli(fixture, ['deploy', 'gateway', '-d', '-e', 'dev'])
     expect(inDev.exitCode, inDev.stderr).toBe(0)
     expect(namesOf(inDev)).toEqual(['gateway-v1-dev'])
-    expect(inDev.stderr).toContain('Not following the binding to billing: it is in .monocfignore.')
+    expect(inDev.stderr).toContain('Not following the binding to billing: it is ignored in dev by .monocfignore.')
 
     const inProduction = await runCli(fixture, ['deploy', 'gateway', '-d', '-e', 'production'])
     expect(namesOf(inProduction)).toEqual(['billing-v1-production', 'gateway-v1-production'])
@@ -424,6 +445,14 @@ describe('-d', () => {
 
     const previewed = await runCli(fixture, ['preview', 'gateway', '-d', '-e', 'dev'])
     expect(namesOf(previewed)).toEqual(['gateway-v1-dev'])
+  })
+
+  it('says so when there is no env for the ignored set', async () => {
+    const fixture = project(['billing except production'], {workers: [{bindings: ['billing'], name: 'gateway'}, {name: 'billing'}]})
+
+    const result = await runCli(fixture, ['deploy', 'gateway', '-d'])
+
+    expect(result.stderr).toContain('Not following the binding to billing: it is ignored with no env by .monocfignore.')
   })
 
   it('rewrites no binding target: an ignored target still resolves to its deployed name', async () => {

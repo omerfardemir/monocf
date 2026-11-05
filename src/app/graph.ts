@@ -3,6 +3,7 @@ import {ConfigError} from '../config/types.js'
 import {validateSelection} from '../config/validate.js'
 import {describeGraph, formatGraph, formatMermaid} from '../graph/view.js'
 import type {OptionFlags} from '../project/options.js'
+import {ignoredMessage} from '../project/workers.js'
 import {SCHEMA_VERSION} from '../report/events.js'
 import {loadOptions, selectAll} from './project.js'
 
@@ -29,6 +30,7 @@ export function runGraph(flags: GraphFlags): void {
   writeNotices(project.notices.filter(({worker}) => selection.selected.includes(worker)).map(({message}) => message))
 
   if (flags.callers !== undefined) {
+    if (selection.ignored.includes(flags.callers)) throw new ConfigError(ignoredMessage(flags.callers, options.env))
     const node = view.nodes.find(({name}) => name === flags.callers)
     if (!node) throw new ConfigError(`Worker not found: ${flags.callers}. Please check the worker name.`)
     const {callers, name, transitiveCallers} = node

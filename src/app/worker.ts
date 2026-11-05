@@ -7,6 +7,7 @@ import {EXIT_FAILED, MonocfError} from '../errors.js'
 import {buildGraph} from '../graph/graph.js'
 import {computeOrder, dependenciesWithin, serviceClosure} from '../graph/order.js'
 import type {OptionFlags, Options} from '../project/options.js'
+import {IGNORE_FILE} from '../project/workers.js'
 import {materialiseProxy, PROXY_DIR, PROXY_WORKER, routePrefix} from '../runtime/dev-proxy.js'
 import {copyEnvFiles, materialiseConfig, writeDevVars, writeSecretsFile} from '../runtime/materialise.js'
 import {readLocalVars, readSecrets, requireSecretsFile} from '../runtime/secrets.js'
@@ -379,7 +380,7 @@ export async function runWorker(name: string | undefined, flags: WorkerFlags): P
 
   const notices: {message: string; worker?: string}[] = [
     ...bindingNotices(project, order),
-    ...ignoredBindings.map((dir) => ({message: `Not following the binding to ${dir}: it is in .monocfignore.`})),
+    ...ignoredBindings.map((dir) => ({message: `Not following the binding to ${dir}: it is ignored ${options.env === undefined ? 'with no env' : `in ${options.env}`} by ${IGNORE_FILE}.`})),
   ]
   const needsRelease = flags.command !== 'build' && !flags.fromVersion
   const release = needsRelease
