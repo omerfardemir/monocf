@@ -1,51 +1,157 @@
-# test
-name: version, tag and github release
+name: release
 
+# Runs on every push to main, and does only what the version in package.json is still missing. So a
+# push with no new version does nothing, and a failed run can be re-run from where it stopped.
+#
+# Everything is in one workflow because a release made with GITHUB_TOKEN can't start another
+# workflow. This way the repository stores no secrets.
 on:
   push:
     branches: [main]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
-  release:
-    # The release is created with GH_PAT, so that it triggers the publish workflow. GITHUB_TOKEN only checks out.
-    permissions:
-      contents: read
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.check.outputs.tag }}
+      publish: ${{ steps.check.outputs.publish }}
+      release: ${{ steps.check.outputs.release }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: See what this version is missing
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Anything but a clear yes or no stops the run, so an outage can't look like a new version.
+          missing() {
+            code=$(curl --silent --retry 3 --max-time 30 --output /dev/null --write-out '%{http_code}' "$@")
+            case "$code" in
+              200) echo false ;;
+              404) echo true ;;
+              *)
+                echo "::error::$1 answered $code, so this run can't tell what's missing." >&2
+                return 1
+                ;;
+            esac
+          }
+
+          name=$(node -p "require('./package.json').name")
+          version=$(node -p "require('./package.json').version")
+          publish=$(missing "https://registry.npmjs.org/$name/$version")
+          release=$(missing "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/tags/v$version" --header "Authorization: Bearer $GH_TOKEN")
+
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
+          echo "release=$release" >> "$GITHUB_OUTPUT"
+
+          if [ "$publish" = false ] && [ "$release" = false ]; then
+            echo "::notice file=package.json,line=1::$name@$version is already on npm and has a release, so there's nothing to do. Change the version in package.json to release a new one."
+          else
+            echo "$name@$version: publish to npm: $publish, create the release: $release"
+          fi
+
+  # Runs the project's code with a token that can't write. Nothing below runs unless this passes.
+  test:
+    needs: check
+    if: needs.check.outputs.publish == 'true' || needs.check.outputs.release == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-      - name: Check if version already exists
-        id: version-check
-        run: |
-          package_version=$(node -p "require('./package.json').version" || exit 1)
-          exists=$(gh api repos/${{ github.repository }}/releases/tags/v$package_version >/dev/null 2>&1 && echo "true" || echo "")
-
-          if [ -n "$exists" ];
-          then
-            echo "Version v$package_version already exists"
-            echo "::warning file=package.json,line=1::Version v$package_version already exists - no release will be created. If you want to create a new release, please update the version in package.json and push again."
-            echo "skipped=true" >> $GITHUB_OUTPUT
-          else
-            echo "Version v$package_version does not exist. Creating release..."
-            echo "skipped=false" >> $GITHUB_OUTPUT
-            echo "tag=v$package_version" >> $GITHUB_OUTPUT
-          fi
-        env:
-          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
-      - name: Setup git
-        if: ${{ steps.version-check.outputs.skipped == 'false' }}
-        run: |
-          git config --global user.email ${{ secrets.GH_EMAIL }}
-          git config --global user.name ${{ secrets.GH_USERNAME }}
-      - name: Create Github Release
-        uses: ncipollo/release-action@440c8c1cb0ed28b9f43e4d1d670870f059653174 # v1.16.0
-        if: ${{ steps.version-check.outputs.skipped == 'false' }}
         with:
-          name: Release ${{ steps.version-check.outputs.tag }}
-          tag: ${{ steps.version-check.outputs.tag }}
+          node-version: '22'
+      - run: npm ci
+      - run: npm run build
+      - run: npm test
+
+  # npm trusted publishing: the registry takes this job's OIDC token, so no npm token is stored.
+  # On npmjs.com, the package's trusted publisher has to name this file and allow npm publish.
+  # Needs npm 11.5.1 or later, which is why this job is on Node 24.
+  publish:
+    needs: [check, test]
+    if: needs.check.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+      - run: npm ci
+      - run: npm run build
+      - run: npm publish
+
+  # After publish, so that a tag and a release only ever name a version that's on npm. Apart from
+  # publish, so that its actions never run beside the token that can publish.
+  github-release:
+    needs: [check, test, publish]
+    # publish is skipped when the version is already on npm, and that shouldn't stop this job.
+    if: >-
+      !cancelled() &&
+      needs.check.outputs.release == 'true' &&
+      needs.test.result == 'success' &&
+      (needs.publish.result == 'success' || needs.publish.result == 'skipped')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+      - run: npm ci
+      - run: npm run build
+
+      # Pack as .tgz tarball for distribution
+      - name: Generate .tgz package
+        run: npm pack --pack-destination ./dist
+
+      # Extract and zip npm package
+      - name: Extract and zip npm package
+        run: |
+          tarball=$(ls ./dist/*.tgz)
+          filename=$(basename "$tarball" .tgz)
+          mkdir -p ./dist/unpacked
+          tar -xzf "$tarball" -C ./dist/unpacked
+
+          cd ./dist/unpacked/package
+          zip -r ../../$filename.zip .
+
+      # Upload .tgz and .zip to GitHub Actions artifacts
+      - name: Upload npm artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: npm-packages
+          path: |
+            ./dist/*.tgz
+            ./dist/*.zip
+
+      - name: Create the tag and the release
+        uses: ncipollo/release-action@339a81892b84b4eeb0f6e744e4574d79d0d9b8dd # v1.21.0
+        with:
+          tag: ${{ needs.check.outputs.tag }}
+          name: Release ${{ needs.check.outputs.tag }}
           commit: ${{ github.sha }}
-          token: ${{ secrets.GH_PAT }}
           generateReleaseNotes: true
-          skipIfReleaseExists: true
+          artifacts: |
+            ./dist/*.tgz
+            ./dist/*.zip
