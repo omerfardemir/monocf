@@ -1,0 +1,136 @@
+import {EXIT_FAILED, EXIT_OK, MonocfError} from '../errors.js'
+import type {EventSink} from '../report/events.js'
+import {humanSink} from '../report/human.js'
+import {ndjsonSink} from '../report/ndjson.js'
+import {createRunDir, type RunDir} from '../runtime/run-dir.js'
+import {Interrupts, signalExitCode} from '../runtime/signals.js'
+import {buildArgv, type ArgvOptions, type Step} from '../wrangler/argv.js'
+import type {Wrangler} from '../wrangler/locate.js'
+import {spawnWrangler, type OutputMode, type WranglerResult} from '../wrangler/process.js'
+
+export interface RunContext {
+  emit: EventSink
+  interrupts: Interrupts
+  json: boolean
+  runDir: RunDir
+  wrangler: Wrangler
+}
+
+export function createSink(json: boolean): EventSink {
+  return json ? ndjsonSink() : humanSink()
+}
+
+const COMMAND_NAMES: Record<Step['action'], string> = {
+  build: 'deploy --dry-run',
+  deploy: 'deploy',
+  'deployment-status': 'deployments status',
+  dev: 'dev',
+  preview: 'versions upload',
+  'secret-bulk': 'secret bulk',
+  'triggers-deploy': 'triggers deploy',
+  'versions-deploy': 'versions deploy',
+  'versions-list': 'versions list',
+  whoami: 'whoami',
+}
+
+export function isSuccess({code, signal}: WranglerResult): boolean {
+  return code === 0 && signal === null
+}
+
+/** The error for a finished process. A signal keeps its own exit code, so CI can tell a kill from a failure. */
+export function failureOf(label: string, action: Step['action'], result: WranglerResult): MonocfError {
+  const name = `${label}wrangler ${COMMAND_NAMES[action]}`
+  if (result.signal) return new MonocfError(`${name} was killed by ${result.signal}.`, signalExitCode(result.signal))
+  const detail = result.output.failure?.message ? `: ${result.output.failure.message}` : '.'
+  return new MonocfError(`${name} failed with exit code ${result.code}${detail}`, EXIT_FAILED)
+}
+
+export interface StepRun {
+  argvOptions?: ArgvOptions
+  cwd: string
+  mode: OutputMode
+  step: Step
+  worker: string
+}
+
+/** Runs one wrangler process to its end. Exit 0 from an upload isn't proof, so a version ID has to be there too. */
+export async function runStep(context: RunContext, {argvOptions, cwd, mode, step, worker}: StepRun) {
+  const {interrupts, runDir, wrangler} = context
+  interrupts.throwIfInterrupted()
+  const running = spawnWrangler(wrangler, buildArgv(step, argvOptions), {
+    cwd,
+    mode,
+    outputFile: runDir.outputFile(worker),
+  })
+  interrupts.track(running.child)
+  const result = await running.done
+  interrupts.throwIfInterrupted()
+  if (!isSuccess(result)) throw failureOf(`${worker}: `, step.action, result)
+
+  if ((step.action === 'deploy' || step.action === 'preview') && result.output.versionId === undefined) {
+    throw new MonocfError(
+      `${worker}: wrangler ${COMMAND_NAMES[step.action]} exited 0 without reporting a version ID, so the upload is unconfirmed.`,
+      EXIT_FAILED,
+    )
+  }
+
+  return result
+}
+
+/** Wraps one worker's work in its events. A failure is reported here and carries on upward. */
+export async function reportStep(
+  {emit}: Pick<RunContext, 'emit'>,
+  action: string,
+  worker: string,
+  work: () => Promise<string | undefined | void>,
+): Promise<void> {
+  emit({action, type: 'step-started', worker})
+  try {
+    const versionId = await work()
+    emit({action, status: 'ok', type: 'step-finished', worker, ...(versionId && {versionId})})
+  } catch (error) {
+    emit({action, message: (error as Error).message, status: 'failed', type: 'step-finished', worker})
+    throw error
+  }
+}
+
+/** The mode for a process that runs alone. --json keeps stdout for monocf's events. */
+export function aloneMode(context: Pick<RunContext, 'json'>, interactive: boolean): OutputMode {
+  return interactive && !context.json ? 'inherit' : 'stderr'
+}
+
+export interface RunSetup {
+  action: string
+  env?: string
+  json: boolean
+  notices: {message: string; worker?: string}[]
+  rootDir: string
+  workers: string[]
+  wrangler: Wrangler
+}
+
+/** Everything around a run: reporting, the run directory, and the signal handler. They end together on every path. */
+export async function withRun(setup: RunSetup, work: (context: RunContext) => Promise<void>): Promise<void> {
+  const {action, env, json, notices, rootDir, workers, wrangler} = setup
+  const sink = createSink(json)
+  const runDir = createRunDir(rootDir)
+  const interrupts = new Interrupts()
+
+  sink({action, ...(env !== undefined && {env}), type: 'run-started', workers})
+  for (const notice of notices) sink({...notice, type: 'notice'})
+
+  try {
+    await work({emit: sink, interrupts, json, runDir, wrangler})
+    sink({exitCode: EXIT_OK, status: 'ok', type: 'run-finished'})
+  } catch (error) {
+    if (error instanceof MonocfError) {
+      const status = interrupts.received ? 'interrupted' : 'failed'
+      sink({exitCode: error.exitCode, status, type: 'run-finished'})
+    }
+
+    throw error
+  } finally {
+    interrupts.dispose()
+    runDir.remove()
+  }
+}

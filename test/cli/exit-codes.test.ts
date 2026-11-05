@@ -14,14 +14,14 @@ describe('exit codes', () => {
     expect(result.exitCode).toBe(0)
   })
 
-  it('passes on the exit code of a failed wrangler', async () => {
+  it('exits 1 when wrangler fails, and names its exit code', async () => {
     const fixture = createFixture({workers})
 
     const result = await runCli(fixture, ['worker', 'orders', '-c', 'deploy'], {
       rules: [{command: 'deploy', exitCode: 7}],
     })
 
-    expect(result.exitCode).toBe(7)
+    expect(result.exitCode).toBe(1)
     expect(result.stderr).toContain('exit code 7')
   })
 
@@ -67,18 +67,20 @@ describe('exit codes', () => {
 
     const result = await runCli(fixture, ['whoami'], {rules: [{command: 'whoami', exitCode: 4}]})
 
-    expect(result.exitCode).toBe(4)
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain('exit code 4')
   })
 
-  it('waits for slow wrangler output before finishing', async () => {
+  it('parses output written after wrangler has exited, by a process that still holds the pipe (R12)', async () => {
     const fixture = createFixture({workers})
+    const versions = JSON.stringify([{id: 'version-written-late'}])
 
-    const result = await runCli(fixture, ['whoami'], {
-      rules: [{command: 'whoami', delayMs: 300, stdout: 'late-output'}],
+    const result = await runCli(fixture, ['worker', 'orders', '-c', 'deploy', '-f'], {
+      rules: [{command: 'versions list', stdoutAfterExit: versions}],
     })
 
     expect(result.exitCode).toBe(0)
-    expect(result.stdout).toContain('late-output')
+    expect(result.calls.find((call) => call.argv[1] === 'deploy')?.argv).toContain('version-written-late')
   })
 
   describe('versions list in deploy -f', () => {
@@ -89,7 +91,7 @@ describe('exit codes', () => {
         rules: [{command: 'versions list', exitCode: 5}],
       })
 
-      expect(result.exitCode).toBe(5)
+      expect(result.exitCode).toBe(1)
       expect(result.calls.map((call) => call.argv.slice(0, 2).join(' '))).toEqual(['versions list'])
     })
 

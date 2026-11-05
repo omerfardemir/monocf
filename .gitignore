@@ -14,3 +14,4 @@ tsconfig.tsbuildinfo
 worker-manager.config.json
 
 .turbo
+/coverage

@@ -1,7 +1,18 @@
-import {execFileSync, spawn} from 'node:child_process'
-import {existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync} from 'node:fs'
+import {execFileSync, spawn, type ChildProcessByStdio} from 'node:child_process'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {dirname, join, relative} from 'node:path'
+import type {Readable} from 'node:stream'
 import {fileURLToPath, pathToFileURL} from 'node:url'
 import {afterEach} from 'vitest'
 
@@ -37,19 +48,29 @@ export interface FixtureOptions {
   files?: Record<string, string>
   /** Create the project inside a directory with this name, for example one with a space in it. */
   parentDirName?: string
-  /** Install the fake wrangler. Defaults to true. */
-  fakeWrangler?: boolean
+  /** Which wrangler the project has. `real` links the one in this repository. Defaults to `fake`. */
+  wrangler?: 'fake' | 'none' | 'real'
 }
 
 export interface WranglerCall {
   argv: string[]
-  cwd: string
+  /** Absolute paths of the configs passed with --config. */
+  configPaths: string[]
   config: WranglerConfig | null
+  configDir: string | null
+  configDirMode: number | null
   configs: WranglerConfig[]
+  cwd: string
+  /** Parsed by dotenv from the file next to the config, the way real wrangler reads it. */
   devVars: Record<string, string> | null
+  devVarsMode: number | null
+  devVarsRaw: string | null
   /** What the child saw of the variables that could reach Cloudflare or a developer's login. */
   environment: Record<string, string>
-  secretFile?: {name: string; vars: Record<string, string> | null}
+  /** The file the rebased `main` of the first config points at, or null if it points at nothing. */
+  mainSource: string | null
+  outputFile: string | null
+  secretFile?: {mode: number; name: string; raw: string; vars: Record<string, string>}
 }
 
 export interface Fixture {
@@ -63,8 +84,19 @@ export interface WranglerRule {
   command: string
   worker?: string
   exitCode?: number
+  /** The code of the `command-failed` entry written to the output file. */
+  failCode?: number
+  failMessage?: string
+  /** Stays alive this long, recording the signals it gets. */
+  holdMs?: number
+  /** With holdMs: carries on after a signal. */
+  ignoreSignals?: boolean
+  /** Exits 0 from an upload without reporting a version ID. */
+  noOutputEntry?: boolean
   signal?: string
   stdout?: string
+  /** Written by a descendant after this process has exited, through the same stdout. */
+  stdoutAfterExit?: string
   stderr?: string
   delayMs?: number
 }
@@ -119,6 +151,12 @@ function installFakeWrangler(root: string): void {
   writeFile(join(packageDir, 'wrangler-dist', 'cli.js'), stub)
 }
 
+/** The project gets this repository's wrangler, and resolves its dependencies from here through the link. */
+function linkRealWrangler(root: string): void {
+  mkdirSync(join(root, 'node_modules'), {recursive: true})
+  symlinkSync(join(repoRoot, 'node_modules', 'wrangler'), join(root, 'node_modules', 'wrangler'), 'junction')
+}
+
 function git(root: string, ...args: string[]): void {
   execFileSync('git', args, {cwd: root, stdio: 'ignore'})
 }
@@ -168,7 +206,9 @@ export function createFixture(options: FixtureOptions): Fixture {
     writeFile(join(root, path), content)
   }
 
-  if (options.fakeWrangler !== false) installFakeWrangler(root)
+  const wrangler = options.wrangler ?? 'fake'
+  if (wrangler === 'fake') installFakeWrangler(root)
+  if (wrangler === 'real') linkRealWrangler(root)
 
   writeFile(join(root, '.gitignore'), 'node_modules\n')
   git(root, 'init', '--quiet')
@@ -187,7 +227,7 @@ export function createFixture(options: FixtureOptions): Fixture {
     'init',
   )
 
-  return {root, usesFake: options.fakeWrangler !== false, worker: (name) => join(root, 'workers', name)}
+  return {root, usesFake: wrangler === 'fake', worker: (name) => join(root, 'workers', name)}
 }
 
 export interface RunOptions {
@@ -204,13 +244,17 @@ export interface RunOptions {
  * A wrangler that isn't the fake finds a dummy token, an API on a closed local port, and an empty home.
  */
 function isolatedEnvironment(home: string): NodeJS.ProcessEnv {
-  const inherited = Object.fromEntries(Object.entries(process.env).filter(([name]) => !/^(CLOUDFLARE|CF)_/i.test(name)))
+  const inherited = Object.fromEntries(
+    Object.entries(process.env).filter(([name]) => !/^(CLOUDFLARE|CF|GITHUB)_/i.test(name)),
+  )
   return {
     ...inherited,
     APPDATA: join(home, 'AppData', 'Roaming'),
     CLOUDFLARE_ACCOUNT_ID: '00000000000000000000000000000000',
     CLOUDFLARE_API_BASE_URL: 'http://127.0.0.1:9/client/v4',
     CLOUDFLARE_API_TOKEN: 'dummy-token-for-tests',
+    // Otherwise miniflare fetches request metadata from Cloudflare when a session starts.
+    CLOUDFLARE_CF_FETCH_ENABLED: 'false',
     HOME: home,
     LOCALAPPDATA: join(home, 'AppData', 'Local'),
     USERPROFILE: home,
@@ -227,7 +271,20 @@ function readCalls(logPath: string): WranglerCall[] {
     .map((line) => JSON.parse(line))
 }
 
-export function runCli(fixture: Fixture, args: string[], options: RunOptions = {}): Promise<CliResult> {
+export interface RunningCli {
+  child: ChildProcessByStdio<null, Readable, Readable>
+  /** Settles when the process has ended. */
+  done: Promise<CliResult>
+  /** Resolves once the fake wrangler has logged this many calls. */
+  waitForCalls(count: number): Promise<WranglerCall[]>
+  /** What the fake recorded receiving, as `<worker> <signal>` lines. */
+  signals(): string[]
+  /** The output so far. */
+  stderr(): string
+  stdout(): string
+}
+
+export function startCli(fixture: Fixture, args: string[], options: RunOptions = {}): RunningCli {
   const stateDir = makeTempDir()
   const logPath = join(stateDir, 'calls.ndjson')
   const rulesPath = join(stateDir, 'rules.json')
@@ -255,7 +312,7 @@ export function runCli(fixture: Fixture, args: string[], options: RunOptions = {
     stderr += chunk
   })
 
-  return new Promise((resolve, reject) => {
+  const done = new Promise<CliResult>((resolve, reject) => {
     child.on('error', reject)
     child.on('close', (exitCode, signal) => {
       const calls = readCalls(logPath)
@@ -265,24 +322,93 @@ export function runCli(fixture: Fixture, args: string[], options: RunOptions = {
         return
       }
 
+      // Wrangler falls back to looking for a config in its working directory, so a missing flag can go unnoticed.
+      const withoutConfig = calls.find((call) => call.config === null && call.argv[0] !== 'whoami')
+      if (withoutConfig) {
+        reject(new Error(`wrangler ${withoutConfig.argv.join(' ')} was called with no config`))
+        return
+      }
+
       resolve({calls, exitCode, signal, stderr, stdout})
     })
   })
+
+  return {
+    child,
+    done,
+    signals() {
+      const path = `${logPath}.signals`
+      return existsSync(path) ? readFileSync(path, 'utf8').split('\n').filter(Boolean) : []
+    },
+    stderr: () => stderr,
+    stdout: () => stdout,
+    async waitForCalls(count) {
+      const deadline = Date.now() + 30_000
+      while (readCalls(logPath).length < count) {
+        if (child.exitCode !== null || child.signalCode !== null) throw new Error(`monocf ended early:\n${stderr}`)
+        if (Date.now() > deadline) throw new Error(`Timed out waiting for ${count} wrangler calls:\n${stderr}`)
+        await new Promise((tick) => {
+          setTimeout(tick, 50)
+        })
+      }
+
+      return readCalls(logPath)
+    },
+  }
 }
 
-/** The argv of a call without its config flags, whose values are temp paths. */
+export function runCli(fixture: Fixture, args: string[], options: RunOptions = {}): Promise<CliResult> {
+  return startCli(fixture, args, options).done
+}
+
+/** Everything under a directory that is not installed, with its content, for before-and-after comparisons. */
+export function snapshotTree(root: string): Record<string, string> {
+  const snapshot: Record<string, string> = {}
+  const walk = (dir: string): void => {
+    for (const entry of readdirSync(dir, {withFileTypes: true})) {
+      if (entry.name === 'node_modules' || entry.name === '.git') continue
+      const path = join(dir, entry.name)
+      if (entry.isDirectory()) {
+        snapshot[`${relative(root, path).replaceAll('\\', '/')}/`] = ''
+        walk(path)
+      } else {
+        snapshot[relative(root, path).replaceAll('\\', '/')] = readFileSync(path, 'utf8')
+      }
+    }
+  }
+
+  walk(root)
+  return snapshot
+}
+
+/** The argv of a call without the flags whose values change per run: config and persistence paths, and the release. */
 export function argvWithoutConfig(call: WranglerCall): string[] {
   const result: string[] = []
   for (let index = 0; index < call.argv.length; index++) {
     const arg = call.argv[index]
-    if (arg === '-c' || arg === '--config') {
+    const isRelease = arg === '--var' && call.argv[index + 1]?.startsWith('RELEASE:')
+    if (arg === '--config' || arg === '--persist-to' || isRelease) {
       index++
-    } else if (!arg.startsWith('--config=')) {
+    } else {
       result.push(arg)
     }
   }
 
   return result
+}
+
+/** The calls that had no worker's config, which every wrangler call except whoami needs. */
+export function expectConfigFor(call: WranglerCall, name: string): void {
+  if (call.config === null) throw new Error(`wrangler ${call.argv.join(' ')} had no config`)
+  const actual = effectiveConfig(call).name
+  if (actual !== name) throw new Error(`wrangler ${call.argv.join(' ')} had the config of ${actual}, not ${name}`)
+}
+
+/** The value of RELEASE on this call, if any. */
+export function releaseOf(call: WranglerCall): string | undefined {
+  return call.argv
+    .filter((arg, index) => call.argv[index - 1] === '--var' && arg.startsWith('RELEASE:'))
+    .map((arg) => arg.slice('RELEASE:'.length))[0]
 }
 
 export function flagValue(call: WranglerCall, flag: string): string | undefined {

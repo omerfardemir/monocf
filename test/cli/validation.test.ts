@@ -22,6 +22,10 @@ function expectRejected(result: CliResult, message: string): void {
   expect(result.calls).toEqual([])
 }
 
+function effectiveConfigServices(result: CliResult) {
+  return result.calls[0].config?.services
+}
+
 function secretCalls(result: CliResult) {
   return result.calls.filter((call) => call.secretFile)
 }
@@ -166,12 +170,15 @@ describe('named workers (F08)', () => {
     expect(deployedNames(result.calls, 'deploy')).toEqual(['gateway-v1'])
   })
 
-  it('-d fails before any wrangler call if a binding does not exist', async () => {
+  it('-d passes a binding that is not in this repository through, with a notice', async () => {
     const fixture = createFixture({workers: [{bindings: ['nope'], name: 'gateway'}]})
 
-    const result = await runRejected(fixture, ['worker', 'gateway', '-c', 'deploy', '-d'])
+    const result = await runCli(fixture, ['worker', 'gateway', '-c', 'deploy', '-d'])
 
-    expectRejected(result, 'Worker not found')
+    expect(result.exitCode).toBe(0)
+    expect(deployedNames(result.calls, 'deploy')).toEqual(['gateway-v1'])
+    expect(effectiveConfigServices(result)).toEqual([{binding: 'NOPE', service: 'nope'}])
+    expect(result.stderr).toContain('nope')
   })
 })
 
@@ -190,8 +197,10 @@ describe('secrets files (F05, F34)', () => {
       const result = await runCli(fixture, ['worker', 'orders', '-c', 'deploy', '-e', 'production', '-s'])
 
       expect(result.exitCode).toBe(0)
+      expect(result.calls).toHaveLength(1)
       const [upload] = secretCalls(result)
-      expect(argvWithoutConfig(upload).slice(0, 2)).toEqual(['secret', 'bulk'])
+      expect(upload.argv[0]).toBe('deploy')
+      expect(upload.argv).toContain('--secrets-file')
       expect(flagValue(upload, '--env')).toBe('production')
       expect(upload.secretFile?.vars).toEqual({KEY: 'from-production'})
     })
@@ -208,10 +217,34 @@ describe('secrets files (F05, F34)', () => {
       expectRejected(result, '.dev.vars.production')
     })
 
-    it('fails when the root has the env file but the worker does not', async () => {
+    it('passes when only the root has the file of the env (R9)', async () => {
       const fixture = createFixture({
         environments,
         files: {'.dev.vars.production': 'ROOT=production'},
+        workers: [{name: 'orders'}],
+      })
+
+      const result = await runCli(fixture, ['worker', 'orders', '-c', 'deploy', '-e', 'production', '-s'])
+
+      expect(result.exitCode).toBe(0)
+      expect(secretCalls(result)[0].secretFile?.vars).toEqual({ROOT: 'production'})
+    })
+
+    it('names both paths when neither the worker nor the root has the file (R9)', async () => {
+      const fixture = createFixture({environments, workers: [{name: 'orders'}]})
+
+      const result = await runRejected(fixture, ['worker', 'orders', '-c', 'deploy', '-e', 'production', '-s'])
+
+      expectRejected(result, '.dev.vars.production')
+      const flat = result.stderr.replaceAll(/\s+/g, '')
+      expect(flat).toContain(join(fixture.worker('orders'), '.dev.vars.production').replaceAll(/\s+/g, ''))
+      expect(flat).toContain(join(fixture.root, '.dev.vars.production').replaceAll(/\s+/g, ''))
+    })
+
+    it('never uses the root file of another env (R9)', async () => {
+      const fixture = createFixture({
+        environments,
+        files: {'.dev.vars.staging': 'ROOT=staging'},
         workers: [{name: 'orders'}],
       })
 
@@ -362,8 +395,10 @@ describe('secrets files (F05, F34)', () => {
       const result = await runCli(fixture, ['worker', 'orders', '-c', 'preview', '-e', 'staging', '-s'])
 
       expect(result.exitCode).toBe(0)
+      expect(result.calls).toHaveLength(1)
       const [upload] = secretCalls(result)
-      expect(upload.argv.slice(0, 3)).toEqual(['versions', 'secret', 'bulk'])
+      expect(upload.argv.slice(0, 2)).toEqual(['versions', 'upload'])
+      expect(upload.argv).toContain('--secrets-file')
       expect(upload.secretFile?.vars).toEqual({KEY: 'staging'})
     })
 
@@ -473,7 +508,8 @@ describe('secrets files (F05, F34)', () => {
       const result = await runCli(fixture, ['worker', 'orders', '-c', 'dev', '-e', 'dev'])
 
       expect(result.exitCode).toBe(0)
-      expect(result.calls[0].devVars).toEqual({KEY: 'plain'})
+      expect(result.calls[0].devVars).toEqual({KEY: 'dev-file', ROOT: 'dev-file'})
+      expect(readFileSync(join(fixture.worker('orders'), '.dev.vars'), 'utf8')).toBe('KEY=plain')
       expect(readFileSync(join(fixture.worker('orders'), '.dev.vars.dev'), 'utf8')).toBe('KEY=dev-file')
     })
   })
@@ -526,12 +562,16 @@ describe('flag combinations (F11, F23)', () => {
     expectRejected(await runRejected(fixture, args), 'Deploying from a version works for one named worker')
   })
 
-  it('-f fails when deployBindings is set in monocf.config.json', async () => {
+  it('-f works when deployBindings is set in monocf.config.json: flags beat config (R11)', async () => {
     const fixture = createFixture({monocfConfig: {deployBindings: true}, workers})
 
-    const result = await runRejected(fixture, ['worker', 'orders', '-c', 'deploy', '-f', '-F', 'abc123'])
+    const result = await runCli(fixture, ['worker', 'orders', '-c', 'deploy', '-f', '-F', 'abc123'])
 
-    expectRejected(result, 'Deploying from a version works for one named worker')
+    expect(result.exitCode).toBe(0)
+    expect(result.calls.map((call) => argvWithoutConfig(call))).toEqual([
+      ['versions', 'deploy', '--yes', '--version-id', 'abc123'],
+      ['triggers', 'deploy'],
+    ])
   })
 
   it('-f -m fails: nothing gets uploaded to minify', async () => {
@@ -572,12 +612,13 @@ describe('flag combinations (F11, F23)', () => {
     expect(flagValue(result.calls[0], '--message')).toBe('fix: login & logout')
   })
 
-  it('deploy -M fails without -f: wrangler deploy has no message option', async () => {
+  it('deploy passes -M to wrangler deploy', async () => {
     const fixture = createFixture({workers})
 
-    const result = await runRejected(fixture, ['worker', 'orders', '-c', 'deploy', '-M', 'fix: login'])
+    const result = await runCli(fixture, ['worker', 'orders', '-c', 'deploy', '-M', 'fix: login'])
 
-    expectRejected(result, '--message on deploy requires --from-version')
+    expect(result.exitCode).toBe(0)
+    expect(flagValue(result.calls[0], '--message')).toBe('fix: login')
   })
 
   it('deploy -f -M passes the message to versions deploy', async () => {

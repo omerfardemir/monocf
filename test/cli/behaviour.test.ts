@@ -1,4 +1,4 @@
-import {existsSync, readFileSync} from 'node:fs'
+import {existsSync} from 'node:fs'
 import {join} from 'node:path'
 import {describe, expect, it} from 'vitest'
 
@@ -22,7 +22,6 @@ function vars(call: WranglerCall): Record<string, unknown> {
 function mergedConfig(base: Record<string, unknown>, worker: Record<string, unknown>) {
   const fixture = createFixture({base, workers: [{config: worker, name: 'orders'}]})
   return runCli(fixture, ['worker', 'orders', '-c', 'deploy']).then((result) => {
-    expect(result.stderr).toBe('')
     expect(result.exitCode).toBe(0)
     return result.calls[0].config!
   })
@@ -46,14 +45,12 @@ describe('single worker', () => {
     expect(existsSync(join(fixture.worker('orders'), 'dist', 'index.js'))).toBe(true)
   })
 
-  it('build copies the resolved config next to the bundle', async () => {
+  it('build writes no config next to the bundle (F39)', async () => {
     const fixture = createFixture(options)
 
     await runCli(fixture, ['worker', 'orders', '-c', 'build'])
 
-    const copied = JSON.parse(readFileSync(join(fixture.worker('orders'), 'dist', 'wrangler.jsonc'), 'utf8'))
-    expect(copied.main).toBe('index.js')
-    expect(copied.name).toBe('orders-v1')
+    expect(existsSync(join(fixture.worker('orders'), 'dist', 'wrangler.jsonc'))).toBe(false)
   })
 
   it('build passes --minify only with -m', async () => {
@@ -303,14 +300,12 @@ describe('service bindings', () => {
     ])
   })
 
-  it('build and dev point bindings at the name without the env suffix', async () => {
+  it.each(['build', 'dev'])('%s points bindings at the deployed name of the env', async (command) => {
     const fixture = createFixture(options)
 
-    const build = await runCli(fixture, ['worker', 'gateway', '-c', 'build', '-e', 'staging'])
-    const dev = await runCli(fixture, ['worker', 'gateway', '-c', 'dev', '-e', 'staging'])
+    const result = await runCli(fixture, ['worker', 'gateway', '-c', command, '-e', 'staging'])
 
-    expect(effectiveConfig(build.calls[0]).services).toEqual([{binding: 'ORDERS', service: 'orders-v1'}])
-    expect(effectiveConfig(dev.calls[0]).services).toEqual([{binding: 'ORDERS', service: 'orders-v1'}])
+    expect(effectiveConfig(result.calls[0]).services).toEqual([{binding: 'ORDERS', service: 'orders-v1-staging'}])
   })
 
   it('dev passes the config of every transitive binding to wrangler', async () => {

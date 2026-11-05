@@ -1,10 +1,12 @@
-import {existsSync, readFileSync, statSync} from 'node:fs'
+import {existsSync, readFileSync, rmSync, statSync, writeFileSync} from 'node:fs'
 import {join} from 'node:path'
 import {describe, expect, it} from 'vitest'
 
 import {argvWithoutConfig, createFixture, flagValue, fromRoot, runCli} from '../helpers/harness.js'
 
 const metacharacters = 'message; with spaces & metachars | $(touch pwned) `touch pwned` > pwned'
+
+const wranglerFile = (root: string, path: string) => join(root, 'node_modules', 'wrangler', path)
 
 describe('spawning wrangler', () => {
   it('uses the wrangler installed in the project', async () => {
@@ -27,15 +29,66 @@ describe('spawning wrangler', () => {
     expect(fromRoot(fixture, result.calls[0].cwd)).toBe('workers/orders')
   })
 
-  it('falls back to its own wrangler when the project has none', async () => {
-    const fixture = createFixture({fakeWrangler: false, workers: [{name: 'orders'}]})
+  describe('without a usable wrangler in the project (R3)', () => {
+    it('exits 3 when the project has none, with no fallback to the one monocf was installed with', async () => {
+      const fixture = createFixture({wrangler: 'none', workers: [{name: 'orders'}]})
 
-    const result = await runCli(fixture, ['worker', 'orders', '-c', 'build'])
+      const result = await runCli(fixture, ['worker', 'orders', '-c', 'build'])
 
-    expect(result.stderr).toBe('')
-    expect(result.exitCode).toBe(0)
-    expect(result.calls).toEqual([])
-    expect(statSync(join(fixture.worker('orders'), 'dist', 'index.js')).size).toBeGreaterThan(0)
+      expect(result.exitCode).toBe(3)
+      expect(result.stderr).toContain('wrangler')
+      expect(existsSync(join(fixture.worker('orders'), 'dist'))).toBe(false)
+    })
+
+    it.each([
+      ['a corrupt package.json', '{ not json', 'package.json'],
+      ['an exports map without package.json', JSON.stringify({exports: {'.': './x.js'}, name: 'wrangler'}), 'package.json'],
+      ['a version below the floor', JSON.stringify({name: 'wrangler', version: '4.150.0'}), '4.151.0'],
+      ['a version that is not one', JSON.stringify({name: 'wrangler', version: 'latest'}), 'version'],
+      ['an unsupported Node', JSON.stringify({engines: {node: '>=99.0.0'}, name: 'wrangler', version: '4.151.0'}), '99'],
+    ])('exits 3 with %s', async (_, content, message) => {
+      const fixture = createFixture({workers: [{name: 'orders'}]})
+      writeFileSync(wranglerFile(fixture.root, 'package.json'), content)
+
+      const result = await runCli(fixture, ['worker', 'orders', '-c', 'build'], {noCalls: true})
+
+      expect(result.exitCode).toBe(3)
+      expect(result.stderr).toContain(message)
+      expect(result.calls).toEqual([])
+    })
+
+    it('exits 3 when the entry file is missing', async () => {
+      const fixture = createFixture({workers: [{name: 'orders'}]})
+      rmSync(wranglerFile(fixture.root, join('wrangler-dist', 'cli.js')))
+
+      const result = await runCli(fixture, ['worker', 'orders', '-c', 'build'], {noCalls: true})
+
+      expect(result.exitCode).toBe(3)
+      expect(result.stderr).toContain('cli.js')
+    })
+
+    it('reports a config problem before a wrangler problem', async () => {
+      const fixture = createFixture({wrangler: 'none', workers: [{name: 'orders'}]})
+
+      const result = await runCli(fixture, ['worker', 'nope', '-c', 'build'])
+
+      expect(result.exitCode).toBe(2)
+    })
+  })
+
+  describe('-r (R3)', () => {
+    it('takes a relative root and locates wrangler from it', async () => {
+      const fixture = createFixture({workers: [{name: 'orders'}]})
+
+      const fromRoot_ = await runCli(fixture, ['worker', 'orders', '-c', 'build', '-r', '.'])
+      const fromWorker = await runCli(fixture, ['worker', 'orders', '-c', 'build', '-r', '../..'], {
+        cwd: 'workers/orders',
+      })
+
+      expect(fromRoot_.exitCode).toBe(0)
+      expect(fromWorker.exitCode).toBe(0)
+      expect(fromRoot(fixture, flagValue(fromWorker.calls[0], '--outdir')!)).toBe('workers/orders/dist')
+    })
   })
 
   it('passes a message with spaces and shell metacharacters as one argument', async () => {
@@ -101,11 +154,10 @@ describe('spawning wrangler', () => {
     })
 
     it('builds with the real wrangler', async () => {
-      const fixture = createFixture({...options, fakeWrangler: false})
+      const fixture = createFixture({...options, wrangler: 'real'})
 
       const result = await runCli(fixture, ['worker', 'orders', '-c', 'build'])
 
-      expect(result.stderr).toBe('')
       expect(result.exitCode).toBe(0)
       expect(statSync(join(fixture.worker('orders'), 'dist', 'index.js')).size).toBeGreaterThan(0)
     })

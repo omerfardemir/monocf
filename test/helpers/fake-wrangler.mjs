@@ -1,7 +1,9 @@
-// Stand-in for the wrangler CLI. A fixture installs stubs at node_modules/wrangler/bin/wrangler.js and
-// wrangler-dist/cli.js that import this file. Every invocation appends one JSON line to FAKE_WRANGLER_LOG; behaviour comes from FAKE_WRANGLER_RULES.
-import {appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync} from 'node:fs'
+// Stand-in for the wrangler CLI. A fixture installs a stub at node_modules/wrangler/wrangler-dist/cli.js that imports
+// this file. Every invocation appends one JSON line to FAKE_WRANGLER_LOG; behaviour comes from FAKE_WRANGLER_RULES.
+import {spawn} from 'node:child_process'
+import {appendFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync} from 'node:fs'
 import {basename, dirname, join, resolve} from 'node:path'
+import dotenv from 'dotenv'
 import {parse} from 'jsonc-parser'
 
 const argv = process.argv.slice(2)
@@ -21,16 +23,21 @@ function flagValues(names) {
   return values
 }
 
-function parseDotenv(filePath) {
-  if (!existsSync(filePath)) return null
+function modeOf(path) {
+  // eslint-disable-next-line no-bitwise
+  return statSync(path).mode & 0o777
+}
 
-  const vars = {}
-  for (const line of readFileSync(filePath, 'utf8').split(/\r?\n/)) {
-    const match = /^\s*([\w.-]+)\s*=\s*(.*)$/.exec(line)
-    if (match) vars[match[1]] = match[2].replace(/^(["'])(.*)\1$/, '$2')
+function readSecretFile(filePath) {
+  const raw = readFileSync(filePath, 'utf8')
+  let vars
+  try {
+    vars = JSON.parse(raw)
+  } catch {
+    vars = dotenv.parse(raw)
   }
 
-  return vars
+  return {mode: modeOf(filePath), name: basename(filePath), raw, vars}
 }
 
 function startsWithCommand(prefix) {
@@ -47,24 +54,35 @@ const envName = flagValues(['--env', '-e'])[0]
 const deployedName = (envName && config?.env?.[envName]?.name) || config?.name
 const workerDir = configPath ? basename(dirname(configPath)) : undefined
 
+const devVarsPath = configPath && join(dirname(configPath), '.dev.vars')
+const mainPath = configPath && config?.main && resolve(dirname(configPath), config.main)
+
 const entry = {
   argv,
-  cwd: process.cwd(),
   config,
+  configDir: configPath && dirname(configPath),
+  configDirMode: configPath && modeOf(dirname(configPath)),
+  configPaths,
   configs,
-  devVars: configPath ? parseDotenv(join(dirname(configPath), '.dev.vars')) : null,
+  cwd: process.cwd(),
+  devVars: devVarsPath && existsSync(devVarsPath) ? dotenv.parse(readFileSync(devVarsPath, 'utf8')) : null,
+  devVarsMode: devVarsPath && existsSync(devVarsPath) ? modeOf(devVarsPath) : null,
+  devVarsRaw: devVarsPath && existsSync(devVarsPath) ? readFileSync(devVarsPath, 'utf8') : null,
   environment: Object.fromEntries(
     Object.entries(process.env).filter(
       ([name]) =>
         /^(CLOUDFLARE|CF)_/i.test(name) || ['HOME', 'USERPROFILE', 'WRANGLER_HOME', 'XDG_CONFIG_HOME'].includes(name),
     ),
   ),
+  mainSource: mainPath && existsSync(mainPath) ? readFileSync(mainPath, 'utf8') : null,
+  outputFile: process.env.WRANGLER_OUTPUT_FILE_PATH ?? null,
 }
 
-const uploadsSecrets = startsWithCommand('secret bulk') || startsWithCommand('versions secret bulk')
-if (uploadsSecrets) {
-  const secretFile = argv[argv.indexOf('bulk') + 1]
-  entry.secretFile = {name: basename(secretFile), vars: parseDotenv(resolve(secretFile))}
+const secretsFile = flagValues(['--secrets-file'])[0]
+if (startsWithCommand('secret bulk')) {
+  entry.secretFile = readSecretFile(resolve(argv[argv.indexOf('bulk') + 1]))
+} else if (secretsFile !== undefined) {
+  entry.secretFile = readSecretFile(resolve(secretsFile))
 }
 
 if (process.env.FAKE_WRANGLER_LOG) {
@@ -79,9 +97,27 @@ const rule =
       (candidate.worker === undefined || candidate.worker === workerDir || candidate.worker === deployedName),
   ) ?? {}
 
-if (rule.delayMs) {
+function writeOutputEntry(value) {
+  if (process.env.WRANGLER_OUTPUT_FILE_PATH) {
+    appendFileSync(process.env.WRANGLER_OUTPUT_FILE_PATH, `${JSON.stringify(value)}\n`)
+  }
+}
+
+if (rule.holdMs) {
+  const received = (signal) => {
+    appendFileSync(`${process.env.FAKE_WRANGLER_LOG}.signals`, `${workerDir ?? ''} ${signal}\n`)
+    // eslint-disable-next-line n/no-process-exit, unicorn/no-process-exit
+    if (!rule.ignoreSignals) process.exit(0)
+  }
+
+  process.on('SIGINT', () => received('SIGINT'))
+  process.on('SIGTERM', () => received('SIGTERM'))
+}
+
+const delay = rule.delayMs ?? rule.holdMs
+if (delay) {
   await new Promise((done) => {
-    setTimeout(done, rule.delayMs)
+    setTimeout(done, delay)
   })
 }
 
@@ -104,7 +140,14 @@ function defaultStdout() {
   return ''
 }
 
-process.stdout.write(rule.stdout ?? defaultStdout())
+if (rule.stdoutAfterExit === undefined) {
+  process.stdout.write(rule.stdout ?? defaultStdout())
+} else {
+  // A descendant that keeps the pipe open and writes once this process is gone, as wrangler's own children can.
+  const script = `setTimeout(() => process.stdout.write(${JSON.stringify(rule.stdoutAfterExit)}), 500)`
+  spawn(process.execPath, ['-e', script], {detached: true, stdio: ['ignore', 1, 2]}).unref()
+}
+
 if (rule.stderr) process.stderr.write(rule.stderr)
 
 if (rule.signal) {
@@ -114,4 +157,15 @@ if (rule.signal) {
   })
 }
 
-process.exitCode = rule.exitCode ?? 0
+const exitCode = rule.exitCode ?? 0
+if (exitCode === 0 && !rule.noOutputEntry) {
+  const uploaded = {version_id: `version-of-${workerDir}`, worker_name: deployedName}
+  if (startsWithCommand('deploy') && !argv.includes('--dry-run')) writeOutputEntry({type: 'deploy', ...uploaded})
+  if (startsWithCommand('versions upload')) writeOutputEntry({type: 'version-upload', ...uploaded})
+}
+
+if (exitCode !== 0 && (rule.failCode !== undefined || rule.failMessage !== undefined)) {
+  writeOutputEntry({code: rule.failCode, message: rule.failMessage, type: 'command-failed'})
+}
+
+process.exitCode = exitCode
