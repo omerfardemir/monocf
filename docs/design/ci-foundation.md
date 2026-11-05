@@ -82,8 +82,10 @@ src/
 
 - Base and worker configs are parsed with `jsonc-parser`, not with wrangler's `experimental_*` APIs.
 - **Merge semantics stay compatible by default.** Arrays are concatenated, objects merge recursively, and scalars from the worker win. Any change needs an opt-in and a diff tool.
-- Placeholders are replaced on parsed strings. An unknown placeholder is an error.
-- Injected vars: `NAME`, `ENVIRONMENT`, `VERSION`. Explicit user values are not overwritten silently.
+- Placeholders are replaced on parsed strings. An unknown placeholder is an error. A string that needs literal braces maps the variable to itself: `"id": "{id}"`.
+- Injected vars: `NAME`, `ENVIRONMENT`, `VERSION`. A value set in the worker's own config is kept. A value from the base config is overwritten, as before.
+- The resolved config is the form `deploy` and `preview` receive: a service binding given by directory name becomes the target's deployed name for the env. `build` and `dev` used to leave out the env suffix.
+- A worker that can't be resolved stops only a run that selects it or has a service binding to it, so one broken config doesn't block unrelated deploys.
 - `RELEASE` is **not** part of the resolved config. It is passed at deploy time with `--var RELEASE:<sha>`, so a new commit with an unchanged bundle has an unchanged fingerprint. The SHA is resolved once per run, from `GITHUB_SHA` when set, else `git rev-parse --short HEAD`.
 - An unknown `--env` is an error, so a typo can't create an orphan worker.
 - Moving a config into the run directory means relative path fields must be rebased. The list of these fields lives in one file. A test reads wrangler's `config-schema.json` and fails when a new path-like field appears.
