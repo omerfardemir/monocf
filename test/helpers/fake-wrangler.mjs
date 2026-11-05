@@ -130,7 +130,9 @@ function withCloudflareLock(path, work) {
       mkdirSync(lock)
       break
     } catch (error) {
-      if (error.code !== 'EEXIST' || Date.now() > deadline) throw error
+      // Windows answers EPERM while another process is still removing the directory.
+      const held = error.code === 'EEXIST' || error.code === 'EPERM'
+      if (!held || Date.now() > deadline) throw error
       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10)
     }
   }
