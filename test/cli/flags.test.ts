@@ -218,6 +218,15 @@ describe('what each wrangler call carries (R8)', () => {
     expect(releaseOf(proxy)).toBeUndefined()
   })
 
+  it('dev -a passes RELEASE to each worker, and not to the proxy', async () => {
+    const fixture = createFixture({workers: [{name: 'billing'}, {name: 'orders'}]})
+
+    const result = await runCli(fixture, ['worker', '-a', '-c', 'dev'], {env: {GITHUB_SHA: 'abcdef1234567'}})
+
+    const workers = result.calls.filter((call) => call.config?.name !== 'proxy-worker')
+    expect(workers.map((call) => releaseOf(call))).toEqual(['abcdef1', 'abcdef1'])
+  })
+
   it('dev -a uses a port from the worker config for that worker', async () => {
     const fixture = createFixture({
       workers: [{config: {dev: {port: 9555}}, name: 'billing'}, {name: 'orders'}],
