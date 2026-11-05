@@ -212,7 +212,7 @@ function latestVersion(stdout: string, worker: string): string {
   const latest: unknown = Array.isArray(versions) ? versions.at(-1) : undefined
   if (!isPlainObject(latest) || typeof latest.id !== 'string') {
     throw new MonocfError(
-      `${worker}: no versions found. Before deploying from a version, create one with "monocf worker ${worker} -c preview".`,
+      `${worker}: no versions found. Before deploying from a version, create one with "monocf preview ${worker}".`,
       EXIT_FAILED,
     )
   }
@@ -366,7 +366,7 @@ function validatePlan(plan: PlanInputs): WorkerPlan {
   return {ignoredBindings, order, uploadSecrets: secretsWanted}
 }
 
-/** `monocf worker`: resolve, check, then run one action for the selected workers. */
+/** `monocf build`, `deploy`, `preview` and `dev`: resolve, check, then run one action for the selected workers. */
 export async function runWorker(name: string | undefined, flags: WorkerFlags): Promise<void> {
   validateFlags(flags)
   const options = loadOptions(flags)
