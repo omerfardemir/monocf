@@ -2,7 +2,7 @@
 // this file. Every invocation appends one JSON line to FAKE_WRANGLER_LOG; behaviour comes from FAKE_WRANGLER_RULES.
 // What Cloudflare holds comes from the JSON file at FAKE_WRANGLER_CF, which a rule for the same command overrides.
 import {spawn} from 'node:child_process'
-import {appendFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync} from 'node:fs'
+import {appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync} from 'node:fs'
 import {basename, dirname, join, resolve} from 'node:path'
 import dotenv from 'dotenv'
 import {parse} from 'jsonc-parser'
@@ -69,6 +69,15 @@ const entry = {
   devVars: devVarsPath && existsSync(devVarsPath) ? dotenv.parse(readFileSync(devVarsPath, 'utf8')) : null,
   devVarsMode: devVarsPath && existsSync(devVarsPath) ? modeOf(devVarsPath) : null,
   devVarsRaw: devVarsPath && existsSync(devVarsPath) ? readFileSync(devVarsPath, 'utf8') : null,
+  dotEnvFiles: configPath
+    ? Object.fromEntries(
+        readdirSync(dirname(configPath))
+          .filter((name) => name.startsWith('.env'))
+          .map((name) => [name, modeOf(join(dirname(configPath), name))]),
+      )
+    : {},
+  // What came from a worker's .env in these tests, whatever the name: nothing else sets a variable that starts like this.
+  dotEnvValues: Object.fromEntries(Object.entries(process.env).filter(([name]) => name.startsWith('FROM_'))),
   environment: Object.fromEntries(
     Object.entries(process.env).filter(
       ([name]) =>

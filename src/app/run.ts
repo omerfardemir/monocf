@@ -1,5 +1,6 @@
 import {cpus} from 'node:os'
 
+import type {ResolvedWorker} from '../config/types.js'
 import {EXIT_FAILED, EXIT_OK, MonocfError} from '../errors.js'
 import type {EventSink} from '../report/events.js'
 import {humanSink} from '../report/human.js'
@@ -7,12 +8,15 @@ import {ndjsonSink} from '../report/ndjson.js'
 import {runPool, type FailedStep} from '../runtime/pool.js'
 import {createRunDir, type RunDir} from '../runtime/run-dir.js'
 import {Interrupts, signalExitCode} from '../runtime/signals.js'
+import {readWorkerEnvironment} from '../runtime/worker-env.js'
 import {buildArgv, type ArgvOptions, type Step} from '../wrangler/argv.js'
 import type {Wrangler} from '../wrangler/locate.js'
 import {spawnWrangler, type OutputMode, type WranglerResult} from '../wrangler/process.js'
 
 export interface RunContext {
   emit: EventSink
+  /** What a worker's `.env` files add to its wrangler processes. Empty for anything that isn't a worker. */
+  environmentOf: (worker: string) => Record<string, string>
   interrupts: Interrupts
   json: boolean
   runDir: RunDir
@@ -62,10 +66,11 @@ export interface StepRun {
 
 /** Runs one wrangler process to its end. Exit 0 from an upload isn't proof, so a version ID has to be there too. */
 export async function runStep(context: RunContext, {argvOptions, mode, step, worker}: StepRun) {
-  const {interrupts, runDir, wrangler} = context
+  const {environmentOf, interrupts, runDir, wrangler} = context
   interrupts.throwIfInterrupted()
   const running = spawnWrangler(wrangler, buildArgv(step, argvOptions), {
     cwd: runDir.workerDir(worker),
+    environment: environmentOf(worker),
     mode,
     outputFile: runDir.outputFile(worker),
   })
@@ -86,12 +91,18 @@ export async function runStep(context: RunContext, {argvOptions, mode, step, wor
 
 /**
  * One read or small write, from the run directory, with no config. Nothing reaches the terminal, and a failure comes back
- * for the caller to judge, since some failures here are answers.
+ * for the caller to judge, since some failures here are answers. A read for a worker goes where its writes go: to its own
+ * account_id, and with what its `.env` files say. The state bucket belongs to no worker, and uses the real environment.
  */
-export async function callWrangler(context: RunContext, step: Step, accountId?: string): Promise<WranglerResult> {
-  const {interrupts, runDir, wrangler} = context
+export async function callWrangler(
+  context: RunContext,
+  step: Step,
+  {accountId, worker}: {accountId?: string; worker?: string} = {},
+): Promise<WranglerResult> {
+  const {environmentOf, interrupts, runDir, wrangler} = context
   interrupts.throwIfInterrupted()
-  const running = spawnWrangler(wrangler, buildArgv(step), {accountId, cwd: runDir.path, mode: 'quiet'})
+  const environment = worker === undefined ? undefined : environmentOf(worker)
+  const running = spawnWrangler(wrangler, buildArgv(step), {accountId, cwd: runDir.path, environment, mode: 'quiet'})
   interrupts.track(running.child)
   const result = await running.done
   interrupts.throwIfInterrupted()
@@ -188,6 +199,8 @@ export interface RunSetup {
   env?: string
   json: boolean
   notices: {message: string; worker?: string}[]
+  /** Every worker a wrangler process may run for, so each gets what its `.env` files say. */
+  resolved: Pick<ResolvedWorker, 'dir' | 'path'>[]
   rootDir: string
   workers: string[]
   wrangler: Wrangler
@@ -198,16 +211,27 @@ export interface RunSetup {
  * can return an exit code, for a result that isn't success and has no error to raise.
  */
 export async function withRun(setup: RunSetup, work: (context: RunContext) => Promise<number | void>): Promise<void> {
-  const {action, env, json, notices, rootDir, workers, wrangler} = setup
+  const {action, env, json, notices, resolved, rootDir, workers, wrangler} = setup
   const sink = createSink(json)
   const runDir = createRunDir(rootDir)
   const interrupts = new Interrupts()
+  const environments = new Map<string, Record<string, string>>()
+  const environmentOf = (worker: string): Record<string, string> => {
+    let environment = environments.get(worker)
+    if (!environment) {
+      const path = resolved.find(({dir}) => dir === worker)?.path
+      environment = path === undefined ? {} : readWorkerEnvironment(path, env)
+      environments.set(worker, environment)
+    }
+
+    return environment
+  }
 
   sink({action, ...(env !== undefined && {env}), type: 'run-started', workers})
   for (const notice of notices) sink({...notice, type: 'notice'})
 
   try {
-    const exitCode = (await work({emit: sink, interrupts, json, runDir, wrangler})) ?? EXIT_OK
+    const exitCode = (await work({emit: sink, environmentOf, interrupts, json, runDir, wrangler})) ?? EXIT_OK
     sink({exitCode, status: exitCode === EXIT_OK ? 'ok' : 'failed', type: 'run-finished'})
   } catch (error) {
     if (error instanceof MonocfError) {

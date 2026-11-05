@@ -8,7 +8,7 @@ import {buildGraph} from '../graph/graph.js'
 import {computeOrder, dependenciesWithin, serviceClosure} from '../graph/order.js'
 import type {OptionFlags, Options} from '../project/options.js'
 import {materialiseProxy, PROXY_DIR, PROXY_WORKER, routePrefix} from '../runtime/dev-proxy.js'
-import {materialiseConfig, writeDevVars, writeSecretsFile} from '../runtime/materialise.js'
+import {copyEnvFiles, materialiseConfig, writeDevVars, writeSecretsFile} from '../runtime/materialise.js'
 import {readLocalVars, readSecrets, requireSecretsFile} from '../runtime/secrets.js'
 import {buildArgv, type ArgvOptions} from '../wrangler/argv.js'
 import {locateWrangler} from '../wrangler/locate.js'
@@ -240,9 +240,11 @@ async function runDeployFromVersion(context: RunContext, worker: ResolvedWorker,
   })
 }
 
+/** With no `.dev.vars`, `dev` reads local values from `.env` files next to the config, so they have to be there. */
 function writeWorkerVars(context: RunContext, worker: ResolvedWorker, options: Options): void {
   const values = readLocalVars(worker.path, options.rootDir, options.env)
   if (values) writeDevVars(worker.dir, values, context.runDir)
+  else copyEnvFiles(worker, options.env, context.runDir)
 }
 
 interface DevRun {
@@ -332,6 +334,7 @@ async function runDevAll(context: RunContext, {options, proxyPort, release, work
       interrupts.throwIfInterrupted()
       const running = spawnWrangler(wrangler, argv, {
         cwd,
+        environment: context.environmentOf(name),
         mode: {prefix: `[${prefix}] `},
         outputFile: runDir.outputFile(name),
       })
@@ -392,6 +395,7 @@ export async function runWorker(name: string | undefined, flags: WorkerFlags): P
       env: options.env,
       json: flags.json === true,
       notices,
+      resolved: project.workers,
       rootDir: options.rootDir,
       workers: order,
       wrangler,

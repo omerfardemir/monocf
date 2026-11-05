@@ -89,6 +89,8 @@ function eventsOf({stdout}: CliResult): Record<string, any>[] { // eslint-disabl
     .map((line) => JSON.parse(line))
 }
 
+const read = (result: CliResult, name: string) => result.calls.find(({argv}) => argv[0] === 'deployments' && argv.includes(name))!
+
 describe('monocf plan', () => {
   describe('a first run, with nothing deployed', () => {
     it('plans to create everything, callees first, and asks no more than it must', async () => {
@@ -339,6 +341,37 @@ describe('monocf plan', () => {
         result.calls.find(({argv}) => argv[0] === 'deployments' && argv.includes(name))!.environment.CLOUDFLARE_ACCOUNT_ID
       expect(accountOf('orders-v1-staging')).toBe('account-of-orders')
       expect(accountOf('billing-v1-staging')).toBe('00000000000000000000000000000000')
+    })
+
+    it('reads with what a worker .env says, as its writes do, with its own account_id and the real environment first', async () => {
+      const fixture = project({
+        files: {
+          'workers/billing/.env': 'CLOUDFLARE_ACCOUNT_ID=account-of-billing-dotenv\nFROM_DOTENV=billing\n',
+          'workers/orders/.env': 'CLOUDFLARE_ACCOUNT_ID=account-of-orders-dotenv\n',
+        },
+        workers: [{config: {account_id: 'account-of-orders'}, name: 'orders'}, {name: 'billing'}],
+      })
+
+      const unset = await runCli(fixture, args, {cloudflare: {}, env: {CLOUDFLARE_ACCOUNT_ID: ''}})
+      const set = await runCli(fixture, args, {cloudflare: {}})
+
+      expect(read(unset, 'orders-v1-staging').environment.CLOUDFLARE_ACCOUNT_ID).toBe('account-of-orders')
+      expect(read(unset, 'billing-v1-staging').environment.CLOUDFLARE_ACCOUNT_ID).toBe('account-of-billing-dotenv')
+      expect(read(unset, 'billing-v1-staging').dotEnvValues).toEqual({FROM_DOTENV: 'billing'})
+      expect(read(set, 'billing-v1-staging').environment.CLOUDFLARE_ACCOUNT_ID).toBe('00000000000000000000000000000000')
+
+      const build = unset.calls.find(({argv, config}) => argv.includes('--dry-run') && config?.name === 'billing-v1')!
+      expect(build.environment.CLOUDFLARE_ACCOUNT_ID).toBe('account-of-billing-dotenv')
+    })
+
+    it('never prints what a worker .env holds', async () => {
+      const fixture = project({files: {'workers/orders/.env': 'FROM_SECRET=value-that-stays-out-of-the-log\n'}, workers: [{name: 'orders'}]})
+
+      const text = await runCli(fixture, args, {cloudflare: {}})
+      const json = await runCli(fixture, [...args, '--json'], {cloudflare: {}})
+
+      expect(text.calls.some(({dotEnvValues}) => dotEnvValues.FROM_SECRET !== undefined)).toBe(true)
+      expect(`${text.stdout}${text.stderr}${json.stdout}${json.stderr}`).not.toContain('value-that-stays-out-of-the-log')
     })
   })
 

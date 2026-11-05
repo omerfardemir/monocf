@@ -97,7 +97,8 @@ A `wrangler` that fails gives exit 1, and its own exit code appears in the messa
   - Service-binding siblings in one `dev` session have one working directory, the first worker's. Their run directories are at the same depth, so a rebased relative path means the same from any of them.
   - Wrangler's own `.wrangler` directory lands in the run directory. Only `--persist-to` keeps local data in the source tree.
   - Its account cache goes to the nearest `node_modules/.cache/wrangler` above the run directory, which is the one at the project root rather than the worker's.
-  - `.dev.vars` and, with `CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV`, `.env` are read next to the config. They already were, so a `.env` in a worker's source directory is not read, and monocf writes only the `.dev.vars` it merged. Wrangler 4.151 reads no other `.env` from the working directory.
+  - At startup, wrangler loads `.env`, `.env.local`, `.env.<env>` and `.env.<env>.local` from its working directory into its own environment, later files first in precedence, with `$VAR` expansion, and the real environment winning. That reaches `build.command` and everything wrangler reads from its environment, including `CLOUDFLARE_ACCOUNT_ID`. The working directory is now the run directory, so monocf reads those files from the worker's source directory, with the same rules, and adds the result to the spawn's environment. Reads of a worker get the same values as its writes, so both go to one account. It doesn't pass `--env-file`, which makes wrangler skip `.dev.vars`. Values are never printed. `monocf whoami` belongs to no worker, so it sees only the real environment.
+  - `dev` reads local values from `.dev.vars` next to the config, or from `.env` files there when there is none. Monocf writes the `.dev.vars` it merged, or else copies the worker's `.env` files into the run directory, with the same permissions and clean-up.
 
 ### Deliberate differences from monocf 0.2
 

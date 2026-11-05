@@ -19,6 +19,8 @@ export interface RunOptions {
   /** A worker's own account_id. A read by name has no config for wrangler to find it in. */
   accountId?: string
   cwd: string
+  /** Added to the real environment: the worker's `.env` files, which wrangler can't see from the run directory. */
+  environment?: Record<string, string>
   mode: OutputMode
   /** Per spawn, so that parallel processes can't mix their results. */
   outputFile?: string
@@ -72,8 +74,9 @@ function collect(child: ChildProcess, mode: OutputMode): () => {stderr: string; 
   return () => ({stderr, stdout})
 }
 
-function environmentFor(outputFile?: string, accountId?: string): NodeJS.ProcessEnv {
-  const environment = {...process.env}
+function environmentFor({accountId, environment: added, outputFile}: Pick<RunOptions, 'accountId' | 'environment' | 'outputFile'>): NodeJS.ProcessEnv {
+  const environment = {...process.env, ...added}
+  // As in wrangler, a worker's own account_id beats whatever the environment says.
   if (accountId !== undefined) environment.CLOUDFLARE_ACCOUNT_ID = accountId
   delete environment.WRANGLER_OUTPUT_FILE_DIRECTORY
   if (outputFile === undefined) delete environment.WRANGLER_OUTPUT_FILE_PATH
@@ -85,12 +88,12 @@ function environmentFor(outputFile?: string, accountId?: string): NodeJS.Process
 export function spawnWrangler(
   wrangler: Wrangler,
   argv: string[],
-  {accountId, cwd, mode, outputFile}: RunOptions,
+  {accountId, cwd, environment, mode, outputFile}: RunOptions,
 ): RunningWrangler {
   // The same flag bin/wrangler.js adds.
   const child = spawn(process.execPath, ['--no-warnings', wrangler.cli, ...argv], {
     cwd,
-    env: environmentFor(outputFile, accountId),
+    env: environmentFor({accountId, environment, outputFile}),
     shell: false,
     stdio: stdioFor(mode),
   })

@@ -7,6 +7,7 @@ import {
   createFixture,
   deployedNames,
   flagValue,
+  listTree,
   fromRoot,
   releaseOf,
   runCli,
@@ -324,6 +325,34 @@ describe('dev', () => {
     const result = await runCli(fixture, ['worker', 'orders', '-c', 'dev'])
 
     expect(result.calls[0].devVars).toEqual(value)
+  })
+})
+
+describe('dev and .env files', () => {
+  it('copies them next to the config, privately, when there is no .dev.vars', async () => {
+    const fixture = createFixture({
+      files: {'workers/orders/.env': 'A=1', 'workers/orders/.env.production': 'A=2', 'workers/orders/.env.staging': 'A=3'},
+      environments: ['staging'],
+      workers: [{name: 'orders'}],
+    })
+
+    const {calls} = await runCli(fixture, ['worker', 'orders', '-c', 'dev', '-e', 'staging'])
+
+    expect(Object.keys(calls[0].dotEnvFiles).sort()).toEqual(['.env', '.env.staging'])
+    if (process.platform !== 'win32') expect(Object.values(calls[0].dotEnvFiles)).toEqual([0o600, 0o600])
+    expect(listTree(fixture.root).filter((path) => path.startsWith('.monocf/runs'))).toEqual([])
+  })
+
+  it('leaves them out when there is a .dev.vars, which wrangler would read first', async () => {
+    const fixture = createFixture({
+      files: {'workers/orders/.dev.vars': 'B=1', 'workers/orders/.env': 'A=1'},
+      workers: [{name: 'orders'}],
+    })
+
+    const {calls} = await runCli(fixture, ['worker', 'orders', '-c', 'dev'])
+
+    expect(calls[0].dotEnvFiles).toEqual({})
+    expect(calls[0].devVars).toEqual({B: '1'})
   })
 })
 

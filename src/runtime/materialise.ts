@@ -1,10 +1,11 @@
-import {writeFileSync} from 'node:fs'
+import {existsSync, readFileSync, writeFileSync} from 'node:fs'
 import {join} from 'node:path'
 
 import type {ResolvedWorker} from '../config/types.js'
 import {rebaseConfig} from './path-fields.js'
 import type {RunDir} from './run-dir.js'
 import {serializeDevVars, type EnvValues} from './secrets.js'
+import {envFileNames} from './worker-env.js'
 
 const CONFIG_NAME = 'wrangler.json'
 const SECRET_MODE = 0o600
@@ -24,6 +25,13 @@ export function materialiseConfig(worker: ResolvedWorker, runDir: RunDir): strin
 /** Wrangler looks for `.dev.vars` next to the config, so `dev` needs nothing in the source tree. */
 export function writeDevVars(worker: string, values: EnvValues, runDir: RunDir): void {
   writeSecretFile(join(runDir.workerDir(worker), '.dev.vars'), serializeDevVars(values))
+}
+
+export function copyEnvFiles({dir, path}: Pick<ResolvedWorker, 'dir' | 'path'>, env: string | undefined, runDir: RunDir): void {
+  for (const name of envFileNames(env)) {
+    const source = join(path, name)
+    if (existsSync(source)) writeSecretFile(join(runDir.workerDir(dir), name), readFileSync(source, 'utf8'))
+  }
 }
 
 /** JSON rather than dotenv, so no value depends on how it's quoted. */

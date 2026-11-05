@@ -66,6 +66,10 @@ export interface WranglerCall {
   devVars: Record<string, string> | null
   devVarsMode: number | null
   devVarsRaw: string | null
+  /** The `.env` files next to the config, with their modes. */
+  dotEnvFiles: Record<string, number>
+  /** The variables named FROM_*, which is how these tests mark a value from a worker's `.env`. */
+  dotEnvValues: Record<string, string>
   /** What the child saw of the variables that could reach Cloudflare or a developer's login. */
   environment: Record<string, string>
   /** The file the rebased `main` of the first config points at, or null if it points at nothing. */

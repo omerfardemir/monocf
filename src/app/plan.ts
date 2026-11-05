@@ -84,7 +84,6 @@ async function bundleFor(
 /** A failed read stops the plan. There's no way to tell what a worker needs without knowing what is live. */
 async function readActiveVersions(
   context: RunContext,
-  call: WranglerCall,
   workers: ResolvedWorker[],
   {env, state}: {env: string; state: null | StateManifest},
 ): Promise<Record<string, ActiveInfo>> {
@@ -98,6 +97,7 @@ async function readActiveVersions(
       async run() {
         const accountField = effectiveField(config, env, 'account_id')
         const accountId = typeof accountField === 'string' ? accountField : undefined
+        const call: WranglerCall = (step, account) => callWrangler(context, step, {accountId: account, worker: dir})
         const info = await readActiveVersion(call, deployedName, accountId)
         const tagged =
           info.state === 'active' && needsTag(info, stored.get(dir), deployedName)
@@ -163,18 +163,17 @@ export async function runPlan(flags: PlanFlags): Promise<void> {
   const markdownPath = flags.markdown === undefined ? undefined : resolve(flags.markdown)
   let plan: Plan | undefined
 
-  await withRun({action: 'plan', env, json, notices, rootDir, workers: selected, wrangler}, async (context) => {
+  await withRun({action: 'plan', env, json, notices, resolved: workers, rootDir, workers: selected, wrangler}, async (context) => {
     // A failed run must not leave an older plan for `apply` to find.
     rmSync(planPath, {force: true})
     const bundle = await bundleFor(context, flags, {commit, env, rootDir, workers})
 
-    const call: WranglerCall = (step, accountId) => callWrangler(context, step, accountId)
-    const store = openStateStore(location, call, context.runDir.path)
+    const store = openStateStore(location, (step) => callWrangler(context, step), context.runDir.path)
     await store.check()
     const body = await store.read(manifestKey(env))
     const state = body === null ? null : parseStateManifest(body, env)
 
-    const active = await readActiveVersions(context, call, workers, {env, state})
+    const active = await readActiveVersions(context, workers, {env, state})
     plan = createPlan(pickWorkers(bundle, selected), state, active, graph, {
       createdAt: new Date().toISOString(),
       onDrift: flags.onDrift ?? 'warn',

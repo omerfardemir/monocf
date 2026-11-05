@@ -25,10 +25,11 @@ interface WorkerTarget {
 
 /** `secret bulk` creates a missing worker in a non-interactive run, so a typo in a name would make a new one. */
 async function assertWorkerExists(context: RunContext, {configPath, dir, env}: WorkerTarget): Promise<void> {
-  const {interrupts, runDir, wrangler} = context
+  const {environmentOf, interrupts, runDir, wrangler} = context
   const step = {action: 'deployment-status', configPath} as const
   const running = spawnWrangler(wrangler, buildArgv(step, {env}), {
     cwd: runDir.workerDir(dir),
+    environment: environmentOf(dir),
     mode: 'capture',
     outputFile: runDir.outputFile(dir),
   })
@@ -65,6 +66,7 @@ export async function runSecretsDeploy(name: string | undefined, flags: SecretsF
       env: options.env,
       json: flags.json === true,
       notices: [],
+      resolved: workers,
       rootDir: options.rootDir,
       workers: selected,
       wrangler,

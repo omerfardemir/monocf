@@ -248,7 +248,7 @@ export async function runBundle(names: string[], flags: BundleFlags): Promise<vo
   })
   const json = flags.json === true
 
-  await withRun({action: 'bundle', env, json, notices, rootDir, workers: selected, wrangler}, async (context) => {
+  await withRun({action: 'bundle', env, json, notices, resolved: workers, rootDir, workers: selected, wrangler}, async (context) => {
     await buildBundle(context, {commit, concurrency: flags.concurrency, env, out, rootDir, workers})
     if (!json) process.stdout.write(`${join(out, MANIFEST_FILE)}\n`)
     checkEntrypoints(context, workers, out, env)
