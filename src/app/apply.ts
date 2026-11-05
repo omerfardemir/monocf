@@ -163,7 +163,12 @@ function assertDescribes(plan: Plan, workers: Map<string, ResolvedWorker>, {noti
     if (differences.length > 0) stale.push(`${step.worker} (${differences.join(', ')})`)
   }
 
-  if (stale.length > 0) throw new ConfigError(`The plan doesn't describe this checkout: ${stale.join('; ')}. Plan again.`)
+  if (stale.length === 0) return
+  // Planning again can't help a worker whose inputs only the plan's job has, or differ with each build.
+  const external = stale.some((worker) => worker.includes('external inputs'))
+    ? " If a CI step builds these inputs, give the worker a build.command, so that wrangler makes them at deploy, or bring the same files to this job."
+    : ''
+  throw new ConfigError(`The plan doesn't describe this checkout: ${stale.join('; ')}. Plan again.${external}`)
 }
 
 interface Target {
@@ -174,6 +179,8 @@ interface Target {
   liveBefore?: string
   record: RunRecord['workers'][string]
   step: PlanStep
+  /** What wrangler sent, once it has run: a `build.command` remakes these inputs, so it needn't be what the plan saw. */
+  uploadedExternalHash?: string
   worker: ResolvedWorker
 }
 
@@ -268,6 +275,7 @@ class Applier {
       } else if (live !== undefined && (live === record.uploadedVersionId || (await readVersionTag(call, step.deployedName, live, target.accountId)) === tagFor(step.fingerprint))) {
         record.newVersionId = live
         record.changed = true
+        if (target.uploadedExternalHash === undefined) this.noteUploaded(target)
         const reached = step.action === 'upload' && !step.triggersChanged
         const previous = record.previous?.triggers ?? NO_TRIGGERS
         this.writer.update(target.worker.dir, {...this.entryFor(target, live), ...(!reached && {triggers: previous, triggersHash: TRIGGERS_NOT_APPLIED})}, {newVersion: true})
@@ -361,7 +369,22 @@ class Applier {
     }
   }
 
-  private entryFor({step, worker}: Target, versionId: string): StateWorker {
+  /**
+   * Wrangler has just built and sent this worker. The state has to say what it sent, or a file that goes back to what the plan
+   * saw would give `skip` with other content live. Only a `build.command` can make it differ.
+   */
+  private noteUploaded(target: Target): void {
+    const {step, worker} = target
+    if (effectiveField(worker.config, this.env, 'build') === undefined) return
+    const {plan, options} = this.run
+    const hash = workerExternalHash(worker, this.env, options.rootDir, (plan.outputs ?? []).map((path) => resolve(options.rootDir, path)))
+    target.uploadedExternalHash = hash
+    if (hash !== step.externalHash) {
+      this.context.emit({message: 'What its build made differs from what the plan saw. The state records what was uploaded, so the next plan compares with that.', type: 'notice', worker: step.worker})
+    }
+  }
+
+  private entryFor({step, uploadedExternalHash, worker}: Target, versionId: string): StateWorker {
     // An account that can't be determined says nothing against the one the state knows, and the guard still needs that.
     const account = accountMarker(this.context, worker, this.env) ?? this.run.targets.get(step.worker)?.record.previous?.accountHash
     return {
@@ -372,7 +395,7 @@ class Applier {
       deployedAt: new Date().toISOString(),
       deployedName: step.deployedName,
       doHash: step.doHash,
-      externalHash: step.externalHash,
+      externalHash: uploadedExternalHash ?? step.externalHash,
       fingerprint: step.fingerprint,
       triggers: step.triggers,
       triggersHash: step.triggersHash,
@@ -433,6 +456,7 @@ class Applier {
         target.attempted = true
         const versionId =
           earlier ?? (await this.wrangler(target, {action: 'deploy', configPath: this.configOf(target)}, this.argvOptions(target))).output.versionId!
+        this.noteUploaded(target)
         await this.verify(target, versionId)
         target.record.newVersionId = versionId
         target.record.changed = true
@@ -453,6 +477,7 @@ class Applier {
       run: async () => {
         const result = await this.wrangler(target, {action: 'preview', configPath: this.configOf(target)}, this.argvOptions(target))
         target.record.uploadedVersionId = result.output.versionId!
+        this.noteUploaded(target)
       },
       worker: target.worker.dir,
     }

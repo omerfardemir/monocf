@@ -146,15 +146,14 @@ function isTriggersChanged(worker: ManifestWorker, entry: StateWorker): boolean 
 /** What a worker that is live at `entry` needs to reach this bundle. */
 function compareToState(worker: ManifestWorker, entry: StateWorker): Decision {
   const triggersChanged = isTriggersChanged(worker, entry)
-  if (worker.fingerprint === entry.fingerprint) return triggersOnly(worker, entry)
-  if (worker.doHash !== entry.doHash) return {action: 'full-deploy', notes: [], reasons: ['do-changed'], triggersChanged}
-
   const reasons: PlanReason[] = [
     ...(worker.bundleHash === entry.bundleHash ? [] : (['bundle-changed'] as const)),
     ...(worker.configHash === entry.configHash ? [] : (['config-changed'] as const)),
     ...(worker.externalHash === entry.externalHash ? [] : (['external-changed'] as const)),
   ]
-  return {action: 'upload', notes: [], reasons, triggersChanged}
+  // The hashes, not the fingerprint: under a `build.command` the entry's `externalHash` is what was uploaded, and its fingerprint is the tag, from the plan.
+  if (worker.doHash !== entry.doHash) return {action: 'full-deploy', notes: [], reasons: ['do-changed'], triggersChanged}
+  return reasons.length === 0 ? triggersOnly(worker, entry) : {action: 'upload', notes: [], reasons, triggersChanged}
 }
 
 /** The code is already live. Only the triggers can be behind. */

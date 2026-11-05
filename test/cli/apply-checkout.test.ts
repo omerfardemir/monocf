@@ -19,7 +19,7 @@ const refuses = async (fixture: Fixture, pattern: RegExp, flags: string[] = []) 
 function withIgnoredAssets(config: Record<string, unknown> = {}): Fixture {
   const fixture = createFixture({
     environments: ['staging'],
-    files: {'workers/billing/.gitignore': 'public', 'workers/billing/public/index.html': 'one'},
+    files: {'workers/billing/.gitignore': 'public\nsite\n', 'workers/billing/public/index.html': 'one'},
     workers: [{config: {assets: {directory: './public'}, ...config}, name: 'billing'}],
   })
   mkdirSync(join(fixture.root, 'state', 'staging'), {recursive: true})
@@ -97,6 +97,82 @@ describe('apply, against what is on disk (WP6-1)', () => {
     expect(git(fixture, 'status', '--porcelain')).toBe('')
 
     await refuses(fixture, /billing \(external inputs\)/)
+  })
+
+  it('says how to get out when a CI step builds the inputs, as planning again cannot help (R9)', async () => {
+    const fixture = withIgnoredAssets()
+    await planFor(fixture, {}, {flags: ['--first-run']})
+    writeFileSync(join(fixture.worker('billing'), 'public', 'index.html'), 'two')
+
+    await refuses(fixture, /give the worker a build\.command.*or bring the same files to this job/)
+  })
+
+  it("doesn't offer that way out for anything else that differs (R9)", async () => {
+    const fixture = deployFixture()
+    await planFor(fixture, {}, {flags: ['--first-run']})
+    const plan = readPlan(fixture)
+    stepOf(plan, 'billing').configHash = 'something-else'
+    writePlan(fixture, plan)
+
+    const result = await runCli(fixture, ['apply', 'plan.json'], {cloudflare: {}, noCalls: true})
+
+    expect(result.exitCode).toBe(2)
+    expect(result.stderr).not.toContain('build.command')
+  })
+
+  describe('under a build command, the state says what was uploaded (R3)', () => {
+    /** The first run is live, and the plan after it saw `one`. The apply job's build makes `two`. */
+    async function appliedWithOtherContent(config: Record<string, unknown>, directory: string) {
+      const fixture = withIgnoredAssets({build: {command: 'npm run build'}, ...config})
+      const file = join(fixture.worker('billing'), directory, 'index.html')
+      mkdirSync(join(fixture.worker('billing'), directory), {recursive: true})
+      writeFileSync(file, 'one')
+      const cloudflare = await firstRun(fixture)
+      const plan = await planFor(fixture, cloudflare, {rules: newCode('billing')})
+      writeFileSync(file, 'two')
+      const applied = await applyPlan(fixture, cloudflare)
+      expect(applied.exitCode, applied.stderr).toBe(0)
+      expect(applied.stderr).toContain('The state records what was uploaded')
+      return {cloudflare: applied.cloudflare!, file, fixture, step: stepOf(plan, 'billing')}
+    }
+
+    // An upload, and a site, which takes a deploy.
+    const paths: [string, Record<string, unknown>, string][] = [
+      ['assets', {}, 'public'],
+      ['a site', {assets: undefined, site: {bucket: './site'}}, 'site'],
+    ]
+
+    it.each(paths)('%s: going back to what the plan saw is a change, not a skip', async (_, config, directory) => {
+      const {cloudflare, file, fixture, step} = await appliedWithOtherContent(config, directory)
+      expect(manifestOf(fixture).workers.billing.externalHash).not.toBe(step.externalHash)
+      expect(manifestOf(fixture).workers.billing.fingerprint).toBe(step.fingerprint)
+      writeFileSync(file, 'one')
+
+      const next = await planFor(fixture, cloudflare, {rules: newCode('billing')})
+
+      expect(stepOf(next, 'billing').reasons).toContain('external-changed')
+      expect(stepOf(next, 'billing').action).not.toBe('skip')
+    })
+
+    it.each(paths)('%s: staying on what was uploaded is a skip', async (_, config, directory) => {
+      const {cloudflare, fixture} = await appliedWithOtherContent(config, directory)
+
+      const next = await planFor(fixture, cloudflare, {rules: newCode('billing')})
+
+      expect(stepOf(next, 'billing')).toMatchObject({action: 'skip', reasons: ['unchanged']})
+    })
+
+    it('stores what the plan saw when the build makes the same', async () => {
+      const fixture = withIgnoredAssets({build: {command: 'npm run build'}})
+      await planFor(fixture, {}, {flags: ['--first-run']})
+      const {externalHash} = stepOf(readPlan(fixture), 'billing')
+
+      const result = await applyPlan(fixture, {})
+
+      expect(result.exitCode, result.stderr).toBe(0)
+      expect(result.stderr).not.toContain('The state records what was uploaded')
+      expect(manifestOf(fixture).workers.billing.externalHash).toBe(externalHash)
+    })
   })
 
   it('goes ahead when a build command makes the inputs at deploy, and says so', async () => {
