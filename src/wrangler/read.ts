@@ -32,6 +32,10 @@ export function scrubAccountIds(text: string): string {
   return text.replaceAll(ACCOUNT_ID, '<account>')
 }
 
+// What Node prints when a process crashes: the error comes first, then its stack and fields, and last a line with Node's version.
+const CRASH_ERROR = /^\w*Error\b.*:/
+const AFTER_THE_CAUSE = /^(?:Node\.js v\d|at\s|}$)/
+
 /** The lines worth quoting from wrangler's stderr. API errors quote a URL holding the account ID, which stays out of logs. */
 function errorDetail(stderr: string): string {
   const lines = stripVTControlCharacters(stderr)
@@ -39,7 +43,9 @@ function errorDetail(stderr: string): string {
     .map((line) => line.trim())
     .filter((line) => line !== '')
   const errors = lines.filter((line) => line.includes('[ERROR]') || /code: \d+/.test(line))
-  return scrubAccountIds((errors.length > 0 ? errors : lines.slice(-1)).join(' '))
+  if (errors.length > 0) return scrubAccountIds(errors.join(' '))
+  const cause = lines.find((line) => CRASH_ERROR.test(line)) ?? [...lines].reverse().find((line) => !AFTER_THE_CAUSE.test(line)) ?? lines.at(-1)
+  return scrubAccountIds(cause ?? '')
 }
 
 /** A read that failed. No credentials is an environment error, so CI can tell it from a Cloudflare problem. */

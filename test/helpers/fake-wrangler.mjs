@@ -121,6 +121,9 @@ function apiError(detail) {
   return `✘ [ERROR] A request to the Cloudflare API (${url}) failed.\n\n  ${detail}\n`
 }
 
+// Windows answers EPERM or EACCES while another process is still removing the directory.
+const LOCK_HELD = new Set(['EACCES', 'EEXIST', 'EPERM'])
+
 /** Parallel runs share the one Cloudflare file, so each change of it has to see the last one. */
 function withCloudflareLock(path, work) {
   const lock = `${path}.lock`
@@ -130,9 +133,7 @@ function withCloudflareLock(path, work) {
       mkdirSync(lock)
       break
     } catch (error) {
-      // Windows answers EPERM while another process is still removing the directory.
-      const held = error.code === 'EEXIST' || error.code === 'EPERM'
-      if (!held || Date.now() > deadline) throw error
+      if (!LOCK_HELD.has(error.code) || Date.now() > deadline) throw error
       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10)
     }
   }
@@ -140,7 +141,8 @@ function withCloudflareLock(path, work) {
   try {
     return work()
   } finally {
-    rmSync(lock, {force: true, recursive: true})
+    // The same answers can meet the removal, and rmSync retries them itself. A lock left behind would stall every other process.
+    rmSync(lock, {force: true, maxRetries: 50, recursive: true, retryDelay: 10})
   }
 }
 

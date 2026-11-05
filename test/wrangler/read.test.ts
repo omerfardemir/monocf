@@ -1,3 +1,4 @@
+import {spawnSync} from 'node:child_process'
 import {describe, expect, it} from 'vitest'
 
 import {EXIT_ENVIRONMENT, EXIT_FAILED} from '../../src/errors.js'
@@ -128,6 +129,26 @@ describe('readFailure', () => {
 
   it('falls back to the last line', () => {
     expect(readFailure('w', result({code: 1, stderr: 'one\ntwo\n'})).message).toBe('w: wrangler failed with exit code 1: two')
+  })
+
+  it('quotes the error of a real Node crash, not the version line that ends it', () => {
+    const crash = spawnSync(process.execPath, ['-e', "require('node:fs').readFileSync('/no/such/file-for-this-test')"], {encoding: 'utf8'})
+    expect(crash.status).toBe(1)
+    expect(crash.stderr.trim().split('\n').at(-1)).toMatch(/^Node\.js v/)
+
+    const {message} = readFailure('w', result({code: 1, stderr: crash.stderr}))
+
+    expect(message).toContain('ENOENT: no such file or directory')
+    expect(message).not.toContain('Node.js v')
+  })
+
+  it.each([
+    ['an error with a code in its name', "node:internal/x:1\n\nError [ERR_MODULE_NOT_FOUND]: Cannot find 'y'\n    at z (a:1:1)\n\nNode.js v24.22.1\n", "Error [ERR_MODULE_NOT_FOUND]: Cannot find 'y'"],
+    ['a typed error', 'TypeError: x is not a function\n    at z (a:1:1)\n\nNode.js v22.22.2\n', 'TypeError: x is not a function'],
+    ['only a version line', 'Node.js v24.22.1\n', 'Node.js v24.22.1'],
+    ['a stack with no error line', 'it broke\n    at z (a:1:1)\n}\n\nNode.js v24.22.1\n', 'it broke'],
+  ])('finds the cause in %s', (_, stderr, cause) => {
+    expect(readFailure('w', result({code: 1, stderr})).message).toBe(`w: wrangler failed with exit code 1: ${cause}`)
   })
 
   it('still says what failed with nothing on stderr', () => {
