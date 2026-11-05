@@ -229,6 +229,39 @@ EXAMPLES
 
 _See code: [src/commands/whoami/index.ts](https://github.com/omerfardemir/monocf/blob/v0.0.9/src/commands/whoami/index.ts)_
 
+## `monocf plan`
+
+Works out what needs deploying, in what order and why, and writes it to a plan file. It deploys nothing. It compares fingerprints from `monocf bundle` with stored state and with the version Cloudflare serves.
+
+```
+monocf plan -e staging --state r2://my-state-bucket/monocf
+monocf plan -e staging --state file:state --out plan.json --markdown plan.md
+monocf plan -e production --state r2://my-state-bucket/monocf --on-drift fail --json
+```
+
+| Flag | Meaning |
+|---|---|
+| `-e, --env` | The environment. Required. |
+| `--state` | Where state lives: `file:<dir>` or `r2://<bucket>/<prefix>`. Required. The directory or bucket must exist, and a missing one exits 3. |
+| `--bundle-dir` | Reuse an earlier `monocf bundle`, if it matches this env, commit and wrangler. Otherwise it bundles. |
+| `--out` | Where to write the plan. Defaults to `.monocf/plan/<env>.json`. |
+| `--markdown` | Also write a summary for a pull request comment: names only, no values. |
+| `--on-drift` | `warn` (default) deploys over what else is live, with a warning. `fail` blocks that worker. |
+| `--workers` | Plan only these, as a comma-separated list. |
+| `--json` | NDJSON events on stdout, ending in a `plan` event. |
+
+Each worker gets an action: `create`, `upload`, `triggers`, `full-deploy`, `adopt`, `skip` or `blocked`, with the reasons for it. Exit codes: 0 when a plan is made, even with no changes; 1 when anything is blocked or a read fails; 2 on a usage or check error; 3 when the state store or credentials can't be used.
+
+A worker in `.monocfignore` is never touched. A deployed worker that left the repository is listed as an orphan and never deleted.
+
+**Allow one pipeline per environment.** Wrangler offers R2 no conditional writes, so the state store can't act as a lock. In GitHub Actions:
+
+```yaml
+concurrency:
+  group: deploy-${{ inputs.environment }}
+  cancel-in-progress: false
+```
+
 ## `monocf secrets deploy`
 
 Deploy secrets for one or multiple workers.

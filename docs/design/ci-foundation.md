@@ -164,10 +164,12 @@ A `StateStore` holds a per-environment manifest:
   "workers": {
     "orders": {
       "deployedName": "orders-v1-staging",
-      "fingerprint": "sha256:…",
-      "triggers": {"crons": [], "routes": [], "workersDev": true},
-      "triggersHash": "sha256:…",
-      "doHash": "sha256:…",
+      "bundleHash": "…",
+      "configHash": "…",
+      "fingerprint": "…",
+      "triggers": {"crons": null, "previewUrls": null, "routes": [], "workersDev": true},
+      "triggersHash": "…",
+      "doHash": "…",
       "versionId": "…",
       "version": "1.4.0",
       "commit": "…",
@@ -177,13 +179,44 @@ A `StateStore` holds a per-environment manifest:
 }
 ```
 
-Adapters: `file:<path>` for tests and local use, `r2://<bucket>/<prefix>` through `wrangler r2 object get|put --remote`, so CI needs no credentials beyond its Cloudflare token. Each run also writes `runs/<run-id>.json`, which rollback reads.
+Hashes are plain hex, as in the bundle manifest. `bundleHash` and `configHash` are required too, because they tell `bundle-changed` from `config-changed`. A manifest with a newer `schemaVersion`, for another env, or that can't be read stops the run with exit 3: treating it as empty would plan a redeploy of everything.
 
-The R2 adapter checks the bucket first, because `r2 object get` gives the same error for a missing key and a missing bucket. Treating a missing bucket as empty state would plan a full redeploy. Wrangler has no conditional writes, so the store can't act as a lock: CI must allow one pipeline per environment.
+Adapters: `file:<dir>` for tests and local use, written through a rename, and `r2://<bucket>/<prefix>` through `wrangler r2 object get|put --remote`, so CI needs no credentials beyond its Cloudflare token. Keys are `<env>/manifest.json` and `<env>/runs/<run-id>.json`, which rollback reads. Any other scheme is a usage error.
 
-The active version comes from `wrangler deployments status --json`. `versions list`, `secret list` and the settings endpoint follow the latest upload, not the active version.
+Both adapters refuse a location that isn't there, with exit 3. The R2 adapter checks the bucket first with `r2 bucket info`, because `r2 object get` gives the same error for a missing key and a missing bucket. A missing key in a bucket that exists is a first run. Wrangler has no conditional writes, so the store can't act as a lock: CI must allow one pipeline per environment, with `concurrency:` in GitHub Actions.
+
+The active version comes from `wrangler deployments status --name <deployed-name> --json`. Only exit 1 with `code: 10007` means the worker doesn't exist, and any other failure stops the plan. `versions list`, `secret list` and the settings endpoint follow the latest upload, not the active version. The tag takes one more request, `versions view`, so it is read only when the version ID alone doesn't settle things. A read by name has no config for wrangler to find an `account_id` in, so a worker's own `account_id` is passed as `CLOUDFLARE_ACCOUNT_ID` for its reads. The state bucket uses the account of the environment.
 
 **Drift** means the active version on Cloudflare isn't the one in the manifest, for example after a manual deploy. The fingerprint tag tells these apart: if the active version carries the expected tag, an earlier run deployed it and crashed before writing state, so it isn't drift. The caller chooses the policy: `--on-drift warn` overwrites and warns; `--on-drift fail` stops that worker. A split rollout counts as drift.
+
+## Plan
+
+`monocf plan` runs the `check` rules, where any error stops with exit 2, reuses `--bundle-dir` if its manifest matches this env, commit, wrangler and selection and otherwise bundles, then reads state and the active versions, and calls a pure function. It deploys nothing.
+
+| Situation | Action | Reasons |
+|---|---|---|
+| Worker doesn't exist on Cloudflare | `create` | `new` |
+| Exists, no manifest entry, active tag is `monocf:<fingerprint>` | `adopt`: no deploy, `apply` records it in state | `state-missing` |
+| Exists, no manifest entry, another tag or none | `upload` with `--on-drift warn`, `blocked` with `fail` | `baseline`, or `drift` and `baseline` when blocked |
+| Manifest version is active, same fingerprint, same triggers | `skip` | `unchanged` |
+| Manifest version is active, same fingerprint, other triggers | `triggers` | `triggers-changed` |
+| Manifest version is active, other fingerprint, same DO hash | `upload`, with `triggersChanged` when they differ too | `bundle-changed`, `config-changed` |
+| Other fingerprint, other DO hash | `full-deploy` | `do-changed` |
+| Another version is active, tag is `monocf:<manifest fingerprint>` | As if in sync, with the note `state-behind` | As above |
+| Another version is active, tag is `monocf:<this bundle's fingerprint>` | `skip`, or `triggers` when they differ from the manifest, with the note `state-behind`: a crashed run already deployed this | `unchanged`, `triggers-changed` |
+| Another version is active, any other tag | Drift | |
+| Split rollout | Drift, also with no manifest entry | Adds `split` |
+
+Drift with `--on-drift warn` takes the action the table gives, with `drift` first in its reasons and a warning. A worker that is otherwise the same still gets an `upload`, because something else is live. `triggersChanged` is true, because a manual `wrangler deploy` applies its own triggers, so what is live is unknown. With `--on-drift fail`, the worker is `blocked`, the plan is still written with `applicable: false`, and the exit code is 1. A worker with no manifest entry and another tag counts here, so `fail` blocks a first run over workers that already exist. Run that one with `warn`.
+
+- **A new deployed name** counts as a worker with no manifest entry, with the note `renamed`. The old name stays deployed.
+- **Recreated provider:** when a worker that the manifest knows has to be created, each caller through a binding that would get no new version (`skip`, `adopt` or `triggers`) becomes an `upload`, reason `provider-recreated`. A queue edge holds no binding, so it doesn't count. A caller left out by `--workers` gets the note `caller-not-selected`.
+- **Crons removed:** when the manifest's crons aren't empty and the new effective crons are, the step has `explicitEmptyCrons: true`, and `apply` writes `"crons": []`, since an absent key changes nothing.
+- **Orphans:** a manifest entry whose directory is gone gets the note `orphan`, and is never read or deleted. A worker in `.monocfignore` gets no read, no step and no note.
+
+`dependsOn` holds the nearest callees that do something. It looks through a `skip` or `adopt`, so an order that runs through one still holds. Members of a cycle only a queue closes don't wait for each other. `callers` and `transitiveCallers` come from the whole graph, whatever `--workers` selects, and give the smoke-test scope.
+
+An older plan at the output path is removed first, so a failed run can't leave one for `apply`.
 
 ## Deploy
 
@@ -221,7 +254,7 @@ A caller sees a new callee version without being redeployed, for both RPC and fe
 monocf graph    [-e env] [--json | --mermaid] [--callers worker]
 monocf check    [-e env | --all-envs] [--strict] [--json]
 monocf bundle   [workers...] -e env [--out dir] [--concurrency n] [--json]
-monocf plan     -e env --state <url> [--out plan.json] [--markdown file] [--on-drift warn|fail] [--json]
+monocf plan     -e env --state <url> [--bundle-dir dir] [--out plan.json] [--markdown file] [--on-drift warn|fail] [--workers a,b] [--json]
 monocf apply    <plan.json> [--concurrency n] [--expect-branch-tip ref] [--summary-file path] [--json]
 monocf rollback -e env --state <url> (--to-run <id> | <worker> --to <version-id>) [--force] [--json]
 monocf secrets check -e env [--json]
