@@ -315,7 +315,7 @@ describe('deliberate differences from the old flow', () => {
       workers: [{config: {vars: {PATH: '{path}', QUOTE: '{quote}'}}, name: 'orders'}],
     })
 
-    const old = await runCli(fixture, ['worker', 'orders', '-c', 'deploy'])
+    const old = await runCli(fixture, ['worker', 'orders', '-c', 'deploy'], {noCalls: true})
     expect(old.exitCode).not.toBe(0)
     expect(old.calls).toEqual([])
 
@@ -325,7 +325,7 @@ describe('deliberate differences from the old flow', () => {
   it('reports null in a worker config clearly, where the old flow crashes on it', async () => {
     const fixture = createFixture({workers: [{config: {route: null}, name: 'orders'}]})
 
-    const old = await runCli(fixture, ['worker', 'orders', '-c', 'deploy'])
+    const old = await runCli(fixture, ['worker', 'orders', '-c', 'deploy'], {noCalls: true})
     expect(old.exitCode).not.toBe(0)
     expect(old.stderr).toContain('Cannot convert undefined or null to object')
 
@@ -339,7 +339,7 @@ describe('deliberate differences from the old flow', () => {
       workers: [{envBindings: {staging: ['someone-elses-worker']}, name: 'orders'}],
     })
 
-    const old = await runCli(fixture, ['worker', 'orders', '-c', 'deploy', '-e', 'staging'])
+    const old = await runCli(fixture, ['worker', 'orders', '-c', 'deploy', '-e', 'staging'], {noCalls: true})
     expect(old.exitCode).not.toBe(0)
 
     const {project} = resolveNew(fixture, 'staging')
@@ -351,7 +351,7 @@ describe('deliberate differences from the old flow', () => {
     const fixture = createFixture({workers: [{name: 'orders'}]})
     rmSync(join(fixture.worker('orders'), 'package.json'))
 
-    const old = await runCli(fixture, ['worker', 'orders', '-c', 'deploy'])
+    const old = await runCli(fixture, ['worker', 'orders', '-c', 'deploy'], {noCalls: true})
     expect(old.exitCode).not.toBe(0)
 
     const {project} = resolveNew(fixture)

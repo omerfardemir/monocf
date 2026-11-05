@@ -1,5 +1,5 @@
-// Stand-in for the wrangler CLI. A fixture installs a stub at node_modules/wrangler/bin/wrangler.js that imports
-// this file. Every invocation appends one JSON line to FAKE_WRANGLER_LOG; behaviour comes from FAKE_WRANGLER_RULES.
+// Stand-in for the wrangler CLI. A fixture installs stubs at node_modules/wrangler/bin/wrangler.js and
+// wrangler-dist/cli.js that import this file. Every invocation appends one JSON line to FAKE_WRANGLER_LOG; behaviour comes from FAKE_WRANGLER_RULES.
 import {appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync} from 'node:fs'
 import {basename, dirname, join, resolve} from 'node:path'
 import {parse} from 'jsonc-parser'
@@ -53,6 +53,12 @@ const entry = {
   config,
   configs,
   devVars: configPath ? parseDotenv(join(dirname(configPath), '.dev.vars')) : null,
+  environment: Object.fromEntries(
+    Object.entries(process.env).filter(
+      ([name]) =>
+        /^(CLOUDFLARE|CF)_/i.test(name) || ['HOME', 'USERPROFILE', 'WRANGLER_HOME', 'XDG_CONFIG_HOME'].includes(name),
+    ),
+  ),
 }
 
 const uploadsSecrets = startsWithCommand('secret bulk') || startsWithCommand('versions secret bulk')

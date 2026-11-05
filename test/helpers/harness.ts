@@ -47,11 +47,15 @@ export interface WranglerCall {
   config: WranglerConfig | null
   configs: WranglerConfig[]
   devVars: Record<string, string> | null
+  /** What the child saw of the variables that could reach Cloudflare or a developer's login. */
+  environment: Record<string, string>
   secretFile?: {name: string; vars: Record<string, string> | null}
 }
 
 export interface Fixture {
   root: string
+  /** False when the fixture has no fake wrangler, so a run can't be expected to log calls. */
+  usesFake: boolean
   worker(name: string): string
 }
 
@@ -104,12 +108,15 @@ function installFakeWrangler(root: string): void {
   const packageDir = join(root, 'node_modules', 'wrangler')
   writeJson(join(packageDir, 'package.json'), {
     bin: {wrangler: 'bin/wrangler.js'},
+    engines: {node: '>=22.0.0'},
     name: 'wrangler',
     type: 'module',
-    version: '0.0.0-fake',
+    version: '4.151.0',
   })
   const script = pathToFileURL(join(helpersDir, 'fake-wrangler.mjs')).href
-  writeFile(join(packageDir, 'bin', 'wrangler.js'), `await import(${JSON.stringify(script)})\n`)
+  const stub = `await import(${JSON.stringify(script)})\n`
+  writeFile(join(packageDir, 'bin', 'wrangler.js'), stub)
+  writeFile(join(packageDir, 'wrangler-dist', 'cli.js'), stub)
 }
 
 function git(root: string, ...args: string[]): void {
@@ -180,14 +187,36 @@ export function createFixture(options: FixtureOptions): Fixture {
     'init',
   )
 
-  return {root, worker: (name) => join(root, 'workers', name)}
+  return {root, usesFake: options.fakeWrangler !== false, worker: (name) => join(root, 'workers', name)}
 }
 
 export interface RunOptions {
   /** Directory to run from, relative to the fixture root. Defaults to the root. */
   cwd?: string
   env?: Record<string, string>
+  /** The run is expected to make no wrangler call, for example a usage error. */
+  noCalls?: boolean
   rules?: WranglerRule[]
+}
+
+/**
+ * The child's environment: it can't reach Cloudflare, or a developer's login, whichever wrangler it ends up running.
+ * A wrangler that isn't the fake finds a dummy token, an API on a closed local port, and an empty home.
+ */
+function isolatedEnvironment(home: string): NodeJS.ProcessEnv {
+  const inherited = Object.fromEntries(Object.entries(process.env).filter(([name]) => !/^(CLOUDFLARE|CF)_/i.test(name)))
+  return {
+    ...inherited,
+    APPDATA: join(home, 'AppData', 'Roaming'),
+    CLOUDFLARE_ACCOUNT_ID: '00000000000000000000000000000000',
+    CLOUDFLARE_API_BASE_URL: 'http://127.0.0.1:9/client/v4',
+    CLOUDFLARE_API_TOKEN: 'dummy-token-for-tests',
+    HOME: home,
+    LOCALAPPDATA: join(home, 'AppData', 'Local'),
+    USERPROFILE: home,
+    WRANGLER_HOME: join(home, '.wrangler'),
+    XDG_CONFIG_HOME: join(home, '.config'),
+  }
 }
 
 function readCalls(logPath: string): WranglerCall[] {
@@ -207,7 +236,7 @@ export function runCli(fixture: Fixture, args: string[], options: RunOptions = {
   const child = spawn(process.execPath, [join(repoRoot, 'bin', 'run.js'), ...args], {
     cwd: options.cwd ? join(fixture.root, options.cwd) : fixture.root,
     env: {
-      ...process.env,
+      ...isolatedEnvironment(stateDir),
       FAKE_WRANGLER_LOG: logPath,
       FAKE_WRANGLER_RULES: rulesPath,
       NO_COLOR: '1',
@@ -229,7 +258,14 @@ export function runCli(fixture: Fixture, args: string[], options: RunOptions = {
   return new Promise((resolve, reject) => {
     child.on('error', reject)
     child.on('close', (exitCode, signal) => {
-      resolve({calls: readCalls(logPath), exitCode, signal, stderr, stdout})
+      const calls = readCalls(logPath)
+      // Zero calls can mean that something other than the fake ran, so a test has to say that it expects none.
+      if (fixture.usesFake && !options.noCalls && calls.length === 0) {
+        reject(new Error(`monocf ${args.join(' ')} made no fake wrangler call (exit ${exitCode}):\n${stderr}`))
+        return
+      }
+
+      resolve({calls, exitCode, signal, stderr, stdout})
     })
   })
 }

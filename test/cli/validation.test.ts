@@ -2,7 +2,19 @@ import {readFileSync} from 'node:fs'
 import {join} from 'node:path'
 import {describe, expect, it} from 'vitest'
 
-import {argvWithoutConfig, createFixture, deployedNames, flagValue, runCli, type CliResult} from '../helpers/harness.js'
+import {
+  argvWithoutConfig,
+  createFixture,
+  deployedNames,
+  flagValue,
+  runCli,
+  type CliResult,
+  type Fixture,
+} from '../helpers/harness.js'
+
+function runRejected(fixture: Fixture, args: string[]): Promise<CliResult> {
+  return runCli(fixture, args, {noCalls: true})
+}
 
 function expectRejected(result: CliResult, message: string): void {
   expect(result.stderr.replaceAll(/\s+/g, ' ').replaceAll(' › ', ' ')).toContain(message)
@@ -20,7 +32,7 @@ describe('-e (F07)', () => {
   it.each(['build', 'deploy', 'preview', 'dev'])('%s fails for an env defined nowhere', async (command) => {
     const fixture = createFixture({environments, workers: [{name: 'orders'}]})
 
-    const result = await runCli(fixture, ['worker', 'orders', '-c', command, '-e', 'prodution'])
+    const result = await runRejected(fixture, ['worker', 'orders', '-c', command, '-e', 'prodution'])
 
     expectRejected(result, 'Unknown environment "prodution" for worker orders')
   })
@@ -54,7 +66,7 @@ describe('-e (F07)', () => {
   it('does not take inherited object keys for envs', async () => {
     const fixture = createFixture({environments, workers: [{name: 'orders'}]})
 
-    const result = await runCli(fixture, ['worker', 'orders', '-c', 'deploy', '-e', 'constructor'])
+    const result = await runRejected(fixture, ['worker', 'orders', '-c', 'deploy', '-e', 'constructor'])
 
     expectRejected(result, 'Unknown environment "constructor"')
   })
@@ -64,7 +76,7 @@ describe('-e (F07)', () => {
       workers: [{config: {env: {staging: {}}}, name: 'billing'}, {name: 'orders'}],
     })
 
-    const result = await runCli(fixture, ['worker', '-a', '-c', 'deploy', '-e', 'staging'])
+    const result = await runRejected(fixture, ['worker', '-a', '-c', 'deploy', '-e', 'staging'])
 
     expectRejected(result, 'Unknown environment "staging" for worker orders')
   })
@@ -74,7 +86,7 @@ describe('-e (F07)', () => {
       workers: [{envBindings: {staging: ['orders']}, name: 'gateway'}, {name: 'orders'}],
     })
 
-    const result = await runCli(fixture, ['worker', 'gateway', '-c', 'deploy', '-e', 'staging', '-d'])
+    const result = await runRejected(fixture, ['worker', 'gateway', '-c', 'deploy', '-e', 'staging', '-d'])
 
     expectRejected(result, 'Unknown environment "staging" for worker orders')
   })
@@ -102,7 +114,7 @@ describe('-e (F07)', () => {
     it.each(['local', 'dev'])('-e %s fails when not defined: it has no special treatment', async (env) => {
       const fixture = createFixture({environments: ['staging'], workers: [{name: 'orders'}]})
 
-      const result = await runCli(fixture, ['worker', 'orders', '-c', 'dev', '-e', env])
+      const result = await runRejected(fixture, ['worker', 'orders', '-c', 'dev', '-e', env])
 
       expectRejected(result, `Unknown environment "${env}"`)
     })
@@ -113,7 +125,7 @@ describe('named workers (F08)', () => {
   it.each(['build', 'deploy', 'preview', 'dev'])('%s fails for a worker that does not exist', async (command) => {
     const fixture = createFixture({workers: [{name: 'orders'}]})
 
-    const result = await runCli(fixture, ['worker', 'nope', '-c', command])
+    const result = await runRejected(fixture, ['worker', 'nope', '-c', command])
 
     expectRejected(result, 'Worker not found')
   })
@@ -121,7 +133,7 @@ describe('named workers (F08)', () => {
   it.each(['build', 'deploy', 'preview', 'dev'])('%s fails for a worker in .monocfignore', async (command) => {
     const fixture = createFixture({ignore: ['orders'], workers: [{name: 'billing'}, {name: 'orders'}]})
 
-    const result = await runCli(fixture, ['worker', 'orders', '-c', command])
+    const result = await runRejected(fixture, ['worker', 'orders', '-c', command])
 
     expectRejected(result, 'Worker orders is listed in .monocfignore')
   })
@@ -129,7 +141,7 @@ describe('named workers (F08)', () => {
   it('fails for an ignored worker inferred from the current directory', async () => {
     const fixture = createFixture({ignore: ['orders'], workers: [{name: 'orders'}]})
 
-    const result = await runCli(fixture, ['worker', '-c', 'deploy'], {cwd: 'workers/orders'})
+    const result = await runCli(fixture, ['worker', '-c', 'deploy'], {cwd: 'workers/orders', noCalls: true})
 
     expectRejected(result, 'Worker orders is listed in .monocfignore')
   })
@@ -137,7 +149,7 @@ describe('named workers (F08)', () => {
   it('-a fails when every worker is ignored', async () => {
     const fixture = createFixture({ignore: ['orders'], workers: [{name: 'orders'}]})
 
-    const result = await runCli(fixture, ['worker', '-a', '-c', 'deploy'])
+    const result = await runRejected(fixture, ['worker', '-a', '-c', 'deploy'])
 
     expectRejected(result, 'No workers found')
   })
@@ -157,7 +169,7 @@ describe('named workers (F08)', () => {
   it('-d fails before any wrangler call if a binding does not exist', async () => {
     const fixture = createFixture({workers: [{bindings: ['nope'], name: 'gateway'}]})
 
-    const result = await runCli(fixture, ['worker', 'gateway', '-c', 'deploy', '-d'])
+    const result = await runRejected(fixture, ['worker', 'gateway', '-c', 'deploy', '-d'])
 
     expectRejected(result, 'Worker not found')
   })
@@ -191,7 +203,7 @@ describe('secrets files (F05, F34)', () => {
         workers: [{name: 'orders'}],
       })
 
-      const result = await runCli(fixture, ['worker', 'orders', '-c', 'deploy', '-e', 'production', '-s'])
+      const result = await runRejected(fixture, ['worker', 'orders', '-c', 'deploy', '-e', 'production', '-s'])
 
       expectRejected(result, '.dev.vars.production')
     })
@@ -203,7 +215,7 @@ describe('secrets files (F05, F34)', () => {
         workers: [{name: 'orders'}],
       })
 
-      const result = await runCli(fixture, ['worker', 'orders', '-c', 'deploy', '-e', 'production', '-s'])
+      const result = await runRejected(fixture, ['worker', 'orders', '-c', 'deploy', '-e', 'production', '-s'])
 
       expectRejected(result, '.dev.vars.production')
     })
@@ -257,7 +269,7 @@ describe('secrets files (F05, F34)', () => {
       const withoutFile = createFixture({workers: [{name: 'orders'}]})
 
       const uploaded = await runCli(withFile, ['worker', 'orders', '-c', 'deploy', '-s'])
-      const rejected = await runCli(withoutFile, ['worker', 'orders', '-c', 'deploy', '-s'])
+      const rejected = await runRejected(withoutFile, ['worker', 'orders', '-c', 'deploy', '-s'])
 
       expect(secretCalls(uploaded)[0].secretFile?.vars).toEqual({KEY: 'dev'})
       expectRejected(rejected, '.dev.vars')
@@ -270,7 +282,7 @@ describe('secrets files (F05, F34)', () => {
         workers: [{name: 'billing'}, {name: 'orders'}],
       })
 
-      const result = await runCli(fixture, ['worker', '-a', '-c', 'deploy', '-e', 'production', '-s'])
+      const result = await runRejected(fixture, ['worker', '-a', '-c', 'deploy', '-e', 'production', '-s'])
 
       expectRejected(result, '.dev.vars.production')
     })
@@ -296,7 +308,7 @@ describe('secrets files (F05, F34)', () => {
         workers: [{envBindings: {production: ['orders']}, name: 'gateway'}, {name: 'orders'}],
       })
 
-      const result = await runCli(fixture, ['worker', 'gateway', '-c', 'deploy', '-e', 'production', '-s', '-d'])
+      const result = await runRejected(fixture, ['worker', 'gateway', '-c', 'deploy', '-e', 'production', '-s', '-d'])
 
       expectRejected(result, '.dev.vars.production')
     })
@@ -308,7 +320,7 @@ describe('secrets files (F05, F34)', () => {
         workers: [{name: 'orders'}],
       })
 
-      const result = await runCli(fixture, ['worker', 'orders', '-c', 'deploy', '-e', 'production'])
+      const result = await runRejected(fixture, ['worker', 'orders', '-c', 'deploy', '-e', 'production'])
 
       expectRejected(result, '.dev.vars.production')
     })
@@ -333,7 +345,7 @@ describe('secrets files (F05, F34)', () => {
         workers: [{name: 'orders'}],
       })
 
-      const result = await runCli(fixture, ['worker', 'orders', '-c', 'deploy', '-e', 'dev', '-s'])
+      const result = await runRejected(fixture, ['worker', 'orders', '-c', 'deploy', '-e', 'dev', '-s'])
 
       expectRejected(result, '.dev.vars.dev')
     })
@@ -362,7 +374,7 @@ describe('secrets files (F05, F34)', () => {
         workers: [{name: 'orders'}],
       })
 
-      const result = await runCli(fixture, ['worker', 'orders', '-c', 'preview', '-e', 'staging', '-s'])
+      const result = await runRejected(fixture, ['worker', 'orders', '-c', 'preview', '-e', 'staging', '-s'])
 
       expectRejected(result, '.dev.vars.staging')
     })
@@ -389,7 +401,7 @@ describe('secrets files (F05, F34)', () => {
         workers: [{name: 'orders'}],
       })
 
-      const result = await runCli(fixture, ['secrets', 'deploy', 'orders', '-e', 'production'])
+      const result = await runRejected(fixture, ['secrets', 'deploy', 'orders', '-e', 'production'])
 
       expectRejected(result, '.dev.vars.production')
     })
@@ -403,11 +415,11 @@ describe('secrets files (F05, F34)', () => {
       })
 
       expectRejected(
-        await runCli(fixture, ['secrets', 'deploy', 'orders', '-e', 'prodution']),
+        await runRejected(fixture, ['secrets', 'deploy', 'orders', '-e', 'prodution']),
         'Unknown environment "prodution"',
       )
-      expectRejected(await runCli(fixture, ['secrets', 'deploy', 'nope']), 'Worker not found')
-      expectRejected(await runCli(fixture, ['secrets', 'deploy', 'billing']), 'listed in .monocfignore')
+      expectRejected(await runRejected(fixture, ['secrets', 'deploy', 'nope']), 'Worker not found')
+      expectRejected(await runRejected(fixture, ['secrets', 'deploy', 'billing']), 'listed in .monocfignore')
     })
 
     it('-a skips ignored workers', async () => {
@@ -473,7 +485,7 @@ describe('flag combinations (F11, F23)', () => {
   it('-F requires -f', async () => {
     const fixture = createFixture({workers})
 
-    const result = await runCli(fixture, ['worker', 'orders', '-c', 'deploy', '-F', 'abc123'])
+    const result = await runRejected(fixture, ['worker', 'orders', '-c', 'deploy', '-F', 'abc123'])
 
     expectRejected(result, '--deploy-from-version-id requires --from-version')
   })
@@ -511,13 +523,13 @@ describe('flag combinations (F11, F23)', () => {
   ])('%s fails', async (_, args) => {
     const fixture = createFixture({workers})
 
-    expectRejected(await runCli(fixture, args), 'Deploying from a version works for one named worker')
+    expectRejected(await runRejected(fixture, args), 'Deploying from a version works for one named worker')
   })
 
   it('-f fails when deployBindings is set in monocf.config.json', async () => {
     const fixture = createFixture({monocfConfig: {deployBindings: true}, workers})
 
-    const result = await runCli(fixture, ['worker', 'orders', '-c', 'deploy', '-f', '-F', 'abc123'])
+    const result = await runRejected(fixture, ['worker', 'orders', '-c', 'deploy', '-f', '-F', 'abc123'])
 
     expectRejected(result, 'Deploying from a version works for one named worker')
   })
@@ -525,7 +537,7 @@ describe('flag combinations (F11, F23)', () => {
   it('-f -m fails: nothing gets uploaded to minify', async () => {
     const fixture = createFixture({workers})
 
-    const result = await runCli(fixture, ['worker', 'orders', '-c', 'deploy', '-f', '-m'])
+    const result = await runRejected(fixture, ['worker', 'orders', '-c', 'deploy', '-f', '-m'])
 
     expectRejected(result, '--minify has no effect')
   })
@@ -546,7 +558,7 @@ describe('flag combinations (F11, F23)', () => {
   ])('%s fails instead of dropping the flag', async (_, flags, flagName) => {
     const fixture = createFixture({workers})
 
-    const result = await runCli(fixture, ['worker', 'orders', ...flags])
+    const result = await runRejected(fixture, ['worker', 'orders', ...flags])
 
     expectRejected(result, `--${flagName} is not supported`)
   })
@@ -563,7 +575,7 @@ describe('flag combinations (F11, F23)', () => {
   it('deploy -M fails without -f: wrangler deploy has no message option', async () => {
     const fixture = createFixture({workers})
 
-    const result = await runCli(fixture, ['worker', 'orders', '-c', 'deploy', '-M', 'fix: login'])
+    const result = await runRejected(fixture, ['worker', 'orders', '-c', 'deploy', '-M', 'fix: login'])
 
     expectRejected(result, '--message on deploy requires --from-version')
   })
@@ -628,7 +640,7 @@ describe('-c', () => {
   it('rejects an unknown command in the parser', async () => {
     const fixture = createFixture({workers: [{name: 'orders'}]})
 
-    const result = await runCli(fixture, ['worker', 'orders', '-c', 'bogus'])
+    const result = await runRejected(fixture, ['worker', 'orders', '-c', 'bogus'])
 
     expect(result.exitCode).toBe(2)
     expect(result.calls).toEqual([])
@@ -638,7 +650,7 @@ describe('-c', () => {
   it('lists the commands in --help', async () => {
     const fixture = createFixture({workers: [{name: 'orders'}]})
 
-    const result = await runCli(fixture, ['worker', '--help'])
+    const result = await runRejected(fixture, ['worker', '--help'])
 
     expect(result.exitCode).toBe(0)
     expect(result.stdout).toContain('build|deploy|dev|preview')
@@ -658,7 +670,7 @@ describe('-a with an inferred worker (F47)', () => {
   it('still fails with -a and an explicit worker name', async () => {
     const fixture = createFixture({workers: [{name: 'orders'}]})
 
-    const result = await runCli(fixture, ['worker', 'orders', '-a', '-c', 'deploy'])
+    const result = await runRejected(fixture, ['worker', 'orders', '-a', '-c', 'deploy'])
 
     expectRejected(result, 'Worker name is not allowed when using --all flag')
   })
