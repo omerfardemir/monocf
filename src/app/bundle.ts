@@ -116,6 +116,8 @@ function describeWorker(worker: ResolvedWorker, out: string, env: string): Manif
 
 /** Wrangler names the output after the entry file. Whatever can't be read counts as unknown, not as no exports. */
 function exportsOf({config, dir}: ResolvedWorker, out: string, env: string): string[] | undefined {
+  // With no_bundle the file is the author's own text, so its last export statement needn't list everything.
+  if (effectiveField(config, env, 'no_bundle') === true) return undefined
   const main = effectiveField(config, env, 'main')
   const name = typeof main === 'string' ? parse(main).name : 'index'
   try {

@@ -477,6 +477,19 @@ describe('unknown-entrypoint in bundle', () => {
     expect(result.stderr).toContain('warning unknown-entrypoint')
   })
 
+  it('only warns about a provider with no_bundle, whose last export statement says little', async () => {
+    const fixture = withEntrypoint('Api')
+    const path = join(fixture.worker('billing'), 'wrangler.jsonc')
+    writeFileSync(path, JSON.stringify({...JSON.parse(readFileSync(path, 'utf8')), no_bundle: true}))
+
+    const result = await runCli(fixture, ['bundle', '-e', 'dev'], {
+      rules: [{...billing, bundle: 'export class Api {}\nconst other = 1;\nexport { other };\n'}],
+    })
+
+    expect(result.exitCode, result.stderr).toBe(0)
+    expect(result.stderr).toContain('warning unknown-entrypoint')
+  })
+
   it('reports a finding as an event with --json', async () => {
     const result = await runCli(withEntrypoint('Typo'), ['bundle', '-e', 'dev', '--json'], {
       rules: [{...billing, bundle: 'export { Api };\n'}],
