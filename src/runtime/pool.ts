@@ -69,8 +69,14 @@ async function runWithRetry<T>(step: PoolStep<T>, {retry, signal, sleep = defaul
       return {attempts: attempt, id: step.id, status: 'succeeded' as const, value}
     } catch (error) {
       const failed = {attempts: attempt, error, id: step.id, status: 'failed' as const}
-      if (!retry || attempt >= retry.attempts || signal?.aborted || !retry.isRetryable(failed)) return failed
-      await sleep(retry.delayMs(attempt), signal)
+      try {
+        if (!retry || attempt >= retry.attempts || signal?.aborted || !retry.isRetryable(failed)) return failed
+        await sleep(retry.delayMs(attempt), signal)
+      } catch {
+        // The pool has to settle, and the step did fail.
+        return failed
+      }
+
       if (signal?.aborted) return failed
     }
   }
@@ -86,9 +92,20 @@ export function runPool<T>(steps: PoolStep<T>[], options: PoolOptions<T>): Promi
   validateSteps(steps, concurrency)
 
   const results = new Map<string, StepResult<T>>()
-  const finish = (result: StepResult<T>): void => {
+  const finish = (result: StepResult<T>): StepResult<T> => {
     results.set(result.id, result)
-    onFinish?.(result)
+    try {
+      onFinish?.(result)
+    } catch (error) {
+      // Whatever was listening didn't take this success in, so it isn't one. The pool has to settle either way.
+      if (result.status === 'succeeded') {
+        const failed: StepResult<T> = {attempts: result.attempts, error, id: result.id, status: 'failed'}
+        results.set(result.id, failed)
+        return failed
+      }
+    }
+
+    return result
   }
 
   const started = new Set<string>()
@@ -111,7 +128,11 @@ export function runPool<T>(steps: PoolStep<T>[], options: PoolOptions<T>): Promi
         const ready = unfinished.filter(({dependsOn}) =>
           dependsOn.every((dependency) => results.get(dependency)?.status === 'succeeded'),
         )
-        for (const step of ready.slice(0, concurrency - running)) start(step)
+        for (const step of ready.slice(0, concurrency - running)) {
+          // A step can abort before its first await, which has already cancelled the rest of this list.
+          if (signal?.aborted) break
+          start(step)
+        }
       }
 
       if (running === 0 && results.size === steps.length) {
@@ -125,8 +146,7 @@ export function runPool<T>(steps: PoolStep<T>[], options: PoolOptions<T>): Promi
       running++
       runWithRetry(step, options).then((result) => {
         running--
-        finish(result)
-        if (result.status === 'failed') skipDependents(step.id, step.id)
+        if (finish(result).status === 'failed') skipDependents(step.id, step.id)
         pump()
       })
     }

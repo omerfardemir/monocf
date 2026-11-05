@@ -262,4 +262,101 @@ describe('runPool retry', () => {
     expect(calls()).toBe(1)
     expect(results[0]).toMatchObject({attempts: 1, status: 'failed'})
   })
+
+  it('settles with the step error when isRetryable throws', async () => {
+    const results = await runPool([{dependsOn: [], id: 'a', run: () => Promise.reject(new Error('step broke'))}], {
+      concurrency: 1,
+      retry: {
+        attempts: 3,
+        delayMs: () => 0,
+        isRetryable() {
+          throw new Error('policy broke')
+        },
+      },
+    })
+
+    expect(results[0]).toMatchObject({attempts: 1, error: new Error('step broke'), status: 'failed'})
+  })
+
+  it('settles with the step error when delayMs throws', async () => {
+    const results = await runPool([{dependsOn: [], id: 'a', run: () => Promise.reject(new Error('step broke'))}], {
+      concurrency: 1,
+      retry: {
+        attempts: 3,
+        delayMs() {
+          throw new Error('policy broke')
+        },
+        isRetryable: () => true,
+      },
+    })
+
+    expect(results[0]).toMatchObject({error: new Error('step broke'), status: 'failed'})
+  })
+
+  it('settles with the step error when sleep throws', async () => {
+    const results = await runPool([{dependsOn: [], id: 'a', run: () => Promise.reject(new Error('step broke'))}], {
+      concurrency: 1,
+      retry: {attempts: 3, delayMs: () => 0, isRetryable: () => true},
+      sleep: () => Promise.reject(new Error('sleep broke')),
+    })
+
+    expect(results[0]).toMatchObject({error: new Error('step broke'), status: 'failed'})
+  })
+
+  it('counts a success as failed when onFinish throws on it, and skips what depends on it', async () => {
+    const results = await runPool([instant('a'), instant('b', ['a'])], {
+      concurrency: 1,
+      onFinish({id}) {
+        if (id === 'a') throw new Error('state write broke')
+      },
+    })
+
+    expect(results).toEqual([
+      {attempts: 1, error: new Error('state write broke'), id: 'a', status: 'failed'},
+      {id: 'b', reason: 'a', status: 'skipped'},
+    ])
+  })
+
+  it('keeps the result of anything else when onFinish throws on it', async () => {
+    const results = await runPool([{dependsOn: [], id: 'a', run: () => Promise.reject(new Error('step broke'))}, instant('b', ['a'])], {
+      concurrency: 1,
+      onFinish() {
+        throw new Error('listener broke')
+      },
+    })
+
+    expect(results).toEqual([
+      {attempts: 1, error: new Error('step broke'), id: 'a', status: 'failed'},
+      {id: 'b', reason: 'a', status: 'skipped'},
+    ])
+  })
+
+  it('starts nothing more once a step aborts before its first await', async () => {
+    const controller = new AbortController()
+    let started = false
+    const results = await runPool(
+      [
+        {
+          dependsOn: [],
+          id: 'a',
+          run() {
+            controller.abort()
+            return Promise.resolve('a')
+          },
+        },
+        {
+          dependsOn: [],
+          id: 'b',
+          run() {
+            started = true
+            return Promise.resolve('b')
+          },
+        },
+      ],
+      {concurrency: 2, signal: controller.signal},
+    )
+
+    expect(started).toBe(false)
+    expect(byId(results)).toEqual({a: 'succeeded', b: 'cancelled'})
+  })
 })
