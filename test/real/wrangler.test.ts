@@ -3,7 +3,7 @@ import {existsSync, readFileSync} from 'node:fs'
 import {join} from 'node:path'
 import {describe, expect, it} from 'vitest'
 
-import {createFixture, runCli, snapshotTree, startCli, type RunningCli} from '../helpers/harness.js'
+import {createFixture, listTree, runCli, snapshotTree, startCli, type RunningCli} from '../helpers/harness.js'
 
 const isWindows = process.platform === 'win32'
 const STARTUP_MS = 90_000
@@ -208,7 +208,7 @@ export default {fetch: () => new Response('billing')}
         wrangler: 'real',
         workers: [{name: 'orders'}],
       })
-      const before = snapshotTree(fixture.root)
+      const before = listTree(fixture.root)
       const devPort = port()
 
       const running = startCli(fixture, ['worker', 'orders', '-c', 'dev', '-p', String(devPort)])
@@ -216,8 +216,8 @@ export default {fetch: () => new Response('billing')}
         const body = await fetchUntil(running, `http://127.0.0.1:${devPort}/`, isOk)
 
         expect(JSON.parse(body)).toMatchObject({...values, RELEASE: expect.any(String)})
-        expect(snapshotTree(fixture.root)).toMatchObject({'workers/orders/.dev.vars': source})
-        const added = Object.keys(snapshotTree(fixture.root)).filter((path) => !(path in before))
+        expect(readFileSync(join(fixture.worker('orders'), '.dev.vars'), 'utf8')).toBe(source)
+        const added = listTree(fixture.root).filter((path) => !before.includes(path))
         expect(added.filter((path) => !/^\.monocf\/|^workers\/orders\/\.wrangler\//.test(path))).toEqual([])
       } finally {
         await stop(running)

@@ -1,5 +1,6 @@
 import {execFileSync, spawn, type ChildProcessByStdio} from 'node:child_process'
 import {
+  type Dirent,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -363,24 +364,45 @@ export function runCli(fixture: Fixture, args: string[], options: RunOptions = {
   return startCli(fixture, args, options).done
 }
 
-/** Everything under a directory that is not installed, with its content, for before-and-after comparisons. */
-export function snapshotTree(root: string): Record<string, string> {
-  const snapshot: Record<string, string> = {}
+function entriesOf(dir: string): Dirent[] {
+  try {
+    return readdirSync(dir, {withFileTypes: true})
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []
+    throw error
+  }
+}
+
+/**
+ * The paths under a directory that are not installed, directories with a trailing slash. It opens no file, so it can
+ * look at a tree a live process works in: on Windows, reading a range of a file that process has locked fails with
+ * EBUSY. A directory that process removes during the walk counts as gone.
+ */
+export function listTree(root: string): string[] {
+  const paths: string[] = []
   const walk = (dir: string): void => {
-    for (const entry of readdirSync(dir, {withFileTypes: true})) {
+    for (const entry of entriesOf(dir)) {
       if (entry.name === 'node_modules' || entry.name === '.git') continue
       const path = join(dir, entry.name)
+      const name = relative(root, path).replaceAll('\\', '/')
       if (entry.isDirectory()) {
-        snapshot[`${relative(root, path).replaceAll('\\', '/')}/`] = ''
+        paths.push(`${name}/`)
         walk(path)
       } else {
-        snapshot[relative(root, path).replaceAll('\\', '/')] = readFileSync(path, 'utf8')
+        paths.push(name)
       }
     }
   }
 
   walk(root)
-  return snapshot
+  return paths
+}
+
+/** Everything under a directory that is not installed, with its content, for before-and-after comparisons. */
+export function snapshotTree(root: string): Record<string, string> {
+  return Object.fromEntries(
+    listTree(root).map((path) => [path, path.endsWith('/') ? '' : readFileSync(join(root, path), 'utf8')]),
+  )
 }
 
 /** The argv of a call without the flags whose values change per run: config and persistence paths, and the release. */
