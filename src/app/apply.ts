@@ -709,7 +709,7 @@ export async function runApply(planPath: string, flags: ApplyFlags): Promise<voi
 
     context.interrupts.throwIfInterrupted()
     const failed = Object.values(record.workers).some(({result}) => result === 'failed' || result === 'skipped' || result === 'cancelled')
-    exitCode = failed || problems.length > 0 ? EXIT_FAILED : EXIT_OK
+    exitCode = context.interrupts.killedExit ?? (failed || problems.length > 0 ? EXIT_FAILED : EXIT_OK)
     return exitCode
   })
 

@@ -177,7 +177,8 @@ export async function runDeploySteps(
         try {
           return await step.run(attempt)
         } catch (error) {
-          if ((error as {exitCode?: number}).exitCode! > 128) interrupts.halt()
+          const {exitCode} = error as {exitCode?: number}
+          if (exitCode !== undefined && exitCode > 128) interrupts.killed(exitCode)
           throw error
         }
       },

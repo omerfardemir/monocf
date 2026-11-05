@@ -552,7 +552,7 @@ export async function runRollback(workerName: string | undefined, flags: Rollbac
     process.stderr.write(formatRunSummary(record, problems))
     context.interrupts.throwIfInterrupted()
     const unfinished = targets.some(({worker}) => records[worker.dir].result !== 'ok') || Object.values(records).some(({result}) => result === 'refused')
-    exitCode = unfinished || problems.length > 0 ? EXIT_FAILED : EXIT_OK
+    exitCode = context.interrupts.killedExit ?? (unfinished || problems.length > 0 ? EXIT_FAILED : EXIT_OK)
     return exitCode
   })
 

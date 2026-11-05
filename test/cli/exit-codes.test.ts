@@ -1,5 +1,6 @@
 import {describe, expect, it} from 'vitest'
 
+import {applyPlan, deployFixture, firstRun, lastRunRecord, newCode, planFor} from '../helpers/deploy-fixtures.js'
 import {createFixture, deployedNames, runCli} from '../helpers/harness.js'
 
 const isWindows = process.platform === 'win32'
@@ -63,6 +64,32 @@ describe('exit codes', () => {
     expect(names[0]).toBe('billing-v1')
     // On Windows a kill looks like exit 1, which is an ordinary failure, so independent workers carry on.
     if (!isWindows) expect(names).toEqual(['billing-v1'])
+  })
+
+  it.skipIf(isWindows)('apply exits 128 + n when a wrangler is killed from outside, and records the step as cancelled', async () => {
+    const fixture = deployFixture({workers: [{name: 'billing'}]})
+    const cloudflare = await firstRun(fixture)
+    await planFor(fixture, cloudflare, {rules: newCode('billing')})
+
+    const result = await applyPlan(fixture, cloudflare, {rules: [{command: 'versions upload', signal: 'SIGKILL'}]})
+
+    expect(result.exitCode).toBe(128 + 9)
+    expect(lastRunRecord(fixture).workers.billing.result).toBe('cancelled')
+  })
+
+  it.skipIf(isWindows)('rollback exits 128 + n when a wrangler is killed from outside', async () => {
+    const fixture = deployFixture({workers: [{name: 'billing'}]})
+    const cloudflare = await firstRun(fixture)
+    await planFor(fixture, cloudflare, {rules: newCode('billing')})
+    const applied = await applyPlan(fixture, cloudflare)
+    const runId = lastRunRecord(fixture).runId as string
+
+    const result = await runCli(fixture, ['rollback', '-e', 'staging', '--state', 'file:state', '--to-run', runId], {
+      cloudflare: applied.cloudflare!,
+      rules: [{command: 'versions deploy', signal: 'SIGTERM'}],
+    })
+
+    expect(result.exitCode).toBe(128 + 15)
   })
 
   it('fails when wrangler whoami fails', async () => {

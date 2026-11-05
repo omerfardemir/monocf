@@ -34,6 +34,8 @@ function terminate(child: ChildProcess, signal: NodeJS.Signals): void {
 export class Interrupts {
   /** The signal that ended this run, if any. */
   received?: NodeJS.Signals
+  /** 128 + n for the first wrangler a signal from outside killed, which a run that goes on to the end exits with. */
+  killedExit?: number
   private readonly halted = new AbortController()
   private readonly children = new Set<ChildProcess>()
   private killTimer?: NodeJS.Timeout
@@ -58,6 +60,12 @@ export class Interrupts {
   /** Stops new steps without a signal from outside. Running steps carry on. */
   halt(): void {
     this.halted.abort()
+  }
+
+  /** A wrangler was killed from outside, with this exit code: nothing new starts, and the run exits with it. */
+  killed(exitCode: number): void {
+    this.killedExit ??= exitCode
+    this.halt()
   }
 
   /** Removes the handlers once a run is over. */
