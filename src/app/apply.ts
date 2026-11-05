@@ -10,6 +10,7 @@ import {workerExternalHash} from '../fingerprint/external.js'
 import {configHash, doHash, triggersHash, triggersOf, type Triggers} from '../fingerprint/fingerprint.js'
 import {PLAN_SCHEMA_VERSION, tagFor, type Plan, type PlanStep} from '../plan/plan.js'
 import type {OptionFlags, Options} from '../project/options.js'
+import {discoverWorkers} from '../project/workers.js'
 import {formatRunMarkdown, formatRunSummary} from '../report/run-summary.js'
 import {materialiseConfig} from '../runtime/materialise.js'
 import type {StateWorker} from '../state/manifest.js'
@@ -214,6 +215,8 @@ class Applier {
     const targets = [...this.run.targets.values()]
     const ofAction = (...actions: PlanStep['action'][]) => targets.filter(({step}) => actions.includes(step.action))
 
+    const inRepository = discoverWorkers(this.run.options)
+    this.writer.unmark((this.writer.manifest.needsNewVersion ?? []).filter((name) => !inRepository.includes(name)))
     const marks = [...new Set(targets.flatMap(({step}) => step.markCallers ?? []))]
     if (marks.length > 0) await this.writer.mark(marks)
 

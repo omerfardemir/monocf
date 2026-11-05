@@ -73,6 +73,12 @@ export class StateWriter {
     }
   }
 
+  /** Drops what no longer means anything: a name gone from the repository can't be given a version. */
+  unmark(workers: string[]): void {
+    for (const worker of workers) this.clearMark(worker)
+    if (workers.length > 0) this.flush()
+  }
+
   async settled(): Promise<void> {
     await this.draining
   }

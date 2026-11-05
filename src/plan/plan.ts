@@ -263,6 +263,12 @@ function previousVersion(active: ActiveInfo): string | undefined {
   return active.state === 'active' ? active.versionId : active.shares[0].versionId
 }
 
+/** A caller that's ignored now still needs a new version once it's selected, so it's marked too, and nothing acts on that until then. */
+function callersToMark(graph: Graph, ignored: PlanOptions['ignored'], provider: string): string[] {
+  const left = ignored ? directBindingCallers(ignored.graph, provider).filter((caller) => ignored.workers.includes(caller)) : []
+  return [...new Set([...directBindingCallers(graph, provider), ...left])].sort()
+}
+
 /** A blocked step stays blocked: a person has to look at it, and the need stays in the manifest for afterwards. */
 function giveNewVersion(decision: Decision): void {
   if (decision.action === 'skip' || decision.action === 'adopt' || decision.action === 'triggers') {
@@ -286,7 +292,7 @@ function uploadCallersOfRecreated(
   const ignoredNames = new Set(ignored?.workers)
   const ignoredNote = (caller: string, why: string): PlanNote => ({
     kind: 'caller-ignored',
-    message: `${why}, and it's in .monocfignore, so monocf leaves it alone. It stays broken until someone gives it a new version.`,
+    message: `${why}, and it's in .monocfignore, so monocf leaves it alone for now. It stays broken until it gets a new version, which it does once it's selected.`,
     worker: caller,
   })
   for (const provider of recreated) {
@@ -459,7 +465,7 @@ export function createPlan(
       triggersChanged,
       explicitEmptyCrons: hasCrons(entryOf(name)?.triggers) && !hasCrons(worker.triggers),
       fingerprint: worker.fingerprint,
-      ...(recreated.includes(name) && {markCallers: directBindingCallers(graph, name)}),
+      ...(recreated.includes(name) && {markCallers: callersToMark(graph, ignored, name)}),
       bundleHash: worker.bundleHash,
       configHash: worker.configHash,
       externalHash: worker.externalHash,

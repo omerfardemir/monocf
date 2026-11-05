@@ -2,7 +2,7 @@ import {rmSync, writeFileSync} from 'node:fs'
 import {join} from 'node:path'
 import {describe, expect, it} from 'vitest'
 
-import {activeOf, actionsOf, applyPlan, callsOf, deployFixture, firstRun, manifestOf, planFor, readPlan, stepOf, writesOf} from '../helpers/deploy-fixtures.js'
+import {activeOf, actionsOf, applyPlan, callsOf, commitAll, deployFixture, firstRun, manifestOf, planFor, readPlan, stepOf, writesOf} from '../helpers/deploy-fixtures.js'
 import type {FakeCloudflare, Fixture, WranglerRule} from '../helpers/harness.js'
 
 const dropped = (worker: string): WranglerRule => ({command: 'deploy', effectThenFail: true, exitCode: 1, failMessage: 'fetch failed', stderr: 'fetch failed\n', times: 1, worker})
@@ -125,6 +125,49 @@ describe('apply, recovering what a crash left live (WP6-7)', () => {
     expect(result.exitCode).toBe(1)
     expect(manifestOf(fixture).workers.reports).toBeUndefined()
     expect(stepOf(await planFor(fixture, result.cloudflare!), 'reports').action).toBe('adopt')
+  })
+})
+
+describe('apply, and the marker (WP6-12, WP6-17)', () => {
+  it('marks a caller in .monocfignore when its provider is recreated, and acts once it is selected', async () => {
+    const fixture = deployFixture()
+    const cloudflare = await live(fixture)
+    writeFileSync(join(fixture.root, '.monocfignore'), 'gateway\norders\n')
+    commitAll(fixture)
+    const provider = stepOf(await planFor(fixture, cloudflare), 'billing').deployedName
+    const {[provider]: gone, ...rest} = cloudflare.workers!
+    expect(gone).toBeDefined()
+    const plan = await planFor(fixture, {...cloudflare, workers: rest}, {flags: ['--allow-recreate']})
+    expect(stepOf(plan, 'billing').markCallers).toEqual(['orders'])
+    expect(plan.notes.find(({kind}: {kind: string}) => kind === 'caller-ignored').message).toContain("once it's selected")
+
+    const applied = await applyPlan(fixture, {...cloudflare, workers: rest})
+
+    expect(applied.exitCode, applied.stderr).toBe(0)
+    expect(writesOf(applied.calls)).not.toContain('upload orders')
+    expect(manifestOf(fixture).needsNewVersion).toEqual(['orders'])
+
+    const stillIgnored = await planFor(fixture, applied.cloudflare!)
+    expect(stillIgnored.steps.map(({worker}: {worker: string}) => worker)).not.toContain('orders')
+    await applyPlan(fixture, applied.cloudflare!, {noCalls: true})
+    expect(manifestOf(fixture).needsNewVersion).toEqual(['orders'])
+
+    writeFileSync(join(fixture.root, '.monocfignore'), 'gateway\n')
+    commitAll(fixture)
+    expect(stepOf(await planFor(fixture, applied.cloudflare!), 'orders')).toMatchObject({action: 'upload', reasons: ['provider-recreated']})
+  })
+
+  it('drops a marker for a worker gone from the repository, and keeps the rest', async () => {
+    const fixture = deployFixture()
+    const cloudflare = await live(fixture)
+    const path = join(fixture.root, 'state', 'staging', 'manifest.json')
+    writeFileSync(path, JSON.stringify({...manifestOf(fixture), needsNewVersion: ['long-gone', 'orders']}))
+    await planFor(fixture, cloudflare, {flags: ['--workers', 'billing']})
+
+    const result = await applyPlan(fixture, cloudflare, {noCalls: true})
+
+    expect(result.exitCode, result.stderr).toBe(0)
+    expect(manifestOf(fixture).needsNewVersion).toEqual(['orders'])
   })
 })
 
