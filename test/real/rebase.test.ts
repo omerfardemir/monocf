@@ -66,6 +66,39 @@ function copyOfPackage(modules: string, marker: string): Record<string, string> 
   }
 }
 
+function pythonProject(main: string, files: Record<string, string>) {
+  return createFixture({
+    environments: ['staging'],
+    files: Object.fromEntries(Object.entries(files).map(([path, content]) => [`workers/orders/${path}`, content])),
+    wrangler: 'real',
+    workers: [{config: {compatibility_flags: ['python_workers'], main}, name: 'orders'}],
+  })
+}
+
+describe('real wrangler: a Python worker', {timeout: 180_000}, () => {
+  const python = 'from foo import x\nfrom workers import Response\ndef on_fetch(request):\n    return Response(x)\n'
+  const modules = {'python_modules/foo/__init__.py': 'x = "from-a-vendored-module"\n'}
+
+  it('keeps python_modules, which wrangler reads from next to the config', async () => {
+    const fixture = pythonProject('src/entry.py', {...modules, 'src/entry.py': python})
+
+    const result = await runCli(fixture, ['bundle', 'orders', '-e', 'staging'])
+
+    expect(result.exitCode, result.stderr).toBe(0)
+    const output = join(fixture.root, '.monocf', 'bundle', 'staging', 'orders', 'python_modules', 'foo', '__init__.py')
+    expect(readFileSync(output, 'utf8')).toContain('from-a-vendored-module')
+  })
+
+  it('leaves the limit of an entry at the top of the directory to wrangler, which says so', async () => {
+    const fixture = pythonProject('entry.py', {...modules, 'entry.py': python})
+
+    const result = await runCli(fixture, ['bundle', 'orders', '-e', 'staging'])
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain('python_modules')
+  })
+})
+
 describe('real wrangler finds what the rebased config points at', {timeout: 180_000}, () => {
   describe('main', () => {
     const files = {
