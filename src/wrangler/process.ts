@@ -74,11 +74,13 @@ function collect(child: ChildProcess, mode: OutputMode): () => {stderr: string; 
   return () => ({stderr, stdout})
 }
 
-function environmentFor({accountId, environment: added, outputFile}: Pick<RunOptions, 'accountId' | 'environment' | 'outputFile'>): NodeJS.ProcessEnv {
+function environmentFor({accountId, environment: added, mode, outputFile}: Pick<RunOptions, 'accountId' | 'environment' | 'mode' | 'outputFile'>): NodeJS.ProcessEnv {
   const environment = {...process.env, ...added}
   // As in wrangler, a worker's own account_id beats whatever the environment says.
   if (accountId !== undefined) environment.CLOUDFLARE_ACCOUNT_ID = accountId
   delete environment.WRANGLER_OUTPUT_FILE_DIRECTORY
+  // Debug output reaches stdout, where a read expects JSON and nothing else.
+  if (mode === 'quiet') delete environment.WRANGLER_LOG
   if (outputFile === undefined) delete environment.WRANGLER_OUTPUT_FILE_PATH
   else environment.WRANGLER_OUTPUT_FILE_PATH = outputFile
   return environment
@@ -93,7 +95,7 @@ export function spawnWrangler(
   // The same flag bin/wrangler.js adds.
   const child = spawn(process.execPath, ['--no-warnings', wrangler.cli, ...argv], {
     cwd,
-    env: environmentFor({accountId, environment, outputFile}),
+    env: environmentFor({accountId, environment, mode, outputFile}),
     shell: false,
     stdio: stdioFor(mode),
   })

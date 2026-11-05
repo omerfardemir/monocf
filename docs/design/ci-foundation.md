@@ -240,6 +240,8 @@ Drift with `--on-drift warn` takes the action the table gives, with `drift` firs
 
 `dependsOn` holds the nearest callees that do something. It looks through a `skip` or `adopt`, so an order that runs through one still holds. Members of a cycle only a queue closes don't wait for each other. `callers` and `transitiveCallers` come from the whole graph, whatever `--workers` selects, and give the smoke-test scope.
 
+Reads and the state store's wrangler calls run from a new empty directory under the OS temp directory, so wrangler finds no config, no cached account and no `.env` there. A `wrangler.jsonc` at the project root would otherwise beat the account monocf passes. The account is worked out as a write's is: the worker's `account_id`, then its `.env` files, then the environment. `WRANGLER_LOG` is dropped for these calls, since debug output reaches stdout. A write passes `--config`, which rules out a root config too.
+
 A read that fails with `fetch failed`, a 429 or a 5xx is tried up to three times, with the backoff of a write.
 
 The older plan and markdown at the output paths are removed right after flag parsing, so no failed run can leave one for `apply` or a PR comment. The markdown is written before the plan, so a plan appears only when everything has succeeded. A path that can't be written is exit 3.

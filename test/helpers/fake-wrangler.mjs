@@ -81,7 +81,7 @@ const entry = {
   environment: Object.fromEntries(
     Object.entries(process.env).filter(
       ([name]) =>
-        /^(CLOUDFLARE|CF)_/i.test(name) || ['HOME', 'USERPROFILE', 'WRANGLER_HOME', 'XDG_CONFIG_HOME'].includes(name),
+        /^(CLOUDFLARE|CF)_/i.test(name) || ['HOME', 'USERPROFILE', 'WRANGLER_HOME', 'WRANGLER_LOG', 'XDG_CONFIG_HOME'].includes(name),
     ),
   ),
   mainSource: mainPath && existsSync(mainPath) ? readFileSync(mainPath, 'utf8') : null,

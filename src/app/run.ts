@@ -1,5 +1,8 @@
-import {cpus} from 'node:os'
+import {mkdtempSync, rmSync} from 'node:fs'
+import {cpus, tmpdir} from 'node:os'
+import {join} from 'node:path'
 
+import {accountIdOf} from '../config/resolve.js'
 import type {ResolvedWorker} from '../config/types.js'
 import {EXIT_FAILED, EXIT_OK, MonocfError} from '../errors.js'
 import type {EventSink} from '../report/events.js'
@@ -19,6 +22,8 @@ export interface RunContext {
   environmentOf: (worker: string) => Record<string, string>
   interrupts: Interrupts
   json: boolean
+  /** Empty, and outside the project: from here wrangler finds no config, no cached account and no `.env`. */
+  readDir: string
   runDir: RunDir
   wrangler: Wrangler
 }
@@ -90,7 +95,7 @@ export async function runStep(context: RunContext, {argvOptions, mode, step, wor
 }
 
 /**
- * One read or small write, from the run directory, with no config. Nothing reaches the terminal, and a failure comes back
+ * One read or small write, from an empty directory outside the project, with no config. Nothing reaches the terminal, and a failure comes back
  * for the caller to judge, since some failures here are answers. A read for a worker goes where its writes go: to its own
  * account_id, and with what its `.env` files say. The state bucket belongs to no worker, and uses the real environment.
  */
@@ -99,14 +104,30 @@ export async function callWrangler(
   step: Step,
   {accountId, worker}: {accountId?: string; worker?: string} = {},
 ): Promise<WranglerResult> {
-  const {environmentOf, interrupts, runDir, wrangler} = context
+  const {environmentOf, interrupts, readDir, wrangler} = context
   interrupts.throwIfInterrupted()
   const environment = worker === undefined ? undefined : environmentOf(worker)
-  const running = spawnWrangler(wrangler, buildArgv(step), {accountId, cwd: runDir.path, environment, mode: 'quiet'})
+  const running = spawnWrangler(wrangler, buildArgv(step), {accountId, cwd: readDir, environment, mode: 'quiet'})
   interrupts.track(running.child)
   const result = await running.done
   interrupts.throwIfInterrupted()
   return result
+}
+
+/** The account a write of this worker goes to, as wrangler works it out: the config's, then the worker's `.env`, then the environment. */
+export function accountOf(
+  {environmentOf}: Pick<RunContext, 'environmentOf'>,
+  {config, dir}: Pick<ResolvedWorker, 'config' | 'dir'>,
+  env: string | undefined,
+): string | undefined {
+  const added = environmentOf(dir)
+  const found =
+    accountIdOf(config, env) ??
+    added.CLOUDFLARE_ACCOUNT_ID ??
+    added.CF_ACCOUNT_ID ??
+    process.env.CLOUDFLARE_ACCOUNT_ID ??
+    process.env.CF_ACCOUNT_ID
+  return found?.trim() ? found : undefined
 }
 
 /** Wraps one worker's work in its events. A failure is reported here and carries on upward. */
@@ -214,6 +235,7 @@ export async function withRun(setup: RunSetup, work: (context: RunContext) => Pr
   const {action, env, json, notices, resolved, rootDir, workers, wrangler} = setup
   const sink = createSink(json)
   const runDir = createRunDir(rootDir)
+  const readDir = mkdtempSync(join(tmpdir(), 'monocf-read-'))
   const interrupts = new Interrupts()
   const environments = new Map<string, Record<string, string>>()
   const environmentOf = (worker: string): Record<string, string> => {
@@ -231,7 +253,7 @@ export async function withRun(setup: RunSetup, work: (context: RunContext) => Pr
   for (const notice of notices) sink({...notice, type: 'notice'})
 
   try {
-    const exitCode = (await work({emit: sink, environmentOf, interrupts, json, runDir, wrangler})) ?? EXIT_OK
+    const exitCode = (await work({emit: sink, environmentOf, interrupts, json, readDir, runDir, wrangler})) ?? EXIT_OK
     sink({exitCode, status: exitCode === EXIT_OK ? 'ok' : 'failed', type: 'run-finished'})
   } catch (error) {
     if (error instanceof MonocfError) {
@@ -243,5 +265,6 @@ export async function withRun(setup: RunSetup, work: (context: RunContext) => Pr
   } finally {
     interrupts.dispose()
     runDir.remove()
+    rmSync(readDir, {force: true, maxRetries: 3, recursive: true, retryDelay: 100})
   }
 }

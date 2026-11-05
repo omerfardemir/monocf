@@ -2,7 +2,7 @@ import {rmSync} from 'node:fs'
 import {join, resolve} from 'node:path'
 
 import {runRules, type Finding} from '../check/rules.js'
-import {accountIdOf, readProjectInputs, resolveProject} from '../config/resolve.js'
+import {readProjectInputs, resolveProject} from '../config/resolve.js'
 import {ConfigError, type ResolvedWorker} from '../config/types.js'
 import {EXIT_ENVIRONMENT, EXIT_FAILED, EXIT_OK, MonocfError} from '../errors.js'
 import {buildGraph} from '../graph/graph.js'
@@ -20,7 +20,7 @@ import {readActiveVersion, readVersionTag, type ActiveInfo, type WranglerCall} f
 import {withReadRetries} from '../wrangler/retry.js'
 import {buildBundle, checkEntrypoints, readBundleManifest, type BundleManifest} from './bundle.js'
 import {loadOptions, resolveCommit, selectNamed} from './project.js'
-import {callWrangler, createSink, runWorkerSteps, withRun, type RunContext} from './run.js'
+import {accountOf, callWrangler, createSink, runWorkerSteps, withRun, type RunContext} from './run.js'
 
 export interface PlanFlags extends OptionFlags {
   bundleDir?: string
@@ -113,7 +113,7 @@ async function readActiveVersions(
     steps: workers.map(({config, deployedName, dir}) => ({
       dependsOn: [],
       async run() {
-        const accountId = accountIdOf(config, env)
+        const accountId = accountOf(context, {config, dir}, env)
         const call: WranglerCall = withReadRetries(
           (step, account) => callWrangler(context, step, {accountId: account, worker: dir}),
           context.interrupts.signal,
