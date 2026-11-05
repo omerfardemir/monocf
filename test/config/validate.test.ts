@@ -77,7 +77,7 @@ describe('validateSelection', () => {
   }
   const error = new ConfigError('broken')
   const project: ResolvedProject = {failures: [{dir: 'bad', error}], notices: [], workers: []}
-  const options = {env: 'staging'} as Options
+  const options = {env: 'staging', variables: {}} as unknown as Options
 
   it('accepts a selection that defines the env, whatever fails outside it', () => {
     expect(() => validateSelection(['orders'], options, inputs, project)).not.toThrow()
@@ -85,6 +85,32 @@ describe('validateSelection', () => {
 
   it('rejects a selected worker without the env', () => {
     expect(() => validateSelection(['orders', 'billing'], options, inputs, project)).toThrow('Unknown environment')
+  })
+
+  it('reads an env key after placeholders are replaced (R13)', () => {
+    const withPlaceholder: ProjectInputs = {
+      base: {config: {env: {'{stage}': {}}}, path: 'b'},
+      failures: [],
+      workers: [{config: {}, configPath: 'c', dir: 'orders', path: 'p'}],
+    } as unknown as ProjectInputs
+    const variables = {stage: 'staging'}
+
+    const check = (env: string) => () =>
+      validateSelection(['orders'], {env, variables} as unknown as Options, withPlaceholder, project)
+
+    expect(check('staging')).not.toThrow()
+    expect(check('{stage}')).toThrow('Unknown environment')
+  })
+
+  it('accepts a key that uses the worker name', () => {
+    const inWorker: ProjectInputs = {
+      failures: [],
+      workers: [{config: {env: {'{workerName}-env': {}}}, configPath: 'c', dir: 'orders', path: 'p'}],
+    }
+
+    const opts = {env: 'orders-env', variables: {}} as unknown as Options
+
+    expect(() => validateSelection(['orders'], opts, inWorker, project)).not.toThrow()
   })
 
   it('throws the failure of a selected worker', () => {

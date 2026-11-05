@@ -1,3 +1,5 @@
+import {EXIT_USAGE, MonocfError} from '../errors.js'
+
 export type RawConfig = Record<string, unknown>
 
 export type BindingSource = 'durable_objects' | 'services' | 'tail_consumers' | 'workflows'
@@ -39,11 +41,12 @@ export type Notice =
     }
   | {file: string; message: string; type: 'missing-package-json' | 'missing-version'; worker: string}
 
-export class ConfigError extends Error {
+/** A usage or config error: nothing was attempted. */
+export class ConfigError extends MonocfError {
   readonly file?: string
 
   constructor(message: string, file?: string) {
-    super(file ? `${file}: ${message}` : message)
+    super(file ? `${file}: ${message}` : message, EXIT_USAGE)
     this.name = 'ConfigError'
     this.file = file
   }

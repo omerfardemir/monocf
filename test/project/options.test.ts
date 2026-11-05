@@ -1,4 +1,4 @@
-import {join} from 'node:path'
+import {join, resolve} from 'node:path'
 import {describe, expect, it} from 'vitest'
 
 import {resolveOptions} from '../../src/project/options.js'
@@ -70,5 +70,43 @@ describe('resolveOptions', () => {
   it('turns variables into text', () => {
     const file = {variables: {flag: true, number: 1, text: 'x'}}
     expect(resolveOptions({cwd: projectRoot, file, reader}).variables).toEqual({flag: 'true', number: '1', text: 'x'})
+  })
+})
+
+describe('blank values', () => {
+  it.each([
+    ['env', '--env'],
+    ['message', '--message'],
+    ['deployFromVersionId', '--deploy-from-version-id'],
+    ['rootDir', '--root-dir'],
+    ['workersDirName', '--workers-dir-name'],
+    ['baseConfig', '--base-config'],
+  ])('rejects an empty %s', (key, flag) => {
+    const sources = {cwd: resolve('/repo'), flags: {[key]: ''}}
+
+    expect(() => resolveOptions(sources)).toThrow(`${flag} must not be empty`)
+    expect(() => resolveOptions({...sources, flags: {[key]: '   '}})).toThrow(`${flag} must not be empty`)
+  })
+
+  it('reports it as a usage error', () => {
+    expect(() => resolveOptions({cwd: resolve('/repo'), flags: {env: ''}})).toThrow(expect.objectContaining({exitCode: 2}))
+  })
+})
+
+describe('a relative root', () => {
+  it('comes from the flag against the working directory', () => {
+    const options = resolveOptions({cwd: resolve('/repo', 'workers', 'orders'), flags: {rootDir: '../..'}})
+
+    expect(options.rootDir).toBe(resolve('/repo'))
+  })
+
+  it('comes from the file against the file, not the working directory', () => {
+    const options = resolveOptions({
+      configPath: resolve('/repo', 'monocf.config.json'),
+      cwd: resolve('/repo', 'workers', 'orders'),
+      file: {rootDir: './'},
+    })
+
+    expect(options.rootDir).toBe(resolve('/repo'))
   })
 })

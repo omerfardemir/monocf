@@ -1,7 +1,8 @@
 import {describe, expect, it} from 'vitest'
 
 import type {Graph} from '../../src/graph/graph.js'
-import {callers, computeOrder} from '../../src/graph/order.js'
+import type {ResolvedWorker} from '../../src/config/types.js'
+import {callers, computeOrder, serviceClosure} from '../../src/graph/order.js'
 
 function graphOf(nodes: string[], edges: [string, string][]): Graph {
   return {
@@ -158,5 +159,50 @@ describe('callers', () => {
 
   it('returns nothing for an unknown worker', () => {
     expect(callers(graph, 'ghost')).toEqual([])
+  })
+})
+
+const local = (source: string, dir: string) => ({source, target: {dir, kind: 'local'}})
+const worker = (dir: string, ...bindings: unknown[]) => ({bindings, dir}) as unknown as ResolvedWorker
+
+describe('serviceClosure', () => {
+  it('reaches bindings transitively, each before what binds to it', () => {
+    const workers = [
+      worker('gateway', local('services', 'orders')),
+      worker('orders', local('services', 'billing')),
+      worker('billing'),
+    ]
+
+    expect(serviceClosure(workers, ['gateway']).reached).toEqual(['billing', 'orders'])
+  })
+
+  it('reaches each once through a cycle, and leaves out the start', () => {
+    const workers = [worker('a', local('services', 'b')), worker('b', local('services', 'a'))]
+
+    expect(serviceClosure(workers, ['a']).reached).toEqual(['b'])
+  })
+
+  it('follows only service bindings', () => {
+    const workers = [worker('a', local('queues', 'b')), worker('b')]
+
+    expect(serviceClosure(workers, ['a']).reached).toEqual([])
+  })
+
+  it('does not follow external targets', () => {
+    const workers = [worker('a', {source: 'services', target: {kind: 'external', name: 'x'}})]
+
+    expect(serviceClosure(workers, ['a'])).toEqual({reached: [], skipped: [], unresolved: []})
+  })
+
+  it('reports what it skips, and does not follow through it', () => {
+    const workers = [worker('a', local('services', 'b')), worker('b', local('services', 'c')), worker('c')]
+
+    expect(serviceClosure(workers, ['a'], ['b'])).toEqual({reached: [], skipped: ['b'], unresolved: []})
+  })
+
+  it('reports a target that could not be resolved', () => {
+    const workers = [worker('a', local('services', 'broken'))]
+
+    expect(serviceClosure(workers, ['a']).unresolved).toEqual(['broken'])
   })
 })

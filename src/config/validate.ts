@@ -1,5 +1,6 @@
 import type {Options} from '../project/options.js'
 import type {ProjectInputs, ResolvedProject} from './resolve.js'
+import {substituteConfig} from './substitute.js'
 import {ConfigError, isPlainObject, type RawConfig} from './types.js'
 
 interface EnvSources {
@@ -13,7 +14,7 @@ function isEnvDefined({base, worker}: EnvSources, env: string): boolean {
 }
 
 export function validateEnv(dir: string, sources: EnvSources, env?: string): void {
-  if (env && !isEnvDefined(sources, env)) {
+  if (env !== undefined && !isEnvDefined(sources, env)) {
     throw new ConfigError(
       `Unknown environment "${env}" for worker ${dir}. Define it under "env" in the base config or in the wrangler config of the worker.`,
     )
@@ -49,6 +50,19 @@ export function validateTargetName(entry: RawConfig, field: string, file: string
   return name
 }
 
+/** Throws when any of these workers could not be resolved. */
+export function assertResolved(workers: string[], project: ResolvedProject): void {
+  for (const dir of workers) {
+    const failure = project.failures.find((candidate) => candidate.dir === dir)
+    if (failure) throw failure.error
+  }
+}
+
+/** The env keys as the resolver sees them: a key can hold a placeholder too. */
+function resolvedEnvKeys(config: RawConfig | undefined, variables: Record<string, string>): RawConfig {
+  return substituteConfig({env: config?.env}, variables)
+}
+
 /** Stops a run whose selected workers can't be resolved, or don't define the env. */
 export function validateSelection(
   selected: string[],
@@ -56,11 +70,16 @@ export function validateSelection(
   inputs: ProjectInputs,
   project: ResolvedProject,
 ): void {
+  assertResolved(selected, project)
   for (const dir of selected) {
-    const failure = project.failures.find((candidate) => candidate.dir === dir)
-    if (failure) throw failure.error
-
     const raw = inputs.workers.find((candidate) => candidate.dir === dir)
-    if (raw) validateEnv(dir, {base: inputs.base?.config, worker: raw.config}, options.env)
+    if (raw) {
+      const variables = {workerName: raw.dir, ...options.variables}
+      const sources = {
+        base: resolvedEnvKeys(inputs.base?.config, variables),
+        worker: resolvedEnvKeys(raw.config, variables),
+      }
+      validateEnv(dir, sources, options.env)
+    }
   }
 }

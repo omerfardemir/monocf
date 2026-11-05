@@ -102,7 +102,7 @@ export function readProjectInputs(options: Options, reader: FileReader = nodeRea
 
 /** The part of a config wrangler reads bindings from: they don't inherit, so an env uses its own section only. */
 export function envSection(config: RawConfig, env?: string): RawConfig {
-  if (!env) return config
+  if (env === undefined) return config
   const section = isPlainObject(config.env) ? config.env[env] : undefined
   return isPlainObject(section) ? section : {}
 }
@@ -163,7 +163,7 @@ function injectVars(config: RawConfig, raw: RawWorker, name: string, env: string
   const own = envSection(raw.config, env).vars
   const explicit = (key: string) => isPlainObject(own) && Object.hasOwn(own, key)
   const vars = Object.fromEntries(Object.entries(injected).filter(([key, value]) => value !== undefined && !explicit(key)))
-  applyPatch(config, env ? {env: {[env]: {vars}}} : {vars}, raw.configPath)
+  applyPatch(config, env === undefined ? {vars} : {env: {[env]: {vars}}}, raw.configPath)
 
   const finalVars = envSection(config, env).vars as RawConfig
   // Deployed with --var at deploy time, so a new commit with an unchanged bundle keeps its fingerprint.
@@ -184,13 +184,13 @@ function prepareWorker(raw: RawWorker, inputs: ProjectInputs, options: Options):
   const config = mergeAndSubstitute(raw, inputs, options)
   const name = sanitizeWorkerName(validateName(config, raw.configPath))
   config.name = name
-  if (env) applyPatch(config, {env: {[env]: {name: `${name}-${env}`}}}, raw.configPath)
+  if (env !== undefined) applyPatch(config, {env: {[env]: {name: `${name}-${env}`}}}, raw.configPath)
   const notices = injectVars(config, raw, name, env)
   return {config, name, notices, raw}
 }
 
 function deployedNameOf(name: string, env?: string): string {
-  return env ? `${name}-${env}` : name
+  return env === undefined ? name : `${name}-${env}`
 }
 
 type NameOwner = {dir: string; env?: string}
@@ -330,7 +330,7 @@ function finishWorker(worker: PreparedWorker, context: TargetContext): {notices:
       config,
       deployedName: deployedNameOf(name, env),
       dir: raw.dir,
-      ...(env && {env}),
+      ...(env !== undefined && {env}),
       path: raw.path,
     },
   }

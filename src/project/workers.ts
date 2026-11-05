@@ -1,4 +1,4 @@
-import {join, posix} from 'node:path'
+import {isAbsolute, join, posix, relative, sep} from 'node:path'
 import ignore from 'ignore'
 
 import {ConfigError} from '../config/types.js'
@@ -25,6 +25,14 @@ export function discoverWorkers(options: WorkerLocation, reader: FileReader = no
     .readDir(workersDir)
     .filter((dir) => reader.exists(join(workerPath(options, dir), WORKER_CONFIG_FILE)))
     .sort()
+}
+
+/** The worker whose directory contains `cwd`. A project with no workers directory name has no such thing. */
+export function inferWorker({rootDir, workersDirName}: WorkerLocation, cwd: string): string | undefined {
+  if (workersDirName === '') return undefined
+  const path = relative(join(rootDir, workersDirName), cwd)
+  if (path === '' || path === '..' || path.startsWith(`..${sep}`) || isAbsolute(path)) return undefined
+  return path.split(sep)[0]
 }
 
 /** Applies the ignore file. Patterns match a directory name or its path from the root, as in `workers/orders`. */
@@ -54,7 +62,7 @@ export function selectWorkers(workers: string[], ignored: string[], name?: strin
     return selected
   }
 
-  if (!workers.includes(name)) throw new ConfigError(`Worker ${name} not found. Please check the worker name.`)
+  if (!workers.includes(name)) throw new ConfigError(`Worker not found: ${name}. Please check the worker name.`)
   if (ignored.includes(name)) {
     throw new ConfigError(
       `Worker ${name} is listed in ${IGNORE_FILE}, which applies only to --all. Remove it from the file to run it by name.`,

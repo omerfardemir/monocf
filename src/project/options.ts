@@ -1,5 +1,6 @@
 import {dirname, join, resolve} from 'node:path'
 
+import {ConfigError} from '../config/types.js'
 import {nodeReader, type FileReader, type ProjectFile} from './load.js'
 
 export const DEFAULT_BASE_CONFIG = 'base.wrangler.jsonc'
@@ -46,8 +47,25 @@ export interface OptionSources {
   reader?: FileReader
 }
 
+const STRING_FLAGS: [keyof OptionFlags, string][] = [
+  ['baseConfig', '--base-config'],
+  ['deployFromVersionId', '--deploy-from-version-id'],
+  ['env', '--env'],
+  ['message', '--message'],
+  ['rootDir', '--root-dir'],
+  ['workersDirName', '--workers-dir-name'],
+]
+
+/** A blank value usually means an unset variable in a script. It must never act like the flag wasn't given. */
+function rejectBlankFlags(flags: OptionFlags): void {
+  for (const [key, name] of STRING_FLAGS) {
+    const value = flags[key]
+    if (typeof value === 'string' && value.trim() === '') throw new ConfigError(`${name} must not be empty.`)
+  }
+}
+
 function resolveRootDir({configPath, cwd, file, flags}: OptionSources): string {
-  if (flags?.rootDir) return resolve(cwd, flags.rootDir)
+  if (flags?.rootDir !== undefined) return resolve(cwd, flags.rootDir)
   const anchor = configPath ? dirname(configPath) : cwd
   return file?.rootDir ? resolve(anchor, file.rootDir) : anchor
 }
@@ -59,6 +77,7 @@ function precedence<T>(flag: T | undefined, fromFile: T | undefined, fallback: T
 /** Combines flags > project file > defaults into one set of options. */
 export function resolveOptions(sources: OptionSources): Options {
   const {file = {}, flags = {}, reader = nodeReader} = sources
+  rejectBlankFlags(flags)
   const rootDir = resolveRootDir(sources)
   const defaultBase = reader.exists(join(rootDir, DEFAULT_BASE_CONFIG)) ? DEFAULT_BASE_CONFIG : undefined
   const baseConfig = precedence(flags.baseConfig, file.baseConfig, defaultBase)

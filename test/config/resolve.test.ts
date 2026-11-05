@@ -408,3 +408,34 @@ describe('memoization', () => {
     expect(resolveProject(options, inputs)).toEqual(first)
   })
 })
+
+describe('cases carried over from the comparison with the old flow', () => {
+  it('rewrites bindings at the top level with no env, in a cycle', () => {
+    const files = {
+      ...base,
+      ...worker('billing', {services: [{binding: 'ORDERS', service: 'orders'}]}),
+      ...worker('orders', {services: [{binding: 'BILLING', service: 'billing'}]}),
+    }
+
+    expect(resolved(files, 'orders').config.services).toEqual([{binding: 'BILLING', service: 'billing-v1'}])
+    expect(resolved(files, 'billing').config.services).toEqual([{binding: 'ORDERS', service: 'orders-v1'}])
+  })
+
+  it('drops empties when a base config merges, and keeps them with no base config', () => {
+    const empties = {assets: {}, compatibility_flags: [], limits: {}, name: 'orders'}
+
+    const withBase = resolved({...base, ...worker('orders', empties)}, 'orders').config
+    const withoutBase = resolved(worker('orders', empties), 'orders').config
+
+    expect(withBase).not.toHaveProperty('limits')
+    expect(withoutBase).toMatchObject({assets: {}, limits: {}})
+  })
+
+  it('gives every command the same bindings, since there is only one resolved form', () => {
+    const files = {...base, ...worker('gateway', services('orders')), ...worker('orders')}
+
+    const {config} = resolved(files, 'gateway', 'staging')
+
+    expect(envSection(config, 'staging').services).toEqual([{binding: 'ORDERS', service: 'orders-v1-staging'}])
+  })
+})

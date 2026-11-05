@@ -1,6 +1,7 @@
+import {resolve} from 'node:path'
 import {describe, expect, it} from 'vitest'
 
-import {discoverWorkers, findIgnoredWorkers, selectWorkers} from '../../src/project/workers.js'
+import {discoverWorkers, findIgnoredWorkers, inferWorker, selectWorkers} from '../../src/project/workers.js'
 import {memoryReader, projectRoot} from '../helpers/memory-reader.js'
 
 const options = {rootDir: projectRoot, workersDirName: 'workers'}
@@ -74,10 +75,32 @@ describe('selectWorkers', () => {
   })
 
   it('fails for a named worker that does not exist', () => {
-    expect(() => selectWorkers(all, [], 'ghost')).toThrow('Worker ghost not found')
+    expect(() => selectWorkers(all, [], 'ghost')).toThrow('Worker not found: ghost')
   })
 
   it('fails for a named worker that is ignored, instead of doing nothing', () => {
     expect(() => selectWorkers(all, ['orders'], 'orders')).toThrow('listed in .monocfignore')
+  })
+})
+
+describe('inferWorker', () => {
+  const location = {rootDir: resolve('/repo'), workersDirName: 'workers'}
+
+  it('finds the worker from its own directory and from below it', () => {
+    expect(inferWorker(location, resolve('/repo', 'workers', 'orders'))).toBe('orders')
+    expect(inferWorker(location, resolve('/repo', 'workers', 'orders', 'src', 'lib'))).toBe('orders')
+  })
+
+  it.each([
+    ['the workers directory', resolve('/repo', 'workers')],
+    ['the root', resolve('/repo')],
+    ['outside the project', resolve('/elsewhere', 'workers', 'orders')],
+    ['a sibling that starts with the same name', resolve('/repo', 'workers-old', 'orders')],
+  ])('finds none in %s', (_, cwd) => {
+    expect(inferWorker(location, cwd)).toBeUndefined()
+  })
+
+  it('finds none when workers sit directly under the root', () => {
+    expect(inferWorker({rootDir: resolve('/repo'), workersDirName: ''}, resolve('/repo', 'orders'))).toBeUndefined()
   })
 })

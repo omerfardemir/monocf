@@ -1,3 +1,4 @@
+import type {ResolvedWorker} from '../config/types.js'
 import type {Graph} from './graph.js'
 
 export interface Order {
@@ -97,4 +98,42 @@ export function callers(graph: Graph, dir: string): string[] {
 
   seen.delete(dir)
   return [...seen].sort()
+}
+
+export interface ServiceClosure {
+  /** Workers reached through service bindings, excluding the start, each before whatever binds to it. */
+  reached: string[]
+  /** Local targets left out because they're in `skip`. */
+  skipped: string[]
+  /** Reached targets that have no resolved worker. */
+  unresolved: string[]
+}
+
+/** Follows service bindings to local workers, transitively. A worker in `skip` isn't followed. */
+export function serviceClosure(workers: ResolvedWorker[], start: string[], skip: string[] = []): ServiceClosure {
+  const byDir = new Map(workers.map((worker) => [worker.dir, worker]))
+  const seen = new Set(start)
+  const skipped = new Set<string>()
+  const reached: string[] = []
+  const unresolved: string[] = []
+
+  const visit = (dir: string): void => {
+    for (const {source, target} of byDir.get(dir)?.bindings ?? []) {
+      if (source !== 'services' || target.kind !== 'local' || seen.has(target.dir)) continue
+      if (skip.includes(target.dir)) {
+        skipped.add(target.dir)
+      } else {
+        seen.add(target.dir)
+        if (byDir.has(target.dir)) {
+          visit(target.dir)
+          reached.push(target.dir)
+        } else {
+          unresolved.push(target.dir)
+        }
+      }
+    }
+  }
+
+  for (const dir of start) visit(dir)
+  return {reached, skipped: [...skipped], unresolved}
 }
