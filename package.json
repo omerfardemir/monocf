@@ -8,12 +8,10 @@
   },
   "bugs": "https://github.com/omerfardemir/monocf/issues",
   "dependencies": {
-    "@bluwy/giget-core": "^0.1.2",
     "@oclif/core": "^4.5.3",
     "dotenv": "^16.5.0",
     "ignore": "^7.0.5",
-    "jsonc-parser": "^3.3.1",
-    "nanospinner": "^1.2.2"
+    "jsonc-parser": "^3.3.1"
   },
   "devDependencies": {
     "@eslint/compat": "^1",
@@ -45,7 +43,6 @@
     "wrangler"
   ],
   "license": "MIT",
-  "main": "dist/index.js",
   "type": "module",
   "oclif": {
     "bin": "monocf",
@@ -66,7 +63,6 @@
     "test": "vitest run",
     "format": "prettier --write \"(src|test)/**/*.{ts,tsx,js,jsx}\""
   },
-  "types": "dist/index.d.ts",
   "peerDependencies": {
     "wrangler": ">=4.151.0"
   }
