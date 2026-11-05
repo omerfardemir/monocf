@@ -332,6 +332,11 @@ describe('ignored-stale', () => {
     ])
   })
 
+  it('accepts a line with a trailing slash', () => {
+    const files = {...base, '.monocfignore': 'a/\nworkers/b/\n', ...worker('a'), ...worker('b')}
+    expect(rule(files, 'ignored-stale')).toEqual([])
+  })
+
   it('accepts a path from the root and a glob', () => {
     const files = {...base, '.monocfignore': 'workers/a\nb*\n', ...worker('a'), ...worker('b1'), ...worker('c')}
     expect(rule(files, 'ignored-stale')).toEqual([])

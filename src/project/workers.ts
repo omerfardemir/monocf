@@ -46,9 +46,9 @@ export function findIgnoredWorkers(
 
   const patterns = ignore().add(reader.readFile(ignorePath))
   const prefix = posix.normalize(options.workersDirName.replaceAll('\\', '/'))
-  return workers.filter(
-    (worker) => patterns.ignores(worker) || (prefix !== '.' && patterns.ignores(posix.join(prefix, worker))),
-  )
+  // A line with a trailing slash means a directory, and to the matcher only a path ending in one is a directory.
+  const matches = (path: string) => patterns.ignores(path) || patterns.ignores(`${path}/`)
+  return workers.filter((worker) => matches(worker) || (prefix !== '.' && matches(posix.join(prefix, worker))))
 }
 
 /**

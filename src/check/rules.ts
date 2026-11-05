@@ -278,9 +278,8 @@ const ignoredStale: Rule = ({directories, options, reader}) => {
     .filter((line) => line !== '' && !line.startsWith('#'))
     .filter((line) => {
       const pattern = ignore().add(line.replace(/^!/, ''))
-      return !directories.some(
-        (dir) => pattern.ignores(dir) || (prefix !== '' && pattern.ignores(`${prefix}/${dir}`)),
-      )
+      const matches = (path: string) => pattern.ignores(path) || pattern.ignores(`${path}/`)
+      return !directories.some((dir) => matches(dir) || (prefix !== '' && matches(`${prefix}/${dir}`)))
     })
     .map((line) => ({
       level: 'warning',

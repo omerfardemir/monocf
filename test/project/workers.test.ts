@@ -48,6 +48,11 @@ describe('findIgnoredWorkers', () => {
     expect(ignored('**/exp-*')).toEqual(['exp-a'])
   })
 
+  it('matches a line with a trailing slash, which means a directory', () => {
+    expect(ignored('billing/')).toEqual(['billing'])
+    expect(ignored('workers/orders/')).toEqual(['orders'])
+  })
+
   it('skips comments and blank lines', () => {
     expect(ignored('# billing\n\norders\n')).toEqual(['orders'])
   })
