@@ -24,8 +24,31 @@ jobs:
       - run: npm run build
       - run: npm test
 
+  # npm trusted publishing: the registry takes this job's OIDC token, so no npm token is stored.
+  # On npmjs.com, the package's trusted publisher has to name this file and allow npm publish.
+  # Needs npm 11.5.1 or later, which is why this job is on Node 24.
   publish:
     needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+      - run: npm ci
+      - run: npm run build
+      - run: npm publish
+
+  # Apart from publish, so that its actions never run beside the token that can publish, and so
+  # that a failure here can be re-run on its own, as npm refuses the same version twice.
+  attach-packages:
+    needs: publish
     runs-on: ubuntu-latest
     permissions:
       # Uploads the packaged artifacts to the GitHub release
@@ -39,10 +62,6 @@ jobs:
           node-version: '22'
       - run: npm ci
       - run: npm run build
-      - run: npm run prepack
-      - uses: JS-DevTools/npm-publish@19c28f1ef146469e409470805ea4279d47c3d35c # v3.1.1
-        with:
-          token: ${{ secrets.NPM_TOKEN }}
 
       # Pack as .tgz tarball for distribution
       - name: Generate .tgz package
