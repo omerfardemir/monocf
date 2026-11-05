@@ -12,7 +12,7 @@ Only `main` can publish. The `publish` job runs in a GitHub environment named `n
 
 ### On GitHub
 
-Under the repository's **Settings**, **Environments**, create an environment named `npm`. Under **Deployment branches and tags**, choose **Selected branches and tags**, and add the branch rule `main`. Nothing else is needed: no secrets, and no reviewers.
+Under the repository's **Settings**, **Environments**, create an environment named `npm`. Under **Deployment branches and tags**, choose **Selected branches and tags**, and add the branch rule `main`. Untick **Allow administrators to bypass configured protection rules**, so that the rule holds for everyone. Nothing else is needed: no secrets, and no reviewers.
 
 Create it before the first run. A run that names an environment that isn't there creates it, with no rules.
 
