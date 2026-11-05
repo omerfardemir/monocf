@@ -23,6 +23,8 @@ monocf can now run a Cloudflare Workers monorepo from CI: a dependency graph, a 
 - `monocf graph`, `check` and `bundle`, which need no credentials.
 - `monocf plan`, `apply` and `rollback`, with per-environment state in an R2 bucket.
 - `monocf secrets check`, which compares secret names with what's live.
+- `apply` refuses, with exit 2, a checkout with changes git doesn't ignore, or one whose commit isn't the plan's. Anything a job writes before `apply` has to go outside the checkout or be ignored.
+- `rollback --to-run` works on a run that failed or was interrupted: `apply` reads what's live when a step doesn't finish and records whether it changed. A worker it can't account for is refused, with exit 1, and not reported as fine.
 - `monocf build`, `deploy`, `preview` and `dev`, over the same code as `monocf worker -c`.
 - `--json` on every command that runs workers, with a `schemaVersion`.
 - `--no-` forms of `--deploy-bindings`, `--deploy-secrets` and `--minify`.
