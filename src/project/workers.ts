@@ -62,17 +62,29 @@ function scopeProblem(list: string, envs: string[]): string | undefined {
   return bad === undefined ? undefined : `"${bad}" isn't an environment name. Separate names with commas, and put a comment on a line of its own`
 }
 
+/** A space with no backslash of its own before it. A backslash that a backslash escapes doesn't count. */
+const UNESCAPED_SPACE = /(?:^|[^\\])(?:\\\\)*\s/
+
+/** Leading and trailing whitespace reach the matcher as they always have. A space inside is a typo in a keyword until shown otherwise. */
+function patternProblem(pattern: string): string | undefined {
+  return UNESCAPED_SPACE.test(pattern.trim())
+    ? `its pattern "${pattern.trim()}" holds a space. A scope is a lower-case \`in\` or \`except\` and a list of environments, a space in a directory name is written "\\ ", and a comment needs a line of its own`
+    : undefined
+}
+
 function parseIgnoreLine(text: string): IgnoreLine {
   const trimmed = text.trim()
-  const scoped = trimmed === '' || trimmed.startsWith('#') ? null : SCOPED_LINE.exec(text.trimEnd())
-  if (scoped === null) return {pattern: text, text}
+  if (trimmed === '' || trimmed.startsWith('#')) return {pattern: text, text}
+  const malformed = (problem: string | undefined) => (problem === undefined ? {} : {problem: `The ${IGNORE_FILE} line "${trimmed}" is malformed: ${problem}.`})
+
+  const scoped = SCOPED_LINE.exec(text.trimEnd())
+  if (scoped === null) return {pattern: text, ...malformed(patternProblem(text)), text}
 
   const [, pattern, kind, list = ''] = scoped
   const envs = list.split(/,[ \t]*/)
-  const problem = scopeProblem(list, envs)
   return {
     pattern,
-    ...(problem !== undefined && {problem: `The ${IGNORE_FILE} line "${trimmed}" is malformed: ${problem}.`}),
+    ...malformed(patternProblem(pattern) ?? scopeProblem(list, envs)),
     scope: {envs, kind: kind as IgnoreScope['kind']},
     text,
   }

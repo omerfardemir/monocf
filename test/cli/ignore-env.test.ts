@@ -705,6 +705,54 @@ describe('the README', () => {
   })
 })
 
+describe('a typo in a keyword', () => {
+  describe.each(['workers/billing excpet production', 'workers/billing IN dev'])('%s', (line) => {
+    const fixture = () => deployFixture({ignore: [line], workers: [{name: 'billing'}, {name: 'reports'}]})
+
+    it('fails check, under the same rule as a scope with no names', async () => {
+      const {exitCode, findings} = await checkJson(fixture(), ['-e', 'staging'])
+
+      expect(exitCode).toBe(2)
+      const malformed = findings.find(({rule}) => rule === 'ignored-malformed')
+      expect(malformed).toMatchObject({level: 'error'})
+      expect(malformed!.message).toContain(String.raw`written "\ "`)
+      expect(findings.map(({rule}) => rule)).not.toContain('ignored-stale')
+    })
+
+    it('fails check --all-envs as well', async () => {
+      const {exitCode, findings} = await checkJson(fixture(), ['--all-envs'])
+
+      expect(exitCode).toBe(2)
+      expect(findings.map(({rule}) => rule)).toContain('ignored-malformed')
+    })
+
+    it.each([
+      ['plan', ['plan', '-e', 'staging', '--state', 'file:state', '--first-run', '--out', 'plan.json']],
+      ['build --all', ['build', '-a', '-e', 'staging']],
+      ['deploy --all', ['deploy', '-a', '-e', 'staging']],
+      ['bundle', ['bundle', '-e', 'staging']],
+      ['graph', ['graph', '-e', 'staging']],
+      ['deploy by name', ['deploy', 'billing', '-e', 'staging']],
+      ['rollback', ['rollback', '-e', 'staging', '--state', 'file:state', '--to-run', '20260101T000000Z-abc123']],
+    ])('stops %s with exit 2, and selects nothing', async (_, args) => {
+      const result = await runCli(fixture(), args, {cloudflare: {}, noCalls: true})
+
+      expect(result.exitCode).toBe(2)
+      expect(result.stderr).toContain('is malformed')
+      expect(result.calls).toEqual([])
+    })
+  })
+
+  it('leaves a directory written with an escaped space working', async () => {
+    const fixture = deployFixture({ignore: [String.raw`workers/my\ dir except production`], workers: [{name: 'billing'}, {name: 'my dir'}]})
+
+    const view = await runCli(fixture, ['graph', '-e', 'staging', '--json'], {noCalls: true})
+
+    expect(view.exitCode, view.stderr).toBe(0)
+    expect(JSON.parse(view.stdout).ignored).toEqual(['my dir'])
+  })
+})
+
 describe('a file with no scoped lines', () => {
   const expectedStale = ['gone', '!not-there'].map((line) => ({level: 'warning', message: `The .monocfignore line "${line}" matches no directory.`, rule: 'ignored-stale'}))
 

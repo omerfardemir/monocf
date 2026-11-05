@@ -133,13 +133,14 @@ workers/nightly-report except production
 - **`except` covers everything it doesn't name, `local` and no env included.** With `workers/nightly-report except production`, `monocf dev nightly-report -e local` and `monocf build nightly-report` are both refused. Write `except production,local` to allow `-e local`. Only an `in` line, or none, leaves a worker usable with no env.
 - A scope starts at the first whole word `in` or `except` after the pattern, so `workers/in` has no scope. To name a directory with a space and one of those words in it, escape the space, as in `my\ in\ tray`.
 - A comment needs a line of its own, as `.gitignore` has no inline comments.
+- **A space inside a pattern is an error unless it's escaped,** so that a typo in a keyword can't quietly leave a worker selected everywhere. `workers/x excpet production` and `workers/x IN dev` both stop with exit 2, as `in` and `except` are lower case. Write a directory with a space in its name as `my\ dir`. Whitespace at the start and end of a line means what it does in `.gitignore`.
 
 `check` looks after this file:
 
 | Rule | Level | What it means |
 |---|---|---|
 | `ignored-dependency` | error | A selected worker binds to one that's ignored in that env |
-| `ignored-malformed` | error | A scope with no names, an empty name or something that isn't a name, as in `workers/x except a,,b` or `workers/x except production # note`. Every command that selects workers stops on this too, as nothing says what the line was meant to leave out |
+| `ignored-malformed` | error | A scope with no names, an empty name or something that isn't a name, as in `workers/x except a,,b` or `workers/x except production # note`, or a pattern with an unescaped space inside it, as in `workers/x excpet production`. Every command that selects workers stops on this too, as nothing says what the line was meant to leave out |
 | `ignored-unknown-env` | error | A scope names an env that neither the base config nor any worker defines, as in `except produciton` |
 | `ignored-stale` | warning | The pattern, without its scope, matches no directory |
 

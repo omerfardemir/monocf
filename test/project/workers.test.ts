@@ -159,11 +159,54 @@ describe('findIgnoredWorkers with a scope', () => {
     ['billing in dev staging', '"dev staging"'],
     ['billing in dev , staging', '"dev "'],
     ['billing in dev except production', '"dev except production"'],
+    ['workers/billing excpet production', 'holds a space'],
+    ['workers/billing IN dev', 'holds a space'],
+    ['workers/billing EXCEPT dev', 'holds a space'],
+    ['workers/my dir', 'holds a space'],
+    ['workers/my dir in dev', '"workers/my dir" holds a space'],
+    ['billing # a note', 'holds a space'],
+    ['!billing draft', 'holds a space'],
+    ['billing\tdraft', 'holds a space'],
+    [String.raw`my\\ dir`, 'holds a space'],
+    ['  billing excpet production  ', 'holds a space'],
   ])('refuses the malformed line %j, in every env and with none', (line, message) => {
     for (const env of [undefined, 'dev', 'production']) {
       expect(() => ignoredIn(env, `orders\n${line}\n`)).toThrow(message)
       expect(() => ignoredIn(env, `orders\n${line}\n`)).toThrow('.monocfignore')
     }
+  })
+
+  it('says how to write a space, a scope and a comment when a pattern holds a space', () => {
+    for (const message of [
+      'The .monocfignore line "workers/billing excpet production" is malformed',
+      String.raw`a space in a directory name is written "\ "`,
+      'lower-case `in` or `except`',
+      'a comment needs a line of its own',
+    ]) {
+      expect(() => ignoredIn('dev', 'workers/billing excpet production\n')).toThrow(message)
+    }
+  })
+
+  it('takes an escaped space, with a scope or without', () => {
+    const workers = ['my dir', 'orders']
+    expect(ignoredIn('dev', 'my\\ dir\n', workers)).toEqual(['my dir'])
+    expect(ignoredIn('dev', 'my\\ dir in dev\n', workers)).toEqual(['my dir'])
+    expect(ignoredIn('staging', 'my\\ dir in dev\n', workers)).toEqual([])
+    expect(ignoredIn('dev', 'workers/my\\ dir except production\n', workers)).toEqual(['my dir'])
+  })
+
+  it('leaves comments and blank lines alone, whatever they hold', () => {
+    expect(ignoredIn('dev', '# a comment with spaces\n   # an indented one\n\n   \n\t\nbilling\n')).toEqual(['billing'])
+  })
+
+  // What `ignore` does with these, as ever: trailing whitespace goes, and leading whitespace stays part of the pattern, so it matches nothing.
+  it('keeps what leading and trailing whitespace have always meant', () => {
+    expect(ignoredIn('dev', 'billing   \n')).toEqual(['billing'])
+    expect(ignoredIn('dev', 'billing\t\n')).toEqual(['billing'])
+    expect(ignoredIn('dev', 'billing in dev   \n')).toEqual(['billing'])
+    expect(ignoredIn('dev', '   billing\n')).toEqual([])
+    expect(ignoredIn('dev', '   billing in dev\n')).toEqual([])
+    expect(ignoredIn('dev', 'billing\\ \n', ['billing ', 'billing'])).toEqual(['billing '])
   })
 })
 
