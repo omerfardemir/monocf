@@ -222,7 +222,7 @@ The active version comes from `wrangler deployments status --name <deployed-name
 | Exists, no manifest entry, a different tag, and migrations in the config | `full-deploy`, since `versions upload` refuses pending migrations and nothing says which are applied | `baseline` |
 | Exists, no manifest entry, active tag is `monocf:<fingerprint>` | `adopt`: no deploy, `apply` records it in state | `state-missing` |
 | Exists, no manifest entry, another tag or none | `upload` with `--on-drift warn`, `blocked` with `fail` | `baseline`, or `drift` and `baseline` when blocked |
-| Manifest version is active, same fingerprint, same triggers | `skip` | `unchanged` |
+| Manifest version is active, same fingerprint, other triggers. Only after a crash: `configHash` covers the triggers, so a cron-only commit changes the fingerprint and takes `upload` with `triggersChanged` | `skip` | `unchanged` |
 | Manifest version is active, same fingerprint, other triggers | `triggers` | `triggers-changed` |
 | Manifest version is active, other fingerprint, same DO hash | `upload`, with `triggersChanged` when they differ too | `bundle-changed`, `config-changed`, `external-changed` |
 | Other fingerprint, other DO hash | `full-deploy` | `do-changed` |
@@ -235,6 +235,8 @@ Drift with `--on-drift warn` takes the action the table gives, with `drift` firs
 
 - **A new deployed name** counts as a worker with no manifest entry, with the note `renamed`. The old name stays deployed.
 - **Recreated provider:** when a worker that the manifest knows has to be created, each caller through a binding that would get no new version (`skip`, `adopt` or `triggers`) becomes an `upload`, reason `provider-recreated`. A queue edge holds no binding, so it doesn't count. A caller left out by `--workers` gets the note `caller-not-selected`.
+- **Routes removed:** wrangler only publishes a list with something in it, so removing the last route leaves it attached. Monocf has no zone to check this against, so a note `routes-removed` tells a person to remove it by hand.
+- **Recorded without a deploy:** `adopt` and `state-behind` steps carry `recordState: true`, and `apply` records them at `previousVersionId`, so that a change after a recovered crash doesn't read as drift.
 - **Crons removed:** when the manifest's crons aren't empty and the new effective crons are, the step has `explicitEmptyCrons: true`, and `apply` writes `"crons": []`, since an absent key changes nothing.
 - **Orphans:** a manifest entry whose directory is gone gets the note `orphan`, and is never read or deleted. A worker in `.monocfignore` gets no read, no step and no note.
 

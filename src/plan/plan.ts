@@ -42,6 +42,8 @@ export interface PlanStep {
   /** The version Cloudflare serves now, or the largest share of a split rollout. Absent when the worker doesn't exist. */
   previousVersionId?: string
   reasons: PlanReason[]
+  /** `apply` records this worker at `previousVersionId`, which is live and right, so that a change after a crash isn't drift. */
+  recordState?: true
   transitiveCallers: string[]
   triggers: Triggers
   /** The triggers need applying: they changed, or nothing says what is live. */
@@ -51,7 +53,16 @@ export interface PlanStep {
   worker: string
 }
 
-export type PlanNoteKind = 'baseline' | 'caller-not-selected' | 'drift' | 'orphan' | 'recreated' | 'renamed' | 'secret-changed' | 'state-behind'
+export type PlanNoteKind =
+  | 'baseline'
+  | 'caller-not-selected'
+  | 'drift'
+  | 'orphan'
+  | 'recreated'
+  | 'renamed'
+  | 'routes-removed'
+  | 'secret-changed'
+  | 'state-behind'
 
 export interface PlanNote {
   deployedName?: string
@@ -93,6 +104,7 @@ interface Decision {
   action: PlanAction
   notes: Omit<PlanNote, 'worker'>[]
   reasons: PlanReason[]
+  recordState?: true
   triggersChanged: boolean
 }
 
@@ -150,7 +162,7 @@ function drifted(worker: ManifestWorker, entry: StateWorker | undefined, split: 
 /** The manifest is behind what is live, but the tag shows monocf put it there: a run that crashed before writing state. */
 function stateBehind(decision: Decision): Decision {
   const message = 'The active version carries the expected tag, but the state manifest names another. A previous run likely stopped before writing state.'
-  return {...decision, notes: [{kind: 'state-behind', message}]}
+  return {...decision, notes: [{kind: 'state-behind', message}], recordState: true}
 }
 
 /**
@@ -179,7 +191,7 @@ function classify(worker: ManifestWorker, entry: StateWorker | undefined, active
 
   if (!entry) {
     if (active.tag === tagFor(worker.fingerprint)) {
-      return {action: 'adopt', notes: [], reasons: ['state-missing'], triggersChanged: false}
+      return {action: 'adopt', notes: [], reasons: ['state-missing'], recordState: true, triggersChanged: false}
     }
 
     const message = 'The worker exists with no state entry, and its tag differs from this bundle.'
@@ -200,6 +212,10 @@ function classify(worker: ManifestWorker, entry: StateWorker | undefined, active
 /** A request to Cloudflare per worker that needs it: the tag only matters when the version alone doesn't settle things. */
 export function needsTag(active: ActiveInfo, entry: StateWorker | undefined, deployedName: string): boolean {
   return active.state === 'active' && (entry?.deployedName !== deployedName || entry.versionId !== active.versionId)
+}
+
+function hasRoutes(triggers: Triggers | undefined): boolean {
+  return (triggers?.routes.length ?? 0) > 0
 }
 
 function hasCrons(triggers: Triggers | undefined): boolean {
@@ -293,6 +309,11 @@ export function createPlan(
     decisions.set(name, decision)
     notes.push(...decision.notes.map((note) => ({...note, worker: name})))
     if (decision.action === 'create' && entry) recreated.push(name)
+    if (hasRoutes(entry?.triggers) && !hasRoutes(worker.triggers)) {
+      // Wrangler only publishes a list with something in it. With no zone to check this against, a person has to do it.
+      const message = 'It no longer has a route, and removing the last one takes a person: wrangler leaves it attached.'
+      notes.push({kind: 'routes-removed', message, worker: name})
+    }
 
     const old = stored.get(name)
     if (old && !entry) {
@@ -319,13 +340,14 @@ export function createPlan(
 
   const steps = names.map((name): PlanStep => {
     const worker = bundle.workers[name]
-    const {action, reasons, triggersChanged} = decisions.get(name)!
+    const {action, reasons, recordState, triggersChanged} = decisions.get(name)!
     const previousVersionId = previousVersion(active[name])
     return {
       worker: name,
       deployedName: worker.deployedName,
       action,
       reasons,
+      ...(recordState && {recordState}),
       triggersChanged,
       explicitEmptyCrons: hasCrons(entryOf(name)?.triggers) && !hasCrons(worker.triggers),
       fingerprint: worker.fingerprint,
