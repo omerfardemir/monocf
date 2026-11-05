@@ -275,7 +275,7 @@ describe('monocf plan', () => {
 
       expect(result.exitCode).toBe(0)
       const plan = planOf(fixture)
-      expect(plan.steps[0]).toMatchObject({action: 'skip', previousVersionId: 'newer'})
+      expect(plan.steps[0]).toMatchObject({action: 'triggers', previousVersionId: 'newer', reasons: ['state-behind']})
       expect(plan.notes.map(({kind}: {kind: string}) => kind)).toEqual(['state-behind'])
     })
 
