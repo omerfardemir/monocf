@@ -1140,7 +1140,7 @@ When in doubt, a file counts: a false "changed" costs one redeploy, and a false 
 
 `upload` can also carry `drift`, `split`, `baseline`, `secret-changed` or `provider-recreated`, as the sections above describe.
 
-**A worker gone from the repository** gets an `orphan` note while the state knows it. monocf never deletes a worker, so the note stays while the worker is live. Delete it yourself with `wrangler delete --name <deployed name>`. The next `plan` reads it, finds it gone, and notes `orphan-gone`, and that plan's `apply` drops its entry from the state, which clears the note. The read uses `CLOUDFLARE_ACCOUNT_ID`, and only when that's the account the entry recorded, as another account would say any worker is gone.
+**A worker gone from the repository** gets an `orphan` note while the state knows it. monocf never deletes a worker, so the note stays while the worker is live. Delete it yourself with `wrangler delete <deployed name>`. The next `plan` reads it, finds it gone, and notes `orphan-gone`, and that plan's `apply` drops its entry from the state, which clears the note. The read uses `CLOUDFLARE_ACCOUNT_ID`, and only when that's the account the entry recorded, as another account would say any worker is gone.
 
 Removing every cron is handled too: `apply` writes an explicit `"crons": []`, since wrangler leaves deployed crons alone when the key is absent.
 

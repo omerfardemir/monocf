@@ -63,8 +63,21 @@ describe('monocf build, deploy, preview and dev', () => {
     expect(wranglerCalls(second, old)).toEqual(wranglerCalls(first, direct))
   })
 
+  it('refuses a flag another command takes, by its name, either way', async () => {
+    const fixture = project()
+    const args = ['orders', '-e', 'staging', '--port', '9000']
+
+    // `build` doesn't declare --port, so oclif refuses it. `worker -c` takes every flag and refuses it itself.
+    const direct = await runCli(fixture, ['build', ...args], {noCalls: true})
+    const old = await runCli(fixture, ['worker', '-c', 'build', ...args], {noCalls: true})
+
+    expect(direct.exitCode).toBe(2)
+    expect(withoutProcessWarnings(direct.stderr)).toContain('--port')
+    expect(old.exitCode).toBe(2)
+    expect(old.stderr).toContain('--port is not supported by the build command')
+  })
+
   it.each([
-    ['build', ['orders', '-e', 'staging', '--port', '9000']],
     ['build', ['nope', '-e', 'staging']],
     ['deploy', ['orders', '-e', 'nope']],
   ])('%s %j fails the same way as worker -c', async (action, args) => {
