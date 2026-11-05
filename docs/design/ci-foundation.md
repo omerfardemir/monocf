@@ -1,6 +1,6 @@
 # CI foundation design
 
-Status: in progress on `feat/ci-foundation`. This document is the shared contract for the work packages that turn monocf into a safe base for continuous deployment of a Cloudflare Workers monorepo. Nothing here is specific to one consumer. Examples use made-up names.
+Status: implemented in 0.3.0. This document records how monocf works as a base for continuous deployment of a Cloudflare Workers monorepo, and why. The README is the guide for users. Nothing here is specific to one consumer. Examples use made-up names.
 
 ## Goals
 
@@ -11,12 +11,6 @@ A CI job on an environment branch should be able to answer three questions, in t
 3. **Did it work, and can we go back?** Report per-worker results in a machine-readable form, keep running independent branches after a failure, and offer a rollback.
 
 Non-goals: a generic monorepo task runner, a plugin system, a Docker runtime, in-process bundling.
-
-## Why the middle of monocf is being replaced
-
-Today monocf merges configs by writing fixed-name temp files into worker directories, and it rewrites `.dev.vars` in place. That makes parallel runs fail or, worse, succeed with the wrong config. It also recurses through bindings with no memoization, so the cost grows exponentially with graph depth.
-
-The oclif layer, the `monocf.config.json` format and the existing flags stay.
 
 ## Architecture
 
@@ -55,6 +49,7 @@ src/
   app/           run orchestration, exit codes
   project/       monocf.config loading, option precedence, worker discovery, .monocfignore
   config/        merge, placeholder substitution, resolve, validate
+  check/         the rules of monocf check, which plan runs too
   graph/         nodes and edges, levels, cycle detection, callers
   plan/          plan creation and types
   runtime/       run directory, materialise, secrets files, pool, signals
@@ -253,7 +248,7 @@ The human summary and the markdown print the account's mask, `abcd…wxyz`, or "
 
 **Secret rotation isn't drift.** `secret put` and `secret bulk` make a new active version with no tag, and on real Cloudflare its `workers/triggered_by` annotation is `secret`. When the manifest knows the worker and the active version's tag matches nothing, that annotation gives `upload` with the reason `secret-changed`, at note level, and `--on-drift fail` doesn't block it. The upload tags known code and inherits the secret, also if the secret version came from an abandoned upload. A worker with no state entry stays a baseline, since its lineage is unknown.
 
-Reads and the state store's wrangler calls run from a new empty directory under the OS temp directory, so wrangler finds no config, no cached account and no `.env` there. A `wrangler.jsonc` at the project root would otherwise beat the account monocf passes. The account is worked out as a write's is: the worker's `account_id`, then its `.env` files, then the environment. `WRANGLER_LOG` is dropped for these calls, since debug output reaches stdout. A write passes `--config`, which rules out a root config too.
+Reads and the state store's wrangler calls run from a new empty directory under the OS temp directory, so wrangler finds no config, no cached account and no `.env` there. A `wrangler.jsonc` at the project root would otherwise beat the account monocf passes. The account is worked out as a write's is: the worker's `account_id`, then the environment, then the worker's `.env` files, since a variable in the real environment beats the same one in a `.env`. `WRANGLER_LOG` is dropped for these calls, since debug output reaches stdout. A write passes `--config`, which rules out a root config too.
 
 A read that fails with `fetch failed`, a 429 or a 5xx is tried up to three times, with the backoff of a write.
 
@@ -317,9 +312,11 @@ monocf plan     -e env --state <url> [--bundle-dir dir] [--out plan.json] [--mar
 monocf apply    <plan.json> [--concurrency n] [--expect-branch-tip ref] [--summary-file path] [--json]
 monocf rollback -e env --state <url> (--to-run <id> [--dry-run] | <worker> --to <version-id>) [--force] [--json]
 monocf secrets check -e env [--json]
+monocf secrets deploy [worker] [-a] -e env [--create] [--json]
+monocf build | deploy | preview | dev [worker] [flags]
 ```
 
-`monocf worker -c <action>` keeps working on top of the same core. `build` takes `--concurrency`, with the CPU count up to 8 as its default, and a failed build holds no other back. `deploy` and `preview` take it too, with a default of 1, in graph order, and a failure skips the worker's transitive callers while independent workers carry on. A wrangler killed by a signal from outside stops new steps. Windows can't tell such a kill from exit 1.
+`monocf build`, `deploy`, `preview` and `dev` are thin commands over one function. `monocf worker -c <action>` stays as a deprecated form of them, with one line on stderr, and a test compares their wrangler calls. `build` takes `--concurrency`, with the CPU count up to 8 as its default, and a failed build holds no other back. `deploy` and `preview` take it too, with a default of 1, in graph order, and a failure skips the worker's transitive callers while independent workers carry on. A wrangler killed by a signal from outside stops new steps. Windows can't tell such a kill from exit 1.
 
 On Windows, stopping a process tree first runs `taskkill` without `/F`, and forces it after the 10 second grace period or on a second signal. That request only reaches a process with a window. Wrangler has none, so `taskkill` refuses and a stop that monocf starts itself, such as `dev -a` ending the others after one fails, waits out the grace period and then forces. Only a real Ctrl+C, which the console delivers to every process, lets wrangler exit by itself and remove its dev registry entry.
 
