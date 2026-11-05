@@ -7,7 +7,9 @@ export type ReportEvent =
       action: string
       /** Why it failed, when it failed. */
       message?: string
-      status: 'failed' | 'ok'
+      /** The worker whose failure skipped this one. */
+      reason?: string
+      status: 'cancelled' | 'failed' | 'ok' | 'skipped'
       type: 'step-finished'
       /** Set for a `deploy` or `versions upload`. */
       versionId?: string

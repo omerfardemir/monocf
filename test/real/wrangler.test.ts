@@ -115,8 +115,8 @@ export default {fetch: () => new Response(shim)}
         startCli(fixture, ['worker', 'orders', '-c', 'build', '-e', 'staging']).done,
       ])
 
-      expect(dev.exitCode).toBe(0)
-      expect(staging.exitCode).toBe(0)
+      expect(dev.exitCode, dev.stderr).toBe(0)
+      expect(staging.exitCode, staging.stderr).toBe(0)
       expect(existsSync(join(fixture.root, '.monocf'))).toBe(false)
     })
   })

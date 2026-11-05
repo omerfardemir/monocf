@@ -5,6 +5,7 @@ import {describe, expect, it} from 'vitest'
 
 import {
   createFixture,
+  deployedNames,
   flagValue,
   fromRoot,
   releaseOf,
@@ -324,6 +325,102 @@ describe('-d', () => {
 
     expect(result.exitCode).toBe(1)
     expect(result.calls.map((call) => call.config?.name)).toEqual(['orders-v1'])
+  })
+})
+
+describe('the pool', () => {
+  const chain = {
+    workers: [{bindings: ['middle'], name: 'caller'}, {bindings: ['target'], name: 'middle'}, {name: 'other'}, {name: 'target'}],
+  }
+
+  it('deploy -a runs callees first, one at a time by default', async () => {
+    const result = await runCli(createFixture(chain), ['worker', '-a', '-c', 'deploy'])
+
+    expect(result.exitCode).toBe(0)
+    expect(deployedNames(result.calls, 'deploy')).toEqual(['other-v1', 'target-v1', 'middle-v1', 'caller-v1'])
+  })
+
+  it('deploy -a skips the transitive callers of a failure and carries on with the rest', async () => {
+    const result = await runCli(createFixture(chain), ['worker', '-a', '-c', 'deploy'], {
+      rules: [{command: 'deploy', exitCode: 1, worker: 'target'}],
+    })
+
+    expect(result.exitCode).toBe(1)
+    expect(deployedNames(result.calls, 'deploy')).toEqual(['other-v1', 'target-v1'])
+    expect(result.stderr).toContain('middle: deploy skipped, because target failed')
+    expect(result.stderr).toContain('caller: deploy skipped, because target failed')
+  })
+
+  it('reports skipped workers as events with --json', async () => {
+    const result = await runCli(createFixture(chain), ['worker', '-a', '-c', 'deploy', '--json'], {
+      rules: [{command: 'deploy', exitCode: 1, worker: 'target'}],
+    })
+
+    const events = result.stdout.trim().split('\n').map((line) => JSON.parse(line))
+    expect(events.filter(({status}) => status === 'skipped')).toEqual([
+      expect.objectContaining({reason: 'target', type: 'step-finished', worker: 'middle'}),
+      expect.objectContaining({reason: 'target', type: 'step-finished', worker: 'caller'}),
+    ])
+    expect(events.find(({type}) => type === 'run-finished')).toMatchObject({exitCode: 1, status: 'failed'})
+  })
+
+  it('names every failure in the error when several workers fail', async () => {
+    const result = await runCli(createFixture(chain), ['worker', '-a', '-c', 'deploy'], {
+      rules: [
+        {command: 'deploy', exitCode: 3, worker: 'target'},
+        {command: 'deploy', exitCode: 4, worker: 'other'},
+      ],
+    })
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain('2 workers failed')
+    expect(result.stderr).toContain('target: wrangler deploy failed with exit code 3')
+    expect(result.stderr).toContain('other: wrangler deploy failed with exit code 4')
+  })
+
+  it('-d keeps callees before callers at any concurrency', async () => {
+    const result = await runCli(createFixture(chain), ['worker', 'caller', '-c', 'deploy', '-d', '--concurrency', '4'])
+
+    expect(deployedNames(result.calls, 'deploy')).toEqual(['target-v1', 'middle-v1', 'caller-v1'])
+  })
+
+  it('deploy --concurrency runs independent workers at once, and labels their output', async () => {
+    const fixture = createFixture({workers: [{name: 'a'}, {name: 'b'}]})
+
+    const running = startCli(fixture, ['worker', '-a', '-c', 'deploy', '--concurrency', '2'], {
+      rules: [{command: 'deploy', holdMs: 60_000, stdout: 'hello\n'}],
+    })
+    // Two calls in flight at once are possible only when the second didn't wait for the first.
+    await running.waitForCalls(2)
+    running.child.kill('SIGKILL')
+    await running.done.catch(() => {})
+  })
+
+  it('build -a runs in parallel by default and a failure holds nothing back', async () => {
+    const result = await runCli(createFixture(chain), ['worker', '-a', '-c', 'build'], {
+      rules: [{command: 'deploy', exitCode: 1, worker: 'target'}],
+    })
+
+    expect(result.exitCode).toBe(1)
+    expect(deployedNames(result.calls, 'deploy').sort()).toEqual(['caller-v1', 'middle-v1', 'other-v1', 'target-v1'])
+  })
+
+  it('build --concurrency 1 runs in order', async () => {
+    const result = await runCli(createFixture(chain), ['worker', '-a', '-c', 'build', '--concurrency', '1'])
+
+    expect(deployedNames(result.calls, 'deploy')).toEqual(['caller-v1', 'middle-v1', 'other-v1', 'target-v1'])
+  })
+
+  it.each([
+    ['dev', ['worker', 'caller', '-c', 'dev', '--concurrency', '2'], 'not supported'],
+    ['--from-version', ['worker', 'caller', '-c', 'deploy', '-f', '--concurrency', '2'], 'no effect'],
+    ['zero', ['worker', '-a', '-c', 'build', '--concurrency', '0'], 'concurrency'],
+  ])('rejects --concurrency with %s', async (_, args, message) => {
+    const result = await runCli(createFixture(chain), args, {noCalls: true})
+
+    expect(result.exitCode).toBe(2)
+    expect(result.stderr).toContain(message)
+    expect(result.calls).toEqual([])
   })
 })
 

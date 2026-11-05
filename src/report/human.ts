@@ -12,6 +12,8 @@ export function formatHuman(event: ReportEvent): string | undefined {
     }
 
     case 'step-finished': {
+      if (event.status === 'skipped') return `${event.worker}: ${event.action} skipped, because ${event.reason} failed`
+      if (event.status === 'cancelled') return `${event.worker}: ${event.action} cancelled`
       if (event.status !== 'ok') return undefined
       return `${event.worker}: ${event.action} done${event.versionId ? `, version ${event.versionId}` : ''}`
     }

@@ -59,7 +59,10 @@ describe('exit codes', () => {
     })
 
     expect(result.exitCode).not.toBe(0)
-    expect(deployedNames(result.calls, 'deploy')).toEqual(['billing-v1'])
+    const names = deployedNames(result.calls, 'deploy')
+    expect(names[0]).toBe('billing-v1')
+    // On Windows a kill looks like exit 1, which is an ordinary failure, so independent workers carry on.
+    if (!isWindows) expect(names).toEqual(['billing-v1'])
   })
 
   it('fails when wrangler whoami fails', async () => {

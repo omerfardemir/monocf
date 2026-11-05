@@ -100,6 +100,41 @@ export function callers(graph: Graph, dir: string): string[] {
   return [...seen].sort()
 }
 
+function reachable(callees: Map<string, string[]>, start: string): Set<string> {
+  const seen = new Set<string>()
+  const queue = [start]
+  while (queue.length > 0) {
+    for (const callee of callees.get(queue.pop()!) ?? []) {
+      if (!seen.has(callee)) {
+        seen.add(callee)
+        queue.push(callee)
+      }
+    }
+  }
+
+  return seen
+}
+
+/**
+ * For each member, the other members that must finish first: any it reaches through edges, also by way of a worker
+ * that isn't a member. Members of a cycle have no order between them, so they don't wait for each other.
+ */
+export function dependenciesWithin(graph: Graph, members: string[]): Map<string, string[]> {
+  const callees = adjacency(graph, 'from', 'to')
+  const reach = new Map(members.map((member) => [member, reachable(callees, member)]))
+  return new Map(
+    members.map((member) => [
+      member,
+      members.filter((other) => other !== member && reach.get(member)!.has(other) && !reach.get(other)!.has(member)),
+    ]),
+  )
+}
+
+/** The workers with an edge to this one, excluding itself. Sorted. */
+export function directCallers(graph: Graph, dir: string): string[] {
+  return (adjacency(graph, 'to', 'from').get(dir) ?? []).filter((caller) => caller !== dir)
+}
+
 export interface ServiceClosure {
   /** Workers reached through service bindings, excluding the start, each before whatever binds to it. */
   reached: string[]

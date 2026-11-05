@@ -1,3 +1,4 @@
+import {cpus} from 'node:os'
 import {join} from 'node:path'
 
 import {readProjectInputs, resolveProject, type ResolvedProject} from '../config/resolve.js'
@@ -5,7 +6,7 @@ import {ConfigError, isPlainObject, type ResolvedWorker} from '../config/types.j
 import {assertResolved, validateSelection} from '../config/validate.js'
 import {EXIT_FAILED, MonocfError} from '../errors.js'
 import {buildGraph} from '../graph/graph.js'
-import {computeOrder, serviceClosure} from '../graph/order.js'
+import {computeOrder, dependenciesWithin, serviceClosure} from '../graph/order.js'
 import type {OptionFlags, Options} from '../project/options.js'
 import {materialiseProxy, PROXY_WORKER, routePrefix} from '../runtime/dev-proxy.js'
 import {materialiseConfig, writeDevVars, writeSecretsFile} from '../runtime/materialise.js'
@@ -14,27 +15,30 @@ import {buildArgv, type ArgvOptions} from '../wrangler/argv.js'
 import {locateWrangler} from '../wrangler/locate.js'
 import {spawnWrangler} from '../wrangler/process.js'
 import {loadOptions, resolveRelease, selectFromArguments, type Selection} from './project.js'
-import {aloneMode, failureOf, isSuccess, reportStep, runStep, withRun, type RunContext} from './run.js'
+import {aloneMode, failureOf, isSuccess, reportStep, runStep, runWorkerSteps, withRun, type RunContext} from './run.js'
 
 export type WorkerAction = 'build' | 'deploy' | 'dev' | 'preview'
 
 export interface WorkerFlags extends OptionFlags {
   command: WorkerAction
+  concurrency?: number
   json?: boolean
 }
 
 const BASE_WORKER_PORT = 9001
 const BASE_INSPECTOR_PORT = 9230
+const MAX_BUILD_CONCURRENCY = 8
 
 /** The optional flags each command acts on. Anything else is rejected instead of being dropped. */
-const FLAGS_BY_ACTION: Record<WorkerAction, (keyof OptionFlags)[]> = {
-  build: ['minify'],
-  deploy: ['deployBindings', 'deployFromVersionId', 'deploySecrets', 'fromVersion', 'message', 'minify'],
+const FLAGS_BY_ACTION: Record<WorkerAction, (keyof WorkerFlags)[]> = {
+  build: ['concurrency', 'minify'],
+  deploy: ['concurrency', 'deployBindings', 'deployFromVersionId', 'deploySecrets', 'fromVersion', 'message', 'minify'],
   dev: ['port'],
-  preview: ['deployBindings', 'deploySecrets', 'message', 'minify'],
+  preview: ['concurrency', 'deployBindings', 'deploySecrets', 'message', 'minify'],
 }
 
-const CHECKED_FLAGS: (keyof OptionFlags)[] = [
+const CHECKED_FLAGS: (keyof WorkerFlags)[] = [
+  'concurrency',
   'deployBindings',
   'deployFromVersionId',
   'deploySecrets',
@@ -63,11 +67,20 @@ function validateFlags(flags: WorkerFlags): void {
       )
     }
 
+    if (flags.concurrency !== undefined) {
+      throw new ConfigError('--concurrency has no effect with --from-version, which runs for one worker')
+    }
+
     if (flags.minify) throw new ConfigError('--minify has no effect with --from-version, which uploads nothing')
     if (flags.deploySecrets) {
       throw new ConfigError('--deploy-secrets has no effect with --from-version, which uploads nothing')
     }
   }
+}
+
+/** One process per worker is mostly waiting on esbuild, so this tracks the CPU count, up to a limit. */
+export function defaultBuildConcurrency(): number {
+  return Math.min(cpus().length, MAX_BUILD_CONCURRENCY)
 }
 
 interface WorkerPlan {
@@ -91,17 +104,22 @@ function followsBindings({command, deployBindings, fromVersion}: WorkerFlags, op
   return command === 'preview' && deployBindings === true
 }
 
+function byLevel(project: ResolvedProject, workers: string[]): string[] {
+  const members = new Set(workers)
+  return computeOrder(buildGraph(project.workers))
+    .levels.flat()
+    .filter((dir) => members.has(dir))
+}
+
 /** Dependencies first by graph level, without recursion. A cycle's members share a level, in a stable order. */
 function planOrder({flags, options, project, selection}: PlanInputs): Pick<WorkerPlan, 'ignoredBindings' | 'order'> {
-  if (!followsBindings(flags, options)) return {ignoredBindings: [], order: selection.selected}
+  if (flags.command !== 'deploy' && flags.command !== 'preview') return {ignoredBindings: [], order: selection.selected}
+
+  if (!followsBindings(flags, options)) return {ignoredBindings: [], order: byLevel(project, selection.selected)}
 
   const {reached, skipped, unresolved} = serviceClosure(project.workers, selection.selected, selection.ignored)
   assertResolved(unresolved, project)
-  const members = new Set([...selection.selected, ...reached])
-  const order = computeOrder(buildGraph(project.workers))
-    .levels.flat()
-    .filter((dir) => members.has(dir))
-  return {ignoredBindings: skipped, order}
+  return {ignoredBindings: skipped, order: byLevel(project, [...selection.selected, ...reached])}
 }
 
 function bindingNotices(project: ResolvedProject, workers: string[]): {message: string; worker: string}[] {
@@ -116,48 +134,69 @@ function byDir(project: ResolvedProject, dir: string): ResolvedWorker {
   return worker
 }
 
-async function runBuild(context: RunContext, workers: ResolvedWorker[], options: Options): Promise<void> {
-  for (const worker of workers) {
-    await reportStep(context, 'build', worker.dir, async () => {
-      await runStep(context, {
-        argvOptions: {env: options.env, minify: options.minify},
-        cwd: worker.path,
-        mode: aloneMode(context, false),
-        step: {
-          action: 'build',
-          configPath: materialiseConfig(worker, context.runDir),
-          outdir: join(worker.path, 'dist'),
-        },
-        worker: worker.dir,
-      })
-    })
-  }
+/** A build reads no other worker, so a failed one doesn't hold another back, and every failure gets reported. */
+async function runBuild(
+  context: RunContext,
+  {concurrency, options, workers}: {concurrency: number; options: Options; workers: ResolvedWorker[]},
+): Promise<void> {
+  await runWorkerSteps(context, {
+    action: 'build',
+    concurrency,
+    steps: workers.map((worker) => ({
+      dependsOn: [],
+      async run(mode) {
+        await runStep(context, {
+          argvOptions: {env: options.env, minify: options.minify},
+          cwd: worker.path,
+          mode,
+          step: {
+            action: 'build',
+            configPath: materialiseConfig(worker, context.runDir),
+            outdir: join(worker.path, 'dist'),
+          },
+          worker: worker.dir,
+        })
+      },
+      worker: worker.dir,
+    })),
+  })
 }
 
 interface UploadRun {
   action: 'deploy' | 'preview'
+  concurrency: number
+  dependencies: Map<string, string[]>
   options: Options
   release: string
   uploadSecrets: boolean
   workers: ResolvedWorker[]
 }
 
-async function runUploads(context: RunContext, {action, options, release, uploadSecrets, workers}: UploadRun) {
-  for (const worker of workers) {
-    const {dir, path} = worker
-    await reportStep(context, action, dir, async () => {
-      const secrets = uploadSecrets ? readSecrets(path, options.rootDir, options.env) : {}
-      const secretsFile = Object.keys(secrets).length > 0 ? writeSecretsFile(dir, secrets, context.runDir) : undefined
-      const result = await runStep(context, {
-        argvOptions: {env: options.env, message: options.message, minify: options.minify, release},
-        cwd: path,
-        mode: aloneMode(context, false),
-        step: {action, configPath: materialiseConfig(worker, context.runDir), secretsFile},
+async function runUploads(context: RunContext, run: UploadRun) {
+  const {action, concurrency, dependencies, options, release, uploadSecrets, workers} = run
+  await runWorkerSteps(context, {
+    action,
+    concurrency,
+    steps: workers.map((worker) => {
+      const {dir, path} = worker
+      return {
+        dependsOn: dependencies.get(dir) ?? [],
+        async run(mode) {
+          const secrets = uploadSecrets ? readSecrets(path, options.rootDir, options.env) : {}
+          const secretsFile = Object.keys(secrets).length > 0 ? writeSecretsFile(dir, secrets, context.runDir) : undefined
+          const result = await runStep(context, {
+            argvOptions: {env: options.env, message: options.message, minify: options.minify, release},
+            cwd: path,
+            mode,
+            step: {action, configPath: materialiseConfig(worker, context.runDir), secretsFile},
+            worker: dir,
+          })
+          return result.output.versionId
+        },
         worker: dir,
-      })
-      return result.output.versionId
-    })
-  }
+      }
+    }),
+  })
 }
 
 function latestVersion(stdout: string, worker: string): string {
@@ -349,7 +388,7 @@ export async function runWorker(name: string | undefined, flags: WorkerFlags): P
     async (context) => {
       switch (flags.command) {
         case 'build': {
-          return runBuild(context, workers, options)
+          return runBuild(context, {concurrency: flags.concurrency ?? defaultBuildConcurrency(), options, workers})
         }
 
         case 'dev': {
@@ -367,7 +406,15 @@ export async function runWorker(name: string | undefined, flags: WorkerFlags): P
 
         default: {
           if (flags.fromVersion) return runDeployFromVersion(context, workers[0], options)
-          return runUploads(context, {action: flags.command, options, release, uploadSecrets, workers})
+          return runUploads(context, {
+            action: flags.command,
+            concurrency: flags.concurrency ?? 1,
+            dependencies: dependenciesWithin(buildGraph(project.workers), order),
+            options,
+            release,
+            uploadSecrets,
+            workers,
+          })
         }
       }
     },

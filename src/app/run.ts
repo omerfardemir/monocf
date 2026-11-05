@@ -2,6 +2,7 @@ import {EXIT_FAILED, EXIT_OK, MonocfError} from '../errors.js'
 import type {EventSink} from '../report/events.js'
 import {humanSink} from '../report/human.js'
 import {ndjsonSink} from '../report/ndjson.js'
+import {runPool, type FailedStep} from '../runtime/pool.js'
 import {createRunDir, type RunDir} from '../runtime/run-dir.js'
 import {Interrupts, signalExitCode} from '../runtime/signals.js'
 import {buildArgv, type ArgvOptions, type Step} from '../wrangler/argv.js'
@@ -92,6 +93,61 @@ export async function reportStep(
     emit({action, message: (error as Error).message, status: 'failed', type: 'step-finished', worker})
     throw error
   }
+}
+
+export interface WorkerStep {
+  dependsOn: string[]
+  /** The mode tells the work how to send output: with a label on each line when several workers run at once. */
+  run: (mode: OutputMode) => Promise<string | undefined | void>
+  worker: string
+}
+
+function failureFrom(failed: FailedStep[]): Error {
+  const errors = failed.map(({error}) => error as Error & {exitCode?: number})
+  if (errors.length === 1) return errors[0]
+  const killed = errors.find(({exitCode}) => exitCode !== undefined && exitCode > 128)
+  const lines = errors.map(({message}) => `  ${message}`).join('\n')
+  return new MonocfError(`${errors.length} workers failed:\n${lines}`, killed?.exitCode ?? EXIT_FAILED)
+}
+
+/**
+ * Runs each worker's work over the pool, with its events. A wrangler killed from outside stops new steps, since whatever
+ * killed it likely isn't done. Throws once everything has settled if anything failed.
+ */
+export async function runWorkerSteps(
+  context: RunContext,
+  {action, concurrency, steps}: {action: string; concurrency: number; steps: WorkerStep[]},
+): Promise<void> {
+  const {emit, interrupts} = context
+  const results = await runPool(
+    steps.map(({dependsOn, run, worker}) => ({
+      dependsOn,
+      id: worker,
+      async run() {
+        const mode: OutputMode = concurrency > 1 ? {prefix: `[${worker}] `} : aloneMode(context, false)
+        try {
+          await reportStep(context, action, worker, () => run(mode))
+        } catch (error) {
+          if ((error as {exitCode?: number}).exitCode! > 128) interrupts.halt()
+          throw error
+        }
+      },
+    })),
+    {
+      concurrency,
+      onFinish(result) {
+        if (result.status === 'skipped' || result.status === 'cancelled') {
+          const reason = result.status === 'skipped' ? {reason: result.reason} : {}
+          emit({action, status: result.status, type: 'step-finished', worker: result.id, ...reason})
+        }
+      },
+      signal: interrupts.signal,
+    },
+  )
+
+  interrupts.throwIfInterrupted()
+  const failed = results.filter((result): result is FailedStep => result.status === 'failed')
+  if (failed.length > 0) throw failureFrom(failed)
 }
 
 /** The mode for a process that runs alone. --json keeps stdout for monocf's events. */

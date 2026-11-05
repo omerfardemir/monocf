@@ -29,6 +29,7 @@ function terminate(child: ChildProcess, signal: NodeJS.Signals): void {
 export class Interrupts {
   /** The signal that ended this run, if any. */
   received?: NodeJS.Signals
+  private readonly halted = new AbortController()
   private readonly children = new Set<ChildProcess>()
   private killTimer?: NodeJS.Timeout
   private readonly listeners = new Map<NodeJS.Signals, () => void>()
@@ -42,6 +43,16 @@ export class Interrupts {
       this.listeners.set(signal, listener)
       process.on(signal, listener)
     }
+  }
+
+  /** Aborted once nothing new should start. */
+  get signal(): AbortSignal {
+    return this.halted.signal
+  }
+
+  /** Stops new steps without a signal from outside. Running steps carry on. */
+  halt(): void {
+    this.halted.abort()
   }
 
   /** Removes the handlers once a run is over. */
@@ -81,6 +92,7 @@ export class Interrupts {
     }
 
     this.received = signal
+    this.halt()
     this.stopAll(signal)
   }
 }

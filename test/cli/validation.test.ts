@@ -294,7 +294,7 @@ describe('secrets files (F05, F34)', () => {
       const result = await runCli(fixture, ['worker', '-a', '-c', 'deploy', '-e', 'production', '-s'])
 
       expect(result.exitCode).toBe(0)
-      expect(secretCalls(result).map((call) => call.secretFile?.vars)).toEqual([{KEY: 'gateway'}, {KEY: 'orders'}])
+      expect(secretCalls(result).map((call) => call.secretFile?.vars)).toEqual([{KEY: 'orders'}, {KEY: 'gateway'}])
     })
 
     it('uses .dev.vars without -e, and requires it', async () => {

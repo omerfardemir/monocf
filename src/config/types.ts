@@ -32,15 +32,18 @@ export interface ResolvedWorker {
   bindings: ResolvedBinding[]
 }
 
+interface ReferenceNotice<T extends string> {
+  binding: string
+  message: string
+  name: string
+  source: BindingSource
+  type: T
+  worker: string
+}
+
 export type Notice =
-  | {
-      binding: string
-      message: string
-      name: string
-      source: BindingSource
-      type: 'directory-name' | 'external-binding'
-      worker: string
-    }
+  | ReferenceNotice<'directory-name'>
+  | ReferenceNotice<'external-binding'>
   | {
       binding: string
       message: string

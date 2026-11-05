@@ -2,7 +2,7 @@ import {describe, expect, it} from 'vitest'
 
 import type {Graph} from '../../src/graph/graph.js'
 import type {ResolvedWorker} from '../../src/config/types.js'
-import {callers, computeOrder, serviceClosure} from '../../src/graph/order.js'
+import {callers, computeOrder, dependenciesWithin, directCallers, serviceClosure} from '../../src/graph/order.js'
 
 function graphOf(nodes: string[], edges: [string, string][]): Graph {
   return {
@@ -164,6 +164,29 @@ describe('callers', () => {
 
 const local = (source: string, dir: string) => ({source, target: {dir, kind: 'local'}})
 const worker = (dir: string, ...bindings: unknown[]) => ({bindings, dir}) as unknown as ResolvedWorker
+
+describe('dependenciesWithin', () => {
+  it('lists what each member must wait for, also through a worker that is not a member', () => {
+    const map = dependenciesWithin(graphOf(['a', 'b', 'c', 'd'], [['a', 'b'], ['b', 'c'], ['c', 'd']]), ['a', 'c', 'd'])
+    expect(Object.fromEntries(map)).toEqual({a: ['c', 'd'], c: ['d'], d: []})
+  })
+
+  it('lets members of a cycle not wait for each other, while still waiting for what the cycle calls', () => {
+    const map = dependenciesWithin(graphOf(['a', 'b', 'c'], [['a', 'b'], ['b', 'a'], ['b', 'c']]), ['a', 'b', 'c'])
+    expect(Object.fromEntries(map)).toEqual({a: ['c'], b: ['c'], c: []})
+  })
+
+  it('ignores a self edge', () => {
+    expect(dependenciesWithin(graphOf(['a'], [['a', 'a']]), ['a']).get('a')).toEqual([])
+  })
+})
+
+describe('directCallers', () => {
+  it('lists direct callers only, sorted, without the worker itself', () => {
+    const edges: [string, string][] = [['b', 'a'], ['c', 'a'], ['d', 'b'], ['a', 'a']]
+    expect(directCallers(graphOf(['a', 'b', 'c', 'd'], edges), 'a')).toEqual(['b', 'c'])
+  })
+})
 
 describe('serviceClosure', () => {
   it('reaches bindings transitively, each before what binds to it', () => {

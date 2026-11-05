@@ -24,6 +24,10 @@ export default class Worker extends BaseCommand {
     all: Flags.boolean({char: 'a', default: false, description: 'Run command for all workers'}),
     'base-config': Flags.string({char: 'b', description: 'Base wrangler config file'}),
     command: workerCommand(),
+    concurrency: Flags.integer({
+      description: 'How many workers run at once. default: the CPU count up to 8 for build, 1 for deploy and preview',
+      min: 1,
+    }),
     'deploy-bindings': Flags.boolean({
       allowNo: true,
       char: 'd',
@@ -53,6 +57,7 @@ export default class Worker extends BaseCommand {
       all: flags.all,
       baseConfig: flags['base-config'],
       command: flags.command,
+      concurrency: flags.concurrency,
       deployBindings: flags['deploy-bindings'],
       deployFromVersionId: flags['deploy-from-version-id'],
       deploySecrets: flags['deploy-secrets'],
