@@ -250,6 +250,41 @@ describe('what each wrangler call carries (R8)', () => {
     expect(proxy.mainSource).not.toContain('"":')
   })
 
+  it('dev -a keeps a worker directory named like the proxy', async () => {
+    const fixture = createFixture({workers: [{name: 'proxy-worker'}]})
+
+    const result = await runCli(fixture, ['worker', '-a', '-c', 'dev'])
+
+    const worker = result.calls.find((call) => call.config?.name === 'proxy-worker-v1')!
+    const proxy = result.calls.find((call) => call.config?.name === 'proxy-worker')!
+    expect(worker.mainSource).toContain("new Response('proxy-worker')")
+    expect(proxy.mainSource).toContain('const map')
+    expect(worker.configDir).not.toBe(proxy.configDir)
+  })
+
+  it.each([
+    ['a plain host', 'example.com/api/*'],
+    ['a host that starts with http', 'httpbin.example.com/api/*'],
+    ['a URL', 'https://example.com/api/*'],
+  ])('dev -a reads the path of %s', async (_, route) => {
+    const fixture = createFixture({workers: [{config: {routes: [route]}, name: 'orders'}]})
+
+    const result = await runCli(fixture, ['worker', '-a', '-c', 'dev'])
+
+    const proxy = result.calls.find((call) => call.config?.name === 'proxy-worker')!
+    expect(proxy.mainSource).toContain('"/api":')
+  })
+
+  it('dev -a says when two workers have the same route prefix', async () => {
+    const config = {routes: ['example.com/api/*']}
+    const fixture = createFixture({workers: [{config, name: 'billing'}, {config, name: 'orders'}]})
+
+    const result = await runCli(fixture, ['worker', '-a', '-c', 'dev'])
+
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout + result.stderr).toContain('billing and orders have the same route prefix /api')
+  })
+
   it('dev -a reads a route from the env section', async () => {
     const fixture = createFixture({
       workers: [{config: {env: {staging: {routes: ['example.com/api/*']}}}, name: 'orders'}],

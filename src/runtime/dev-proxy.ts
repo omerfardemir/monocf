@@ -6,6 +6,8 @@ import {isPlainObject, type RawConfig} from '../config/types.js'
 import type {RunDir} from './run-dir.js'
 
 export const PROXY_WORKER = 'proxy-worker'
+/** A worker's run directory is named after its directory, so this one starts with a dot to stay out of the way. */
+export const PROXY_DIR = '.proxy'
 
 function patternOf(route: unknown): string | undefined {
   if (typeof route === 'string') return route
@@ -17,7 +19,7 @@ function firstRoute({route, routes}: RawConfig): string | undefined {
 }
 
 function pathOf(pattern: string): string {
-  const withoutHost = pattern.startsWith('http') ? pattern.split('/').slice(3) : pattern.split('/').slice(1)
+  const withoutHost = pattern.includes('://') ? pattern.split('/').slice(3) : pattern.split('/').slice(1)
   const path = `/${withoutHost.join('/')}`.replace(/\*$/, '').replace(/\/$/, '')
   return path
 }
@@ -51,7 +53,7 @@ export default {
 
 /** Writes the proxy worker into the run directory and returns its config path. */
 export function materialiseProxy(map: Record<string, number>, port: number, runDir: RunDir): string {
-  const dir = runDir.workerDir(PROXY_WORKER)
+  const dir = runDir.workerDir(PROXY_DIR)
   mkdirSync(join(dir, 'src'), {recursive: true})
   writeFileSync(join(dir, 'src', 'index.ts'), proxySource(map))
   const configPath = join(dir, 'wrangler.json')

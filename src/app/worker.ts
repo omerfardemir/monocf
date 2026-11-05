@@ -7,7 +7,7 @@ import {EXIT_FAILED, MonocfError} from '../errors.js'
 import {buildGraph} from '../graph/graph.js'
 import {computeOrder, dependenciesWithin, serviceClosure} from '../graph/order.js'
 import type {OptionFlags, Options} from '../project/options.js'
-import {materialiseProxy, PROXY_WORKER, routePrefix} from '../runtime/dev-proxy.js'
+import {materialiseProxy, PROXY_DIR, PROXY_WORKER, routePrefix} from '../runtime/dev-proxy.js'
 import {materialiseConfig, writeDevVars, writeSecretsFile} from '../runtime/materialise.js'
 import {readLocalVars, readSecrets, requireSecretsFile} from '../runtime/secrets.js'
 import {buildArgv, type ArgvOptions} from '../wrangler/argv.js'
@@ -280,13 +280,22 @@ interface DevAllRun {
  * ends the rest, and a signal reaches them all through the handler.
  */
 async function runDevAll(context: RunContext, {options, proxyPort, release, workers}: DevAllRun): Promise<void> {
-  const {interrupts, runDir, wrangler} = context
+  const {emit, interrupts, runDir, wrangler} = context
   const proxyMap: Record<string, number> = {}
+  const owners = new Map<string, string>()
   const sessions = workers.map((worker, index) => {
     writeWorkerVars(context, worker, options)
     const dev = isPlainObject(worker.config.dev) ? worker.config.dev : {}
     const port = typeof dev.port === 'number' ? dev.port : BASE_WORKER_PORT + index
-    proxyMap[routePrefix(worker.config, options.env) ?? `/${worker.dir}`] = port
+    const prefix = routePrefix(worker.config, options.env) ?? `/${worker.dir}`
+    const owner = owners.get(prefix)
+    if (owner) {
+      const message = `${owner} and ${worker.dir} have the same route prefix ${prefix}. The proxy sends it to ${worker.dir}.`
+      emit({message, type: 'notice', worker: worker.dir})
+    }
+
+    owners.set(prefix, worker.dir)
+    proxyMap[prefix] = port
     return {
       argv: buildArgv(
         {
@@ -300,6 +309,7 @@ async function runDevAll(context: RunContext, {options, proxyPort, release, work
       ),
       cwd: runDir.workerDir(worker.dir),
       name: worker.dir,
+      prefix: worker.dir,
     }
   })
 
@@ -308,26 +318,27 @@ async function runDevAll(context: RunContext, {options, proxyPort, release, work
       action: 'dev',
       configPaths: [materialiseProxy(proxyMap, proxyPort, runDir)],
       inspectorPort: BASE_INSPECTOR_PORT + workers.length,
-      persistTo: join(options.rootDir, '.monocf', 'local-storage', PROXY_WORKER),
+      persistTo: join(options.rootDir, '.monocf', 'local-storage', PROXY_DIR),
       port: proxyPort,
     }),
-    cwd: runDir.workerDir(PROXY_WORKER),
-    name: PROXY_WORKER,
+    cwd: runDir.workerDir(PROXY_DIR),
+    name: PROXY_DIR,
+    prefix: PROXY_WORKER,
   })
 
   let failure: MonocfError | undefined
   await Promise.all(
-    sessions.map(async ({argv, cwd, name}) => {
+    sessions.map(async ({argv, cwd, name, prefix}) => {
       interrupts.throwIfInterrupted()
       const running = spawnWrangler(wrangler, argv, {
         cwd,
-        mode: {prefix: `[${name}] `},
+        mode: {prefix: `[${prefix}] `},
         outputFile: runDir.outputFile(name),
       })
       interrupts.track(running.child)
       const result = await running.done
       if (!isSuccess(result) && !failure) {
-        failure = failureOf(`${name}: `, 'dev', result)
+        failure = failureOf(`${prefix}: `, 'dev', result)
         interrupts.stopAll()
       }
     }),
