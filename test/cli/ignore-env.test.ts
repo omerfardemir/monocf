@@ -372,6 +372,12 @@ describe('check', () => {
     expect(view.findings.map(({rule}) => rule)).toEqual(['ignored-malformed'])
   })
 
+  it('counts a malformed line for nothing while it checks, so the worker it names is still looked at', async () => {
+    const checked = await checkJson(createFixture(productionOnly(['nightly except a,,b'])), ['-e', 'dev'])
+
+    expect(checked.findings.map(({rule, worker}) => `${rule} ${worker}`).sort()).toEqual(['ignored-malformed undefined', 'missing-env nightly'])
+  })
+
   it('reports ignored-unknown-env for a typo, once, whichever env it checks', async () => {
     const fixture = project(['nightly except produciton'])
 

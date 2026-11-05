@@ -140,6 +140,13 @@ describe('findIgnoredWorkers with a scope', () => {
     expect(findIgnoredWorkers({...options, env: 'dev'}, ['my in tray', 'x in y'], reader)).toEqual(['my in tray', 'x in y'])
   })
 
+  it('keeps a word after an escaped space in the pattern, even at the end of the line', () => {
+    const workers = ['a in', 'orders']
+    expect(ignoredIn('dev', 'a\\ in\n', workers)).toEqual(['a in'])
+    expect(ignoredIn('dev', 'a\\ in in production\n', workers)).toEqual([])
+    expect(ignoredIn('production', 'a\\ in in production\n', workers)).toEqual(['a in'])
+  })
+
   it.each([
     ['billing in', 'names no environment'],
     ['billing except', 'names no environment'],
