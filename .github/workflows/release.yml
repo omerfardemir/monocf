@@ -22,29 +22,35 @@ jobs:
     outputs:
       tag: ${{ steps.check.outputs.tag }}
       commit: ${{ steps.check.outputs.commit }}
+      target: ${{ steps.check.outputs.target }}
       publish: ${{ steps.check.outputs.publish }}
       release: ${{ steps.check.outputs.release }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
+          # The whole history, to compare the workflows at the commit npm names with these.
+          fetch-depth: 0
       - name: See what this version is missing
         id: check
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # The run form lets anyone pick a branch. npm can't tell, so this is the only thing that stops it.
+          # The run form lets anyone pick a branch. This stops a run started on another branch by
+          # mistake. It's in the file being run, so a branch with its own copy could leave it out.
           if [ "$GITHUB_REF" != refs/heads/main ]; then
             echo "::error::Releases run from main, and this run is on $GITHUB_REF_NAME."
             exit 1
           fi
 
-          # Anything but a clear yes or no stops the run, so an outage can't look like a new version.
-          missing() {
-            code=$(curl --silent --retry 3 --max-time 30 --output /dev/null --write-out '%{http_code}' "$@")
+          # Prints the body on 200 and nothing on 404. Anything else stops the run, so an outage
+          # can't look like a new version.
+          get() {
+            body=$(mktemp)
+            code=$(curl --silent --retry 3 --max-time 30 --output "$body" --write-out '%{http_code}' "$@")
             case "$code" in
-              200) echo false ;;
-              404) echo true ;;
+              200) cat "$body" ;;
+              404) ;;
               *)
                 echo "::error::$1 answered $code, so this run can't tell what's missing." >&2
                 return 1
@@ -54,10 +60,31 @@ jobs:
 
           name=$(node -p "require('./package.json').name")
           version=$(node -p "require('./package.json').version")
-          publish=$(missing "https://registry.npmjs.org/$name/$version")
-          release=$(missing "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/tags/v$version" --header "Authorization: Bearer $GH_TOKEN")
+          tag=v$version
+          api=https://api.github.com/repos/$GITHUB_REPOSITORY
+          auth="Authorization: Bearer $GH_TOKEN"
 
-          # A version already on npm gets its tag on the commit npm names, not on whatever this push is.
+          on_npm=$(get "https://registry.npmjs.org/$name/$version")
+          publish=true
+          if [ -n "$on_npm" ]; then publish=false; fi
+
+          # A release counts only once both files are on it. The release is created before they're
+          # uploaded, so a failed upload leaves one without them, and running again finishes it.
+          release=true
+          release_json=$(get "$api/releases/tags/$tag" --header "$auth")
+          if [ -n "$release_json" ]; then
+            release=false
+            file=${name#@}
+            file=${file//\//-}-$version
+            for f in "$file.tgz" "$file.zip"; do
+              if ! jq -e --arg f "$f" 'any(.assets[]; .name == $f and .state == "uploaded")' <<< "$release_json" > /dev/null; then
+                echo "The release $tag is there without $f, so this run uploads its files again."
+                release=true
+              fi
+            done
+          fi
+
+          # A version already on npm gets its tag on the commit npm names, not on whatever main is now.
           commit=$GITHUB_SHA
           if [ "$publish" = false ] && [ "$release" = true ]; then
             commit=$(npm view "$name@$version" gitHead)
@@ -67,15 +94,46 @@ jobs:
             fi
           fi
 
-          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          # GitHub refuses this run's token a tag, or a release that names a commit, when the
+          # commit's workflow files differ from main's. A release on a tag that's already there
+          # works, so then the release names no commit. A tag pushed by hand is how a version
+          # gets its release after a change to the workflows.
+          target=$commit
+          tag_json=$(get "$api/git/ref/tags/$tag" --header "$auth")
+          if [ -n "$tag_json" ] && { [ "$publish" = true ] || [ "$release" = true ]; }; then
+            tag_commit=$(jq -r .object.sha <<< "$tag_json")
+            if [ "$(jq -r .object.type <<< "$tag_json")" = tag ]; then
+              tag_commit=$(get "$api/git/tags/$tag_commit" --header "$auth" | jq -r .object.sha)
+            fi
+            if [ "$tag_commit" != "$commit" ] && [ "$publish" = true ]; then
+              echo "::error::$tag is already there, on $tag_commit, and $name@$version isn't on npm. This run would publish it from $commit. Change the version, or delete the tag if nothing was released from it."
+              exit 1
+            elif [ "$tag_commit" != "$commit" ]; then
+              echo "::error::$tag is on $tag_commit, but npm says $name@$version came from $commit. Move the tag to $commit, and run this workflow again."
+              exit 1
+            fi
+            target=
+          elif [ "$release" = true ] && [ "$commit" != "$GITHUB_SHA" ]; then
+            if ! git cat-file -e "$commit^{commit}" 2> /dev/null; then
+              echo "::error::npm says $name@$version came from $commit, which isn't on main. Its tag and release have to be made by hand."
+              exit 1
+            fi
+            if ! git diff --quiet "$commit" "$GITHUB_SHA" -- .github/workflows; then
+              echo "::error::$name@$version came from $commit, whose workflows differ from main's, so GitHub won't let this run tag it. Push the tag yourself with: git push origin $commit:refs/tags/$tag. Then run this workflow again."
+              exit 1
+            fi
+          fi
+
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "commit=$commit" >> "$GITHUB_OUTPUT"
+          echo "target=$target" >> "$GITHUB_OUTPUT"
           echo "publish=$publish" >> "$GITHUB_OUTPUT"
           echo "release=$release" >> "$GITHUB_OUTPUT"
 
           if [ "$publish" = false ] && [ "$release" = false ]; then
             echo "::notice file=package.json,line=1::$name@$version is already on npm and has a release, so there's nothing to do. Change the version in package.json to release a new one."
           else
-            echo "$name@$version: publish to npm: $publish, create the release: $release"
+            echo "$name@$version: publish to npm: $publish, create or finish the release: $release"
           fi
 
   # Runs the project's code with a token that can't write. Nothing below runs unless this passes.
@@ -157,14 +215,15 @@ jobs:
           cd ./dist/unpacked/package
           zip -r ../../$filename.zip .
 
-      # A failed upload has to turn the run red, because a later run sees the release and stops. The
-      # two update settings let a re-run finish a release that exists, and keep its notes.
+      # A failed upload turns the run red, and check then sends the next run back here. The two
+      # update settings let that run finish the release that's there, and keep its notes. commit is
+      # empty when the tag is already there, and the action then names no commit.
       - name: Create the tag and the release
         uses: ncipollo/release-action@339a81892b84b4eeb0f6e744e4574d79d0d9b8dd # v1.21.0
         with:
           tag: ${{ needs.check.outputs.tag }}
           name: Release ${{ needs.check.outputs.tag }}
-          commit: ${{ needs.check.outputs.commit }}
+          commit: ${{ needs.check.outputs.target }}
           generateReleaseNotes: true
           artifactErrorsFailBuild: true
           allowUpdates: true

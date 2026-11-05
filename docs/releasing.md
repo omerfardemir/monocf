@@ -23,18 +23,28 @@ On npmjs.com, under the package's **Settings**, **Trusted publishing**, choose *
 
 ## When a run fails
 
-Run the workflow again, or use **Re-run all jobs**. Both work out again what's missing. Don't use "Re-run failed jobs": it keeps the first attempt's answer, so if a publish reached npm but its job still failed, it fails every time.
+Run the workflow again, or use **Re-run all jobs**. Both work out again what's missing, and that includes a release that's there without its files. Don't use "Re-run failed jobs": it keeps the first attempt's answer, so if a publish reached npm but its job still failed, it fails every time.
 
 | What failed | What to do |
 |---|---|
-| `check` | Read its error. It stops on any unclear answer from npm or GitHub, so an outage can't look like a new version, and on a branch other than `main`. Run it again. |
+| `check` | Read its error, and do what it says. It stops on any unclear answer from npm or GitHub, so an outage can't look like a new version. It also stops on a branch other than `main`, and when the tag has to be pushed by hand, as described below. |
 | `test` | The run stopped before publishing. Fix it, merge the fix, and run it again. |
 | `publish` | Search the log for `oidc`, as the step logs at verbose for this reason. Correct the setup above, and run it again. |
-| `github-release` | npm already has the version. Run it again. If the fix has to go in this workflow, merge it first. |
+| `github-release` | npm already has the version. Run it again: it creates the release, or uploads the files the release is missing and keeps its notes. If the fix has to go in this workflow, merge it first. `check` will then ask you to push the tag by hand. |
 
 A re-run uses the workflow file and the commit of its first attempt. A new run uses `main` as it is now.
 
-A version that's on npm with no release gets its tag on the commit npm names (`gitHead`), not on whatever `main` is when the release is finally made. So the tag, the attached package and npm agree. If GitHub refuses that tag because the workflows have changed since, create the tag by hand on that commit, and re-run.
+### The tag of a version that's already on npm
+
+It goes on the commit npm names (`gitHead`), not on whatever `main` is when the release is finally made. So the tag, the attached package and npm agree.
+
+GitHub won't let the workflow's token create a tag, or a release that names a commit, when that commit's workflow files differ from `main`'s. It does let it create a release on a tag that's already there. So when `check` asks, push the tag yourself, and run the workflow again:
+
+```sh
+git push origin <commit>:refs/tags/v<version>
+```
+
+`check`'s error gives the exact command. A tag that's already there has to be on the commit npm names, or `check` stops.
 
 ## After a release
 
