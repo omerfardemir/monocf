@@ -202,9 +202,16 @@ function r2Answer(state, path) {
   return {stdout: 'Upload complete.\n'}
 }
 
-/** As real wrangler 4.151: a list of worker consumers, and `queues consumer remove` fails on one that isn't attached. */
+/**
+ * As real wrangler 4.151: a list of worker consumers, and `queues consumer remove` fails on one that isn't attached. Both fail
+ * for a queue that doesn't exist: one in `queues`, or one that has had a consumer, does.
+ */
 function queueAnswer(state, path) {
   const queue = startsWithCommand('queues consumer worker list') ? argv[4] : argv[3]
+  if (!state.queues?.includes(queue) && !state.consumers?.[queue]) {
+    return {exitCode: 1, stderr: `✘ [ERROR] Queue "${queue}" does not exist. To create it, run: wrangler queues create ${queue}\n`}
+  }
+
   const consumers = state.consumers?.[queue] ?? {}
   if (startsWithCommand('queues consumer worker list')) {
     return {stdout: JSON.stringify(Object.keys(consumers).map((script) => ({script, type: 'worker'})))}

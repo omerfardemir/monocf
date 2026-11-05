@@ -160,9 +160,13 @@ export async function readVersionTag(
   return (await readVersionOrigin(call, name, versionId, accountId)).tag
 }
 
-/** The workers that consume a queue, from `queues consumer worker list --json`. */
+/**
+ * The workers that consume a queue, from `queues consumer worker list --json`. A queue that doesn't exist has none, as wrangler
+ * 4.151 says it: `Queue "<name>" does not exist.` Every other failure is an error.
+ */
 export async function readQueueConsumers(call: WranglerCall, queue: string, accountId?: string): Promise<string[]> {
   const result = await call({action: 'queue-consumers', queue}, accountId)
+  if (!result.signal && result.code !== 0 && stripVTControlCharacters(result.stderr).includes(`Queue "${queue}" does not exist.`)) return []
   if (!isSuccessful(result)) throw readFailure(`The consumers of queue ${queue}`, result)
   let parsed: unknown
   try {

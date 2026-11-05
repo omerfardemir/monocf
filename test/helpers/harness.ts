@@ -255,8 +255,10 @@ export function createFixture(options: FixtureOptions): Fixture {
 export interface FakeCloudflare {
   /** Bucket name to its objects by key. */
   buckets?: Record<string, Record<string, string>>
-  /** Queue name to its consumers, by deployed name. */
+  /** Queue name to its consumers, by deployed name. A queue here exists. */
   consumers?: Record<string, Record<string, {max_batch_size?: number; queue: string}>>
+  /** Queues that exist with no consumer yet. */
+  queues?: string[]
   /** Registered Workflows by name. */
   workflows?: Record<string, {className: string; script: string}>
   /** By deployed name. A worker that isn't here doesn't exist. */

@@ -62,6 +62,32 @@ describe('apply, with a queue consumer on a live worker', () => {
     expect(removed.result.calls.map(({argv}) => argv.slice(0, 3).join(' '))).not.toContain('queues consumer remove')
   })
 
+  it('counts one whose queue is gone as detached, as there is nothing to detach', async () => {
+    const fixture = deployFixture()
+    const {cloudflare} = await applyChange(fixture, await firstRun(fixture), consumer(1))
+    delete cloudflare.consumers!.jobs
+
+    const removed = await applyChange(fixture, cloudflare, {})
+
+    expect(stepOf(removed.plan, 'reports')).toMatchObject({removedConsumers: ['jobs']})
+    expect(removed.result.calls.map(({argv}) => argv.slice(0, 3).join(' '))).not.toContain('queues consumer remove')
+    expect(stepOf(await planFor(fixture, removed.cloudflare), 'reports')).toMatchObject({action: 'skip'})
+  })
+
+  it('fails the worker on any other failure to read the queue', async () => {
+    const fixture = deployFixture()
+    const {cloudflare} = await applyChange(fixture, await firstRun(fixture), consumer(1))
+    staging(fixture, {})
+    await planFor(fixture, cloudflare)
+    const stderr = '✘ [ERROR] A request to the Cloudflare API (/accounts/0123456789abcdef0123456789abcdef/queues) failed. [code: 10001]\n'
+
+    const failed = await applyPlan(fixture, cloudflare, {rules: [{command: 'queues consumer worker list', exitCode: 1, stderr}]})
+
+    expect(failed.exitCode).toBe(1)
+    expect(failed.stderr).toContain('The consumers of queue jobs: wrangler failed with exit code 1')
+    expect(stepOf(await planFor(fixture, failed.cloudflare!), 'reports')).toMatchObject({removedConsumers: ['jobs']})
+  })
+
   it('has the next plan detach it, when the detach fails', async () => {
     const fixture = deployFixture()
     const {cloudflare} = await applyChange(fixture, await firstRun(fixture), consumer(1))
