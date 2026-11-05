@@ -54,6 +54,9 @@ function collect(child: ChildProcess, mode: OutputMode): () => {stderr: string; 
       err.end()
     })
   } else {
+    // A chunk can end inside a multi-byte character, so the decoding has to span chunks.
+    child.stdout?.setEncoding('utf8')
+    child.stderr?.setEncoding('utf8')
     child.stdout?.on('data', (chunk) => {
       stdout += chunk
     })
