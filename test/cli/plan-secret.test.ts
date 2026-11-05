@@ -32,6 +32,12 @@ function manualDeploy(cloudflare: FakeCloudflare, name: string): FakeCloudflare 
   return {...cloudflare, workers: {...cloudflare.workers, [name]: {...worker, active: [[id, 100]], tags: {...worker.tags, [id]: null}, triggeredBy: {...worker.triggeredBy, [id]: 'upload'}}}}
 }
 
+function rotations(cloudflare: FakeCloudflare, name: string, count: number): FakeCloudflare {
+  let state = cloudflare
+  for (let index = 0; index < count; index++) state = rotateSecret(state, name, `secret-${index}`)
+  return state
+}
+
 describe('plan --on-drift fail, with a version a secret command made (WP6-9)', () => {
   it('takes a rotation on known code as routine', async () => {
     const {cloudflare, fixture, name} = await deployed()
@@ -78,6 +84,55 @@ describe('plan --on-drift fail, with a version a secret command made (WP6-9)', (
 
     expect(result.exitCode).toBe(1)
     expect(actionsOf(readPlan(fixture)).billing).toBe('blocked')
+  })
+
+  describe('and the 10 versions wrangler lists (R5)', () => {
+    it('still sees the upload after 9 rotations, as the list holds 10', async () => {
+      const {cloudflare, fixture, name} = await deployed()
+
+      const result = await runCli(fixture, plan, {cloudflare: rotations(cloudflare, name, 9)})
+
+      expect(result.exitCode, result.stderr).toBe(0)
+      expect(stepOf(readPlan(fixture), 'billing')).toMatchObject({action: 'upload', reasons: ['secret-changed']})
+    })
+
+    it('blocks after 10, and blames the list rather than the code', async () => {
+      const {cloudflare, fixture, name} = await deployed()
+
+      const result = await runCli(fixture, plan, {cloudflare: rotations(cloudflare, name, 10)})
+
+      expect(result.exitCode).toBe(1)
+      const planned = readPlan(fixture)
+      expect(stepOf(planned, 'billing')).toMatchObject({action: 'blocked', reasons: ['drift']})
+      const {message} = planned.notes.find(({worker}: {worker: string}) => worker === 'billing')
+      expect(message).toContain("list of the 10 latest versions doesn't reach the upload")
+      expect(message).toContain('--on-drift warn')
+      expect(message).not.toContain('code the state manifest')
+    })
+
+    it('clears with one upload under warn', async () => {
+      const {cloudflare, fixture, name} = await deployed()
+      const rotated = rotations(cloudflare, name, 10)
+      const warned = await runCli(fixture, ['plan', '-e', 'staging', '--state', 'file:state', '--out', 'plan.json', '--on-drift', 'warn'], {cloudflare: rotated})
+      expect(warned.exitCode, warned.stderr).toBe(0)
+      expect(stepOf(readPlan(fixture), 'billing')).toMatchObject({action: 'upload', reasons: ['drift']})
+
+      const applied = await applyPlan(fixture, rotated)
+      expect(applied.exitCode, applied.stderr).toBe(0)
+
+      const next = await runCli(fixture, plan, {cloudflare: applied.cloudflare})
+      expect(next.exitCode, next.stderr).toBe(0)
+      expect(actionsOf(readPlan(fixture)).billing).toBe('skip')
+    })
+
+    it('keeps its own wording for an upload the list does reach, with another tag', async () => {
+      const {cloudflare, fixture, name} = await deployed()
+
+      const result = await runCli(fixture, plan, {cloudflare: rotateSecret(manualDeploy(cloudflare, name), name)})
+
+      expect(result.exitCode).toBe(1)
+      expect(readPlan(fixture).notes.find(({worker}: {worker: string}) => worker === 'billing').message).not.toContain('10 latest')
+    })
   })
 
   it('stops the plan when the list cannot be read, rather than guess', async () => {

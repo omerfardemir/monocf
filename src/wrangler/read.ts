@@ -16,10 +16,10 @@ export interface ActiveShare {
 
 /**
  * What Cloudflare serves for a worker. `tag` is only there when it was worth a request. A secret command's version has no tag
- * of its own, so `sourceTag` is the tag of the upload it copied.
+ * of its own, so `sourceTag` is the tag of the upload it copied, and `sourceOutOfReach` says the version list didn't get that far.
  */
 export type ActiveInfo =
-  | {sourceTag?: string; state: 'active'; tag?: string; triggeredBy?: string; versionId: string}
+  | {sourceOutOfReach?: true; sourceTag?: string; state: 'active'; tag?: string; triggeredBy?: string; versionId: string}
   | {state: 'missing'}
   | {shares: ActiveShare[]; state: 'split'}
 
@@ -132,10 +132,11 @@ export async function readVersionOrigin(
 }
 
 /**
- * The tag of the upload a secret command's version copied: the last version before it that no secret command made, as real
- * Cloudflare numbers them. Undefined when the list doesn't say, which nothing can tell from code monocf didn't deploy.
+ * The upload a secret command's version copied: the last version before it that no secret command made, as real Cloudflare numbers
+ * them. Its tag may be absent. Undefined when the list doesn't reach it, as wrangler lists only the 10 latest versions, and nothing
+ * can tell that from code monocf didn't deploy.
  */
-export async function readSecretSource(call: WranglerCall, name: string, versionId: string, accountId?: string): Promise<string | undefined> {
+export async function readSecretSource(call: WranglerCall, name: string, versionId: string, accountId?: string): Promise<undefined | {tag?: string}> {
   const result = await call({action: 'versions-of', name}, accountId)
   if (!isSuccessful(result)) throw readFailure(name, result)
   const parsed = parseJson(name, result.stdout)
@@ -144,7 +145,10 @@ export async function readSecretSource(call: WranglerCall, name: string, version
     .sort((a, b) => b.number - a.number)
   const index = versions.findIndex(({id}) => id === versionId)
   if (index === -1) return undefined
-  return annotationOf(versions.slice(index + 1).find((version) => annotationOf(version, TRIGGERED_BY) !== 'secret'), TAG)
+  const source = versions.slice(index + 1).find((version) => annotationOf(version, TRIGGERED_BY) !== 'secret')
+  if (source === undefined) return undefined
+  const tag = annotationOf(source, TAG)
+  return tag === undefined ? {} : {tag}
 }
 
 export async function readVersionTag(

@@ -19,9 +19,9 @@ import {locateWrangler} from '../wrangler/locate.js'
 import {readActiveVersion, readSecretSource, readVersionOrigin, type ActiveInfo, type WranglerCall} from '../wrangler/read.js'
 import {withReadRetries} from '../wrangler/retry.js'
 import {configHash, doHash, triggersHash, triggersOf} from '../fingerprint/fingerprint.js'
-import {workerExternalHash} from '../fingerprint/external.js'
+import {externalInputs, isSameOrWithin, workerExternalHash} from '../fingerprint/external.js'
 import {buildBundle, checkEntrypoints, readBundleManifest, type BundleManifest, type ManifestWorker} from './bundle.js'
-import {assertHoldsNoSource, checkoutHead, isTreeDirty, loadOptions, resolveCommit, selectNamed} from './project.js'
+import {assertHoldsNoSource, checkoutHead, isTreeDirty, loadOptions, realPath, resolveCommit, selectNamed} from './project.js'
 import {accountOf, callWrangler, createSink, runWorkerSteps, withRun, type RunContext} from './run.js'
 
 export interface PlanFlags extends OptionFlags {
@@ -145,8 +145,13 @@ async function readActiveVersions(
         }
 
         const origin = await readVersionOrigin(call, deployedName, info.versionId, accountId)
-        const sourceTag = origin.triggeredBy === 'secret' ? await readSecretSource(call, deployedName, info.versionId, accountId) : undefined
-        active.set(dir, {...info, ...origin, ...(sourceTag !== undefined && {sourceTag})})
+        if (origin.triggeredBy !== 'secret') {
+          active.set(dir, {...info, ...origin})
+          return
+        }
+
+        const source = await readSecretSource(call, deployedName, info.versionId, accountId)
+        active.set(dir, {...info, ...origin, ...(source === undefined ? {sourceOutOfReach: true as const} : source.tag !== undefined && {sourceTag: source.tag})})
       },
       worker: dir,
     })),
@@ -180,6 +185,18 @@ function exitCodeOf(plan: Plan): number {
 function pickWorkers(bundle: BundleManifest, selected: string[], head: string | undefined): PlanBundle {
   const workers = Object.fromEntries(Object.entries(bundle.workers).filter(([name]) => selected.includes(name)))
   return {commit: head ?? bundle.commit, env: bundle.env, workers, wrangler: bundle.wrangler}
+}
+
+/**
+ * `apply` doesn't count the markdown as a change, and it's left out of the external hash, so inside something wrangler uploads it
+ * would ship unseen.
+ */
+function assertNotUploaded(markdownPath: string, workers: ResolvedWorker[], env: string): void {
+  const markdown = realPath(markdownPath)
+  for (const {config, dir, path} of workers) {
+    const input = externalInputs(config, env, path).find((candidate) => isSameOrWithin(realPath(candidate.path), markdown))
+    if (input) throw new ConfigError(`--markdown ${markdownPath} is inside ${input.path}, which ${dir} uploads. Write it somewhere else.`)
+  }
 }
 
 /** Relative to the root, as the plan may be applied from another clone. A path on another drive can't be a change to this one. */
@@ -230,6 +247,7 @@ export async function runPlan(flags: PlanFlags): Promise<void> {
   if (errors > 0) throw new ConfigError(`${errors} check errors, so there is no plan. See monocf check.`)
 
   const workers = project.workers.filter(({dir}) => selected.includes(dir))
+  if (markdownPath !== undefined) assertNotUploaded(markdownPath, workers, env)
   const graph = buildGraph(project.workers.filter(({dir}) => !ignored.includes(dir)))
   const wrangler = locateWrangler(rootDir)
 

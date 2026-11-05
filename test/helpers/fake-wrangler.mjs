@@ -174,7 +174,7 @@ function versionAnswer(state, name, id) {
   return {stdout: JSON.stringify({annotations, id, metadata: {}, resources: {bindings: [...bindings, {name: 'PLAIN', text: 'x', type: 'plain_text'}]}})}
 }
 
-/** As real wrangler: every version, oldest first. A secret version has no tag. */
+/** As real wrangler: the 10 latest versions (its VERSION_LIST_LIMIT), oldest first. A secret version has no tag. */
 function versionsAnswer(state, name) {
   const worker = state.workers?.[name]
   if (!worker) return {exitCode: 1, stderr: apiError('This Worker does not exist on your account. [code: 10007]')}
@@ -182,7 +182,7 @@ function versionsAnswer(state, name) {
     const triggeredBy = worker.triggeredBy?.[id]
     return {annotations: {...(tag !== null && {'workers/tag': tag}), ...(triggeredBy && {'workers/triggered_by': triggeredBy})}, id, metadata: {}, number: index + 1}
   })
-  return {stdout: JSON.stringify(versions)}
+  return {stdout: JSON.stringify(versions.slice(-10))}
 }
 
 function r2Answer(state, path) {

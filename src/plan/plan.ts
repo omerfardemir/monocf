@@ -240,7 +240,10 @@ function classify(worker: ManifestWorker, entry: StateWorker | undefined, active
 
   // A secret version copies the latest upload, so a rotation on top of a manual deploy keeps that code live.
   if (active.sourceTag === tagFor(entry.fingerprint)) return secretChanged(worker, entry)
-  return drifted(worker, entry, {message: "A secret command made the active version, on top of code the state manifest doesn't name.", split: false}, onDrift)
+  const message = active.sourceOutOfReach
+    ? "A secret command made the active version, and wrangler's list of the 10 latest versions doesn't reach the upload it copied, so nothing says what code it runs. To upload this bundle over it, plan with --on-drift warn."
+    : "A secret command made the active version, on top of code the state manifest doesn't name."
+  return drifted(worker, entry, {message, split: false}, onDrift)
 }
 
 /** A request to Cloudflare per worker that needs it: the tag only matters when the version alone doesn't settle things. */

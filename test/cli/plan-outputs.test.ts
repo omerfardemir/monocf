@@ -12,6 +12,36 @@ function project(): Fixture {
 
 const outputs = ['--out', 'old-plan.json', '--markdown', 'old-plan.md']
 
+describe('--markdown inside something wrangler uploads (R11)', () => {
+  it.each([
+    ['assets', {assets: {directory: './public'}}, 'workers/billing/public/plan.md'],
+    ['a directory under assets', {assets: {directory: './public'}}, 'workers/billing/public/reports/plan.md'],
+    ['a site', {site: {bucket: './site'}}, 'workers/billing/site/plan.md'],
+  ])('refuses a path in %s, with nothing read from Cloudflare', async (_, config, markdown) => {
+    const fixture = createFixture({
+      environments: ['staging'],
+      files: {'workers/billing/public/index.html': 'x', 'workers/billing/site/index.html': 'x'},
+      workers: [{config, name: 'billing'}],
+    })
+    mkdirSync(join(fixture.root, 'state', 'staging'), {recursive: true})
+
+    const result = await runCli(fixture, ['plan', '-e', 'staging', '--state', 'file:state', '--first-run', '--markdown', markdown], {cloudflare: {}, noCalls: true})
+
+    expect(result.exitCode).toBe(2)
+    expect(result.stderr).toMatch(/--markdown .*plan\.md is inside .*, which billing uploads/)
+    expect(result.calls).toEqual([])
+  })
+
+  it('takes a path beside them', async () => {
+    const fixture = createFixture({environments: ['staging'], files: {'workers/billing/public/index.html': 'x'}, workers: [{config: {assets: {directory: './public'}}, name: 'billing'}]})
+    mkdirSync(join(fixture.root, 'state', 'staging'), {recursive: true})
+
+    const result = await runCli(fixture, ['plan', '-e', 'staging', '--state', 'file:state', '--first-run', '--markdown', 'workers/billing/plan.md'], {cloudflare: {}})
+
+    expect(result.exitCode, result.stderr).toBe(0)
+  })
+})
+
 function withOldOutputs(fixture: Fixture): void {
   writeFileSync(join(fixture.root, 'old-plan.json'), 'old')
   writeFileSync(join(fixture.root, 'old-plan.md'), 'old')
