@@ -38,6 +38,7 @@ monocf can now run a Cloudflare Workers monorepo from CI: a dependency graph, a 
 - `apply` sees a change to `queues.consumers`, the Workflows a worker defines, `tail_consumers` and `streaming_tail_consumers` on a live worker, and makes it reach Cloudflare: a promote alone never did, and `apply` exited 0 with the old settings live. It detaches a queue consumer the config dropped, and clears tail consumers the config dropped. A Workflow the config dropped stays registered, as nothing in wrangler deletes one, and `plan` says so with a `workflow-removed` note. `rollback` puts all of these back too.
 - With `CI` set, wrangler's output is piped and has the account ID taken out even on a terminal, as a CI can allocate a pty.
 - `monocf build`, `deploy`, `preview` and `dev`, over the same code as `monocf worker -c`.
+- `dev <worker>` also starts the workers it reaches through a Durable Object or Workflow binding with a `script_name`, gives every worker in the session `RELEASE`, and says when a queue consumer or tail consumer it sends to isn't in the session.
 - `--json` on every command that runs workers, with a `schemaVersion`.
 - `--no-` forms of `--deploy-bindings`, `--deploy-secrets` and `--minify`.
 - `--concurrency` on `build`, `deploy` and `preview`.

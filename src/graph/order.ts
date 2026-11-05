@@ -1,4 +1,4 @@
-import type {ResolvedWorker} from '../config/types.js'
+import type {BindingSource, ResolvedWorker} from '../config/types.js'
 import type {Graph} from './graph.js'
 
 export interface Order {
@@ -177,7 +177,7 @@ export function directCallers(graph: Graph, dir: string): string[] {
 }
 
 export interface ServiceClosure {
-  /** Workers reached through service bindings, excluding the start, each before whatever binds to it. */
+  /** Workers reached through the followed bindings, excluding the start, each before whatever binds to it. */
   reached: string[]
   /** Local targets left out because they're in `skip`. */
   skipped: string[]
@@ -185,8 +185,13 @@ export interface ServiceClosure {
   unresolved: string[]
 }
 
-/** Follows service bindings to local workers, transitively. A worker in `skip` isn't followed. */
-export function serviceClosure(workers: ResolvedWorker[], start: string[], skip: string[] = []): ServiceClosure {
+/** Follows bindings of the given kinds to local workers, transitively. A worker in `skip` isn't followed. */
+export function serviceClosure(
+  workers: ResolvedWorker[],
+  start: string[],
+  skip: string[] = [],
+  sources: readonly BindingSource[] = ['services'],
+): ServiceClosure {
   const byDir = new Map(workers.map((worker) => [worker.dir, worker]))
   const seen = new Set(start)
   const skipped = new Set<string>()
@@ -195,7 +200,7 @@ export function serviceClosure(workers: ResolvedWorker[], start: string[], skip:
 
   const visit = (dir: string): void => {
     for (const {source, target} of byDir.get(dir)?.bindings ?? []) {
-      if (source !== 'services' || target.kind !== 'local' || seen.has(target.dir)) continue
+      if (!sources.includes(source) || target.kind !== 'local' || seen.has(target.dir)) continue
       if (skip.includes(target.dir)) {
         skipped.add(target.dir)
       } else {

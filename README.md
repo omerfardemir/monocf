@@ -219,12 +219,14 @@ A `NAME`, `ENVIRONMENT` or `VERSION` in the worker's own config, in the section 
 ## Local development
 
 ```sh
-monocf dev orders                 # one session: orders and every worker it binds to
+monocf dev orders                 # one session: orders and every worker it calls
 monocf dev orders -e staging -p 9000
 monocf dev -a                     # every worker, behind one proxy on port 8787
 ```
 
 From inside a worker's directory you can leave out the name, if `workersDirName` is set.
+
+`dev <worker>` runs one wrangler session with the worker and every worker it reaches, transitively, through `services`, `durable_objects` with a `script_name`, and `workflows` with a `script_name`, as calls to them fail unless they run in the same session. It doesn't start a queue's consumer or a tail consumer, as neither is a call: a message sent to a queue whose consumer isn't in the session is accepted and never consumed, and a tail event goes nowhere. `dev` says so at the start, naming the worker. Use `dev -a` to run them all. Every worker in the session gets `RELEASE`.
 
 `dev` takes local values from the `.dev.vars` files above. If there are none, wrangler reads the worker's `.env` files. Local data stays in the worker's `.wrangler/state`.
 

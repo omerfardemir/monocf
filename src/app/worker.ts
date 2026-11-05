@@ -256,9 +256,35 @@ interface DevRun {
   worker: ResolvedWorker
 }
 
+/** A call to a worker through these fails unless it runs in the same session. Queue and tail edges carry no call. */
+const DEV_FOLLOWS = ['services', 'durable_objects', 'workflows'] as const
+
+/** A message or a tail event for a worker outside the session goes nowhere, and nothing else says so. */
+function outsideSession(project: ResolvedProject, members: string[]): {message: string; worker: string}[] {
+  return buildGraph(project.workers)
+    .edges.filter(({from, kind, to}) => members.includes(from) && !members.includes(to) && (kind === 'queues' || kind === 'tail_consumers' || kind === 'streaming_tail_consumers'))
+    .map(({from, kind, to, via}) => ({
+      message:
+        kind === 'queues'
+          ? `${from} sends to queue ${via}, which ${to} consumes, and ${to} isn't in this session, so those messages go nowhere. Use dev -a to run it too.`
+          : `${from} sends its tail events to ${to}, which isn't in this session, so they go nowhere. Use dev -a to run it too.`,
+      worker: from,
+    }))
+}
+
+/** Wrangler gives `--var` to the first config of a session only, so the others carry RELEASE in their own vars. */
+function withRelease(worker: ResolvedWorker, env: string | undefined, release: string): ResolvedWorker {
+  const {config} = worker
+  const section = env === undefined ? config : isPlainObject(config.env) && isPlainObject(config.env[env]) ? config.env[env] : {}
+  const vars = {...(isPlainObject(section.vars) ? section.vars : {}), RELEASE: release}
+  if (env === undefined) return {...worker, config: {...config, vars}}
+  const envs = isPlainObject(config.env) ? config.env : {}
+  return {...worker, config: {...config, env: {...envs, [env]: {...section, vars}}}}
+}
+
 /** One session with the worker first and every transitive binding after it. Local data stays in the worker's tree. */
 async function runDev(context: RunContext, {dependencies, explicitPort, options, release, worker}: DevRun) {
-  const workers = [worker, ...dependencies]
+  const workers = [worker, ...dependencies.map((each) => withRelease(each, options.env, release))]
   const configPaths = workers.map((each) => {
     writeWorkerVars(context, each, options)
     return materialiseConfig(each, context.runDir)
@@ -390,6 +416,8 @@ export async function runWorker(name: string | undefined, flags: WorkerFlags): P
     : ''
 
   const devAll = flags.command === 'dev' && options.all
+  const session = flags.command === 'dev' && !devAll ? serviceClosure(project.workers, order, [], DEV_FOLLOWS) : undefined
+  if (session) notices.push(...outsideSession(project, [...order, ...session.reached]))
   await withRun(
     {
       action: flags.command,
@@ -409,7 +437,7 @@ export async function runWorker(name: string | undefined, flags: WorkerFlags): P
 
         case 'dev': {
           if (devAll) return runDevAll(context, {options, proxyPort: options.port, release, workers})
-          const {reached, unresolved} = serviceClosure(project.workers, order)
+          const {reached, unresolved} = session!
           assertResolved(unresolved, project)
           return runDev(context, {
             dependencies: reached.map((dir) => byDir(project, dir)),
