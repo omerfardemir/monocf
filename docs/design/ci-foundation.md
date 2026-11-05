@@ -150,7 +150,7 @@ fingerprint = sha256( bundleHash + "\n" + configHash )
 - `triggersHash` covers the effective `triggers.crons`, `routes` or `route`, `workers_dev` and `preview_urls`. All four inherit from the top level. `crons` is `null` when the config doesn't set it, because wrangler then leaves the deployed crons alone, unlike an explicit `[]`. `workersDev` follows wrangler's default: true when there are no routes.
 - `doHash` covers the effective `migrations` and `exports`. A binding alone isn't a class lifecycle change.
 
-`monocf bundle` writes these to `<out>/manifest.json` only when every worker built. A run that fails leaves no manifest, so an old one can't be taken for this run's. Two runs at once must use different output directories, which the default `.monocf/bundle/<env>` does for different envs. `worker -c build` shares the worker's `dist`, so running it for two envs at once can fail: wrangler may read a source map the other process is writing.
+`monocf bundle` writes these to `<out>/manifest.json` only when every worker built. A run that fails leaves no manifest, so an old one can't be taken for this run's. Two runs at once must use different output directories, which the default `.monocf/bundle/<env>` does for different envs. `worker -c build` shares the worker's `dist`, and running it for two envs at once failed 8 times in 40 with "Unexpected end of JSON input", against 0 in 40 for `bundle`. The shared directory is the likely cause, but the exact read that fails has not been isolated.
 
 ## State
 
@@ -228,6 +228,8 @@ monocf secrets check -e env [--json]
 ```
 
 `monocf worker -c <action>` keeps working on top of the same core. `build` takes `--concurrency`, with the CPU count up to 8 as its default, and a failed build holds no other back. `deploy` and `preview` take it too, with a default of 1, in graph order, and a failure skips the worker's transitive callers while independent workers carry on. A wrangler killed by a signal from outside stops new steps. Windows can't tell such a kill from exit 1.
+
+On Windows, stopping a process tree first runs `taskkill` without `/F`, and forces it after the 10 second grace period or on a second signal. That request only reaches a process with a window. Wrangler has none, so `taskkill` refuses and a stop that monocf starts itself, such as `dev -a` ending the others after one fails, waits out the grace period and then forces. Only a real Ctrl+C, which the console delivers to every process, lets wrangler exit by itself and remove its dev registry entry.
 
 `graph`, `check` and `bundle` need no credentials, and the first two need no wrangler. `check` exits 2 on any error, and on any warning with `--strict`. A cycle that only a queue edge closes is a warning, as queues need no order at deploy time. A failure to resolve that isn't an unknown placeholder is reported under the rule `resolve-failed`. `bundle` also reports `unknown-entrypoint`, an error that exits 1, since Cloudflare never rejects a wrong entrypoint and it can fall through to the default handler.
 
