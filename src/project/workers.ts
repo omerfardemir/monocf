@@ -112,6 +112,22 @@ export function matchesDirectory({pattern}: IgnoreLine, location: WorkerLocation
   return directories.some(matcherOf(pattern.replace(/^!/, ''), location))
 }
 
+const isPattern = ({problem, text}: IgnoreLine) => problem === undefined && text.trim() !== '' && !text.trim().startsWith('#')
+
+/**
+ * Each `!` line, with what it reaches, when no line before it ignores any of that. Such a line undoes nothing, whatever its
+ * scope, and someone who read `!` as "not" may have meant it to ignore those workers.
+ */
+export function negationsWithNothingToUndo(lines: IgnoreLine[], location: WorkerLocation, directories: string[]): {line: IgnoreLine; reached: string[]}[] {
+  return lines.flatMap((line, index) => {
+    if (!isPattern(line) || !line.pattern.startsWith('!')) return []
+    const reached = directories.filter(matcherOf(line.pattern.slice(1), location))
+    const earlier = lines.slice(0, index).filter((each) => isPattern(each) && !each.pattern.startsWith('!'))
+    const undone = reached.filter((directory) => earlier.some((each) => matcherOf(each.pattern, location)(directory)))
+    return reached.length > 0 && undone.length === 0 ? [{line, reached}] : []
+  })
+}
+
 /** Every line of the ignore file, comments and blank lines too, in order. */
 export function readIgnoreLines(options: WorkerLocation, reader: FileReader = nodeReader): IgnoreLine[] {
   const ignorePath = join(options.rootDir, IGNORE_FILE)
@@ -160,13 +176,20 @@ export function findIgnoredWorkers(options: IgnoreOptions, workers: string[], re
   return ignoredIn(lines, options, workers)
 }
 
-/** Each env a scope names that isn't defined, as a message. `defined` is only asked for when there's a scope to compare. */
-export function unknownEnvProblems(lines: IgnoreLine[], defined: () => string[]): string[] {
+/**
+ * Each env a scope names that isn't defined, as a message. `defined` is only asked for when there's a scope to compare. It also
+ * names the workers whose config doesn't parse, as one of them may be where the env is defined.
+ */
+export function unknownEnvProblems(lines: IgnoreLine[], defined: () => {envs: string[]; unreadable: string[]}): string[] {
   const scoped = lines.filter(({problem, scope}) => scope !== undefined && problem === undefined)
   if (scoped.length === 0) return []
-  const envs = defined()
+  const {envs, unreadable} = defined()
+  const broken =
+    unreadable.length === 0 ? '' : ` The config of ${unreadable.join(', ')} doesn't parse, and may be where it's defined: fix ${unreadable.length === 1 ? 'it' : 'them'} first.`
   return scoped.flatMap(({scope, text}) =>
-    scope!.envs.filter((env) => !envs.includes(env)).map((env) => `The ${IGNORE_FILE} line "${text.trim()}" names the env ${env}, which no worker defines.`),
+    scope!.envs
+      .filter((env) => !envs.includes(env))
+      .map((env) => `The ${IGNORE_FILE} line "${text.trim()}" names the env ${env}, which no ${broken === '' ? 'worker' : 'config that parses'} defines.${broken}`),
   )
 }
 

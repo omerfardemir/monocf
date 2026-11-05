@@ -366,6 +366,24 @@ describe('check', () => {
     expect(result.stderr).toContain('No workers found')
   })
 
+  it.each([['!workers/nightly in dev'], ['!nightly']])('warns that %j undoes nothing when no line before it ignores nightly', async (line) => {
+    const checked = await checkJson(project([line]), ['-e', 'dev'])
+
+    expect(checked.findings.filter(({rule}) => rule === 'ignored-negation-unused')).toEqual([
+      {level: 'warning', message: expect.stringContaining(`"${line}" brings back nightly, which no line before it ignores`), rule: 'ignored-negation-unused'},
+    ])
+  })
+
+  it.each([
+    [['workers/nightly', '!workers/nightly in dev']],
+    [['workers/*', '!nightly']],
+    [['nightly except production', '!workers/nightly in staging']],
+  ])('gives no such warning for %j, where an earlier line ignores it', async (lines) => {
+    const checked = await checkJson(project(lines), ['-e', 'dev'])
+
+    expect(checked.findings.map(({rule}) => rule)).not.toContain('ignored-negation-unused')
+  })
+
   it('matches a scoped line on the pattern with its scope removed', async () => {
     const live = await checkJson(project(['nightly except production', 'workers/billing in dev']), ['-e', 'production'])
 
@@ -874,6 +892,22 @@ describe('an env in a scope that nothing defines', () => {
     expect(result.exitCode).toBe(2)
     expect(result.stderr).toContain('names the env produciton')
     expect(writesOf(result.calls)).toEqual([])
+  })
+
+  it('names a config that does not parse, as the env may be defined there', async () => {
+    const fixture = createFixture({
+      base: false,
+      files: {'workers/orders/wrangler.jsonc': '{"name": "orders", "env": {"staging": {}'},
+      ignore: ['workers/nightly in staging'],
+      workers: [{name: 'billing'}, {name: 'nightly'}, {name: 'orders'}],
+    })
+
+    const result = await runCli(fixture, ['build', 'billing', '-e', 'dev'], {noCalls: true})
+
+    expect(result.exitCode).toBe(2)
+    expect(result.stderr.replaceAll(/\s+/g, ' ').replaceAll(' › ', ' ')).toContain(
+      "names the env staging, which no config that parses defines. The config of orders doesn't parse, and may be where it's defined: fix it first.",
+    )
   })
 
   it('reads no config for it when no line has a scope, so an ignored broken worker still stops nothing', async () => {

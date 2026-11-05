@@ -4,7 +4,7 @@ import {basename, dirname, isAbsolute, join, relative, resolve} from 'node:path'
 
 import {readProjectInputs} from '../config/resolve.js'
 import {ConfigError} from '../config/types.js'
-import {definedEnvs} from '../config/validate.js'
+import {envsAndUnreadable} from '../config/validate.js'
 import {isSameOrWithin} from '../fingerprint/external.js'
 import {findConfigFile, loadProjectFile} from '../project/load.js'
 import {resolveOptions, type OptionFlags, type Options} from '../project/options.js'
@@ -24,7 +24,7 @@ export function loadOptions(flags: OptionFlags, cwd: string = process.cwd()): Op
  */
 export function findIgnored(options: Options, workers: string[]): string[] {
   const ignored = findIgnoredWorkers(options, workers)
-  const [problem] = unknownEnvProblems(readIgnoreLines(options), () => definedEnvs(readProjectInputs(options), options))
+  const [problem] = unknownEnvProblems(readIgnoreLines(options), () => envsAndUnreadable(readProjectInputs(options), options))
   if (problem !== undefined) throw new ConfigError(problem)
   return ignored
 }
@@ -133,9 +133,9 @@ const STATUS_MAX_BUFFER = 256 * 1024 * 1024
 
 /**
  * What differs from the commit across the whole repository, as a worker can import from outside `rootDir`, apart from
- * `excluded`. Paths from the root, or undefined when git can't say.
+ * `excluded` and any real path `alsoExcluded` accepts. Paths from the root, or undefined when git can't say.
  */
-export function dirtyPaths(rootDir: string, excluded: string[]): string[] | undefined {
+export function dirtyPaths(rootDir: string, excluded: string[], alsoExcluded: (path: string) => boolean = () => false): string[] | undefined {
   const git = (...args: string[]): string => execFileSync('git', args, {cwd: rootDir, encoding: 'utf8', maxBuffer: STATUS_MAX_BUFFER, shell: false, stdio: ['ignore', 'pipe', 'ignore']})
   try {
     const top = realPath(git('rev-parse', '--show-toplevel').trim())
@@ -154,7 +154,9 @@ export function dirtyPaths(rootDir: string, excluded: string[]): string[] | unde
 
     // Git answers with the real path, and the root may not be one: a link, or a short name such as RUNNER~1 on Windows.
     const root = realPath(rootDir)
-    return paths.filter((path) => !skipped.some((skip) => isSameOrWithin(skip, path))).map((path) => relative(root, path).replaceAll('\\', '/'))
+    return paths
+      .filter((path) => !skipped.some((skip) => isSameOrWithin(skip, path)) && !alsoExcluded(path))
+      .map((path) => relative(root, path).replaceAll('\\', '/'))
   } catch {
     return undefined
   }

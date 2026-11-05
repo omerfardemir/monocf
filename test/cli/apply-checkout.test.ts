@@ -294,6 +294,21 @@ describe('a file: state directory, and what it exempts', () => {
     await refuses(fixture, /doesn't include: state\/notes\.txt\. Commit/)
   })
 
+  it("doesn't count what a killed manifest write left, in any env, and still counts a look-alike elsewhere", async () => {
+    const fixture = withStateInTheOpen({environments: ['staging', 'production']})
+    await planFor(fixture, {}, {flags: ['--first-run']})
+    mkdirSync(join(fixture.root, 'state', 'production'), {recursive: true})
+    writeFileSync(join(fixture.root, 'state', 'staging', 'manifest.json.0a1b2c3d4e5f.tmp'), '{')
+    writeFileSync(join(fixture.root, 'state', 'production', 'manifest.json.ffeeddccbbaa.tmp'), '{')
+    writeFileSync(join(fixture.root, 'state', 'manifest.json.0a1b2c3d4e5f.tmp'), '{')
+
+    await refuses(fixture, /doesn't include: state\/manifest\.json\.0a1b2c3d4e5f\.tmp\. Commit/)
+
+    unlinkSync(join(fixture.root, 'state', 'manifest.json.0a1b2c3d4e5f.tmp'))
+    const result = await applyPlan(fixture, {})
+    expect(result.exitCode, result.stderr).toBe(0)
+  })
+
   it('counts a file beside the manifest in the env directory as a change', async () => {
     const fixture = withStateInTheOpen()
     await planFor(fixture, {}, {flags: ['--first-run']})

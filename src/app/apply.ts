@@ -1,6 +1,6 @@
 import {execFileSync} from 'node:child_process'
 import {appendFileSync, mkdirSync, readFileSync} from 'node:fs'
-import {dirname, join, resolve} from 'node:path'
+import {basename, dirname, join, resolve} from 'node:path'
 
 import {effectiveField, readProjectInputs, resolveProject} from '../config/resolve.js'
 import {ConfigError, isPlainObject, type ResolvedWorker} from '../config/types.js'
@@ -34,7 +34,7 @@ import {
   type DeployResult,
   type DeployStep,
 } from './deployment.js'
-import {assertHoldsNoSource, checkoutHead, dirtyPaths, findIgnored, loadOptions} from './project.js'
+import {assertHoldsNoSource, checkoutHead, dirtyPaths, findIgnored, loadOptions, realPath} from './project.js'
 import {accountOf, callWrangler, runStep, withRun, type RunContext} from './run.js'
 
 export interface ApplyFlags extends OptionFlags {
@@ -114,9 +114,13 @@ function assertNotIgnored(names: string[], options: Options): void {
 
 const MAX_NAMED_PATHS = 5
 
+/** A manifest write killed before its rename leaves this beside it, as `<env>/manifest.json.<hex>.tmp`. */
+const MANIFEST_TEMPORARY = /^manifest\.json\.[\da-f]+\.tmp$/
+
 /**
  * A change on disk would ship under the plan's fingerprint and leave the state saying that it hadn't happened. What's exempt is
- * what monocf writes itself. In a `file:` state directory that's the manifest and run records, of any env, as local runs share one.
+ * what monocf writes itself. In a `file:` state directory that's the manifest, a temporary file a killed write of it left, and
+ * the run records, of any env, as local runs share one.
  */
 function assertCleanCheckout(
   plan: Plan,
@@ -125,13 +129,16 @@ function assertCleanCheckout(
   const outputs = (plan.outputs ?? []).map((path) => resolve(rootDir, path))
   for (const output of outputs) assertHoldsNoSource("The plan's output", output, {rootDir, workers})
   if (location.kind === 'file') assertHoldsNoSource('The state directory', location.dir, {rootDir, workers})
+  const stateDir = location.kind === 'file' ? realPath(location.dir) : undefined
+  const leftByAKilledWrite = (path: string) =>
+    stateDir !== undefined && MANIFEST_TEMPORARY.test(basename(path)) && envs.some((env) => resolve(stateDir, env) === dirname(path))
   const paths = dirtyPaths(rootDir, [
     planPath,
     ...(summaryFile === undefined ? [] : [resolve(summaryFile)]),
     join(rootDir, '.monocf'),
     ...(location.kind === 'file' ? envs.flatMap((env) => [join(location.dir, env, 'manifest.json'), join(location.dir, env, 'runs')]) : []),
     ...outputs,
-  ])
+  ], leftByAKilledWrite)
   if (paths === undefined) throw new ConfigError("git can't say whether this checkout has changes, so nothing says that the plan describes it.")
   if (paths.length === 0) return
   const named = paths.slice(0, MAX_NAMED_PATHS)

@@ -2,12 +2,12 @@ import {join} from 'node:path'
 
 import {effectiveField, envSection, type ProjectInputs, type ResolvedProject} from '../config/resolve.js'
 import {isPlainObject, UnknownPlaceholderError, type Notice, type RawConfig, type ResolvedWorker} from '../config/types.js'
-import {definedEnvs, isEnvMissing} from '../config/validate.js'
+import {envsAndUnreadable, isEnvMissing} from '../config/validate.js'
 import {buildGraph, type Edge, type Graph} from '../graph/graph.js'
 import {computeOrder} from '../graph/order.js'
 import type {FileReader} from '../project/load.js'
 import type {Options} from '../project/options.js'
-import {IGNORE_FILE, matchesDirectory, readIgnoreLines, unknownEnvProblems} from '../project/workers.js'
+import {IGNORE_FILE, matchesDirectory, negationsWithNothingToUndo, readIgnoreLines, unknownEnvProblems} from '../project/workers.js'
 
 export type FindingLevel = 'error' | 'warning'
 
@@ -279,13 +279,21 @@ const ignoredStale: Rule = ({directories, options, reader}) =>
       rule: 'ignored-stale',
     }))
 
+/** `!workers/nightly in dev` with nothing before it ignores nothing, which isn't what someone reading `!` as "not" meant. */
+const ignoredNegationUnused: Rule = ({directories, options, reader}) =>
+  negationsWithNothingToUndo(readIgnoreLines(options, reader), options, directories).map(({line, reached}) => ({
+    level: 'warning',
+    message: `The ${IGNORE_FILE} line "${line.text.trim()}" brings back ${reached.join(', ')}, which no line before it ignores, so it does nothing. A line starting with ! undoes an earlier line: it doesn't mean "not".`,
+    rule: 'ignored-negation-unused',
+  }))
+
 /** A line nothing can read would leave a worker in or out by accident, so it never counts as a pattern. */
 const ignoredMalformed: Rule = ({options, reader}) =>
   readIgnoreLines(options, reader).flatMap(({problem}) => (problem === undefined ? [] : [{level: 'error' as const, message: problem, rule: 'ignored-malformed'}]))
 
 /** Without this, `except produciton` keeps a worker out of production and nothing says so. */
 const ignoredUnknownEnv: Rule = ({inputs, options, reader}) =>
-  unknownEnvProblems(readIgnoreLines(options, reader), () => definedEnvs(inputs, options)).map((message) => ({level: 'error', message, rule: 'ignored-unknown-env'}))
+  unknownEnvProblems(readIgnoreLines(options, reader), () => envsAndUnreadable(inputs, options)).map((message) => ({level: 'error', message, rule: 'ignored-unknown-env'}))
 
 function effectiveBuildCommand(config: RawConfig, env?: string): unknown {
   const build = effectiveField(config, env, 'build')
@@ -375,6 +383,7 @@ const RULES: Rule[] = [
   resolveFailures,
   externalBinding,
   ignoredStale,
+  ignoredNegationUnused,
   ignoredMalformed,
   ignoredUnknownEnv,
   missingMain,

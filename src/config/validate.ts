@@ -31,6 +31,11 @@ export function definedEnvs(inputs: ProjectInputs, options: Pick<Options, 'varia
   return [...new Set(names)].sort()
 }
 
+/** The envs the configs that parse define, and the workers whose config doesn't parse. */
+export function envsAndUnreadable(inputs: ProjectInputs, options: Pick<Options, 'variables'>): {envs: string[]; unreadable: string[]} {
+  return {envs: definedEnvs(inputs, options), unreadable: inputs.failures.map(({dir}) => dir).sort()}
+}
+
 /** Returns a config's name, which must be a non-empty string by the time placeholders are replaced. */
 export function validateName(config: RawConfig, file: string): string {
   const {name} = config
