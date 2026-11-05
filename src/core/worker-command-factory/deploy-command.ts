@@ -162,7 +162,10 @@ export class DeployCommand implements WorkerCommandExecutor {
 
       await this.wranglerService.versionDeployCommand(tempWranglerConfigPath, params.env, params.message, targetVersion)
     } else {
-      await this.wranglerService.execWorkerCommand('deploy', [tempWranglerConfigPath], params.env, params.minify)
+      await this.wranglerService.execWorkerCommand('deploy', [tempWranglerConfigPath], {
+        env: params.env,
+        minify: params.minify,
+      })
     }
 
     // Deploy secrets if needed

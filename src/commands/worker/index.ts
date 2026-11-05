@@ -11,7 +11,8 @@ import {normalizeFlags} from '../../utils/flag.js'
 
 const workerCommand = Flags.custom<WorkerCommand>({
   char: 'c',
-  description: 'Command to execute (dev or deploy)',
+  description: 'Command to execute',
+  options: ['build', 'deploy', 'dev', 'preview'],
   required: true,
 })
 
@@ -27,11 +28,7 @@ const workerFlags = {
     description: 'Base wrangler config file',
     required: false,
   }),
-  command: workerCommand({
-    char: 'c',
-    description: 'Command to execute (dev, deploy, build, preview)',
-    required: true,
-  }),
+  command: workerCommand(),
   'deploy-secrets': Flags.boolean({
     char: 's',
     description: 'Deploy secrets for the worker',
@@ -59,7 +56,7 @@ const workerFlags = {
   }),
   port: Flags.integer({
     char: 'p',
-    description: 'Port to use for the dev command. default: 8787',
+    description: 'Port for dev: of the worker, or of the proxy with --all. default for the proxy: 8787',
     required: false,
   }),
   minify: Flags.boolean({
@@ -69,7 +66,7 @@ const workerFlags = {
   }),
   message: Flags.string({
     char: 'M',
-    description: 'Message for the preview version',
+    description: 'Message for the version: on preview, or on deploy with --from-version',
     required: false,
   }),
   'from-version': Flags.boolean({
@@ -79,7 +76,7 @@ const workerFlags = {
   }),
   'deploy-from-version-id': Flags.string({
     char: 'F',
-    description: 'If specified, deploys from an existing version ID instead of latest uploaded version',
+    description: 'Version ID to deploy instead of the latest uploaded version. Requires --from-version',
     required: false,
   }),
 }

@@ -75,16 +75,7 @@ export class DevCommand implements WorkerCommandExecutor {
       this.errorService.throwConfigurationError('Invalid command parameters for dev command')
     }
 
-    if (this.fileService.isIgnoredWorker(workerName)) {
-      this.logService.log(`Worker ${workerName} is ignored, skipping`)
-      return
-    }
-
     const workerConfigPath = this.workerService.initializeWorker(workerName, params)
-
-    if (!workerConfigPath) {
-      return
-    }
 
     // Run wrangler command
     return this.wranglerService.execWorkerCommand(
@@ -93,7 +84,7 @@ export class DevCommand implements WorkerCommandExecutor {
         workerConfigPath.tempWranglerConfigPath,
         ...new Set(workerConfigPath.serviceBindingPaths.flatMap((serviceBindingPath) => serviceBindingPath.path)),
       ],
-      params.env,
+      {env: params.env, port: params.explicitPort},
     )
   }
 
@@ -102,7 +93,6 @@ export class DevCommand implements WorkerCommandExecutor {
     const workersConfigPaths = workers
       .filter((workerName) => !this.fileService.isIgnoredWorker(workerName))
       .map((workerName) => this.workerService.initializeWorker(workerName, params))
-      .filter((s) => s !== undefined)
 
     const monocfFolder = join(params.rootDir, MONOCF_FOLDER)
     if (!existsSync(monocfFolder)) {

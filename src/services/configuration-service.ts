@@ -56,7 +56,7 @@ export class ConfigurationService {
           all: flags.all ?? false,
           env: flags.env,
           command: flags.command,
-          port: parsed.port ?? flags.port ?? 8787,
+          port: flags.port ?? parsed.port ?? 8787,
           minify: parsed.minify,
           fromVersion: flags.fromVersion,
           deployFromVersionId: flags.deployFromVersionId,
@@ -88,8 +88,8 @@ export class ConfigurationService {
     }
 
     // Infer worker name if not provided
-    const inferredWorkerName = this.inferWorkerName(this.cliConfig.rootDir, this.cliConfig.workersDirName)
-    const effectiveWorkerName = args.workerName || inferredWorkerName
+    const effectiveWorkerName =
+      args.workerName || this.inferWorkerName(this.cliConfig.rootDir, this.cliConfig.workersDirName, flags.all)
 
     // Validate configuration
     this.validateConfiguration(effectiveWorkerName)
@@ -123,11 +123,12 @@ export class ConfigurationService {
    * Infers the worker name from the current directory
    * @param rootDir Project root directory
    * @param workersDirName Workers directory name
+   * @param all Whether every worker is selected, wherever the command runs from
    * @returns Inferred worker name or undefined
    */
-  private inferWorkerName(rootDir: string, workersDirName: string): string | undefined {
+  private inferWorkerName(rootDir: string, workersDirName: string, all?: boolean): string | undefined {
     const cwd = process.cwd()
-    if (!workersDirName) return undefined
+    if (all || !workersDirName) return undefined
 
     const workersDir = join(rootDir, workersDirName)
 

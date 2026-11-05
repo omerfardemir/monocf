@@ -11,6 +11,7 @@ import {getPackageVersion} from '../utils/version.js'
 import {MONOCF_IGNORE_FILE, VERSIONS_FOLDER} from '../types/config-types.js'
 
 import ignore from 'ignore'
+import {parse} from 'jsonc-parser'
 
 /**
  * Service for handling file operations
@@ -250,6 +251,54 @@ export class FileService {
   }
 
   /**
+   * Resolves which workers a command runs for. The ignore list applies only to --all.
+   * @param rootDir Root directory of the project
+   * @param workersDirName Workers directory name
+   * @param workerName Worker named by the user, undefined for all workers
+   * @returns Worker names
+   * @throws If the named worker is in the ignore list
+   */
+  selectWorkers(rootDir: string, workersDirName: string, workerName?: string): string[] {
+    if (workerName === undefined) {
+      return this.getWorkers(rootDir, workersDirName).filter((worker) => !this.isIgnoredWorker(worker))
+    }
+
+    this.validateWorker(rootDir, workersDirName, workerName)
+
+    if (this.isIgnoredWorker(workerName)) {
+      this.errorService.throwConfigurationError(
+        `Worker ${workerName} is listed in ${MONOCF_IGNORE_FILE}, which applies only to --all. Remove it from the file to run it by name.`,
+      )
+    }
+
+    return [workerName]
+  }
+
+  /**
+   * Validates that an environment is defined for a worker. Merging base and worker configs
+   * keeps every key under env from both, so the merged config defines the union of the two.
+   * @param workerName Worker name
+   * @param configPaths Paths to the worker and base wrangler configs
+   * @param env Environment to check
+   * @throws If the environment is not defined
+   */
+  validateEnvironment(workerName: string, configPaths: Array<string | undefined>, env?: string): void {
+    if (!env) {
+      return
+    }
+
+    const isDefined = configPaths
+      .filter((configPath): configPath is string => configPath !== undefined && existsSync(configPath))
+      .some((configPath) => Object.hasOwn(parse(readFileSync(configPath, 'utf8'))?.env ?? {}, env))
+
+    if (!isDefined) {
+      this.errorService.throwConfigurationError(
+        `Unknown environment "${env}" for worker ${workerName}. Define it under "env" in the base config or in the wrangler config of the worker.`,
+      )
+    }
+  }
+
+  /**
    * Validates if the workers directory exists
    * @param rootDir Root directory of the project
    * @param workersDirName Workers directory name
@@ -265,22 +314,24 @@ export class FileService {
   }
 
   /**
-   * Gets the environment file path based on the environment
+   * Gets the environment file for local use, falling back to .dev.vars when the environment has no file
    * @param dir Path to the directory
    * @param env Environment to use
    * @returns Path to the environment file
    */
   getEnvironmentFile(dir: string, env?: string): string {
-    if (!env || env === 'dev') {
-      return join(dir, '.dev.vars')
-    }
+    const envFile = this.getExactEnvironmentFile(dir, env)
+    return existsSync(envFile) ? envFile : join(dir, '.dev.vars')
+  }
 
-    const envFile = join(dir, `.dev.vars.${env}`)
-    if (existsSync(envFile)) {
-      return envFile
-    }
-
-    return join(dir, '.dev.vars')
+  /**
+   * Gets the only environment file that secrets of an environment may come from
+   * @param dir Path to the directory
+   * @param env Environment to use
+   * @returns Path to the environment file, which may not exist
+   */
+  getExactEnvironmentFile(dir: string, env?: string): string {
+    return join(dir, env ? `.dev.vars.${env}` : '.dev.vars')
   }
 
   /**

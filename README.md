@@ -152,7 +152,7 @@ You can override these settings using command-line flags when running commands.
 
 ### .monocfignore
 
-You can create a `.monocfignore` file in your project's root directory to specify workers that should be excluded from bulk commands like `dev --all` and `deploy --all`. The file uses the same syntax as `.gitignore`.
+You can create a `.monocfignore` file in your project's root directory to specify workers that should be excluded from bulk commands like `dev --all` and `deploy --all`. The file uses the same syntax as `.gitignore`. It applies only to `--all`: naming an ignored worker on the command line is an error.
 
 #### Example .monocfignore
 
@@ -204,12 +204,18 @@ You can also create environment-specific `.dev.vars` files for both root and wor
 
 When deploying a worker with `deploySecrets: true`, MonoCF automatically combines the environment variables from both the root and worker-specific `.dev.vars` files, with worker-specific variables taking precedence over root variables.
 
+Secret uploads are strict. With `--env <name>`, the worker must have `.dev.vars.<name>`, and the root file is only read from `.dev.vars.<name>` too. Without `--env`, the file is `.dev.vars`. A missing worker file fails the run before anything is deployed, and `.dev.vars` is never used as a fallback. Local `dev` still falls back to `.dev.vars`. `dev` is an ordinary environment name, so `--env dev` reads `.dev.vars.dev`.
+
 For example, if both files contain an `API_KEY` variable:
 
 1. The worker-specific value will be used for that worker
 2. Other workers without their own `API_KEY` will use the root value
 
 This allows you to define common variables at the root level and override them as needed for specific workers.
+
+## Environments
+
+`--env <name>` must be defined under `env` in the base config or in the wrangler config of each selected worker, so a typo can't create a new worker. There are no built-in names: `dev` and `local` need to be defined like any other environment.
 
 ## Commands
 
@@ -271,7 +277,7 @@ Workers command for running dev or deploy for a worker or all workers
 
 ```sh-session
 USAGE
-  $ monocf worker [WORKERNAME] -c <value> [-a] [-b <value>] [-s] [-e <value>] [-r <value>] [-w <value>] [-d] [-p <value>]
+  $ monocf worker [WORKERNAME] -c build|deploy|dev|preview [-a] [-b <value>] [-s] [-e <value>] [-r <value>] [-w <value>] [-d] [-p <value>] [-m] [-M <value>] [-f] [-F <value>]
 
 ARGUMENTS
   WORKERNAME  Worker name
@@ -279,17 +285,23 @@ ARGUMENTS
 FLAGS
   -a, --all                       Run command for all workers
   -b, --base-config=<value>       Base wrangler config file
-  -c, --command=<value>           (required) Command to execute (dev or deploy)
-  -d, --deploy-bindings           Deploy service bindings for the worker before deploy main worker
+  -c, --command=<option>          (required) Command to execute
+                                  <options: build|deploy|dev|preview>
+  -d, --deploy-bindings           Deploy or upload service bindings before the worker (deploy, preview)
   -e, --env=<value>               Environment to use (dev, production etc.)
-  -p, --port=<value>              Port to use for the proxy worker in multi-worker dev mode (default: 8787)
+  -f, --from-version              Deploy an uploaded version: the latest one, or the one from -F (deploy, one named worker)
+  -F, --deploy-from-version-id=<value>  Version ID to deploy. Requires -f
+  -m, --minify                    Minify the worker script (build, deploy, preview)
+  -M, --message=<value>           Message for the version (preview, or deploy with -f)
+  -p, --port=<value>              Port for dev: of the worker, or of the proxy with --all (default for the proxy: 8787)
   -r, --root-dir=<value>          Root directory of the project
-  -s, --deploy-secrets            Deploy secrets for the worker
+  -s, --deploy-secrets            Deploy secrets for the worker (deploy, preview)
   -w, --workers-dir-name=<value>  Workers directory name in monorepo
 
 DESCRIPTION
   Workers command for running dev or deploy for a worker or all workers.
   When using `dev --all`, a proxy worker is started to route requests to the correct worker.
+  A flag that the chosen command doesn't support is an error.
 
 EXAMPLES
   $ monocf worker my-worker -c dev

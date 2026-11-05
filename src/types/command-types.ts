@@ -63,6 +63,8 @@ export interface DevCommandParams extends BaseCommandParams {
   multiWorker?: boolean
   /** Port to use for the proxy worker */
   port?: number
+  /** Port the user asked for on the command line, for a single worker */
+  explicitPort?: number
 }
 
 /**

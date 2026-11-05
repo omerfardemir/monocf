@@ -24,14 +24,57 @@ export class WorkerService {
     this.serviceBindingService = serviceBindingService
   }
 
-  public initializeWorker(workerName: string, params: BaseCommandParams) {
-    try {
-      this.fileService.validateWorker(params.rootDir, params.workersDirName, workerName)
-    } catch {
-      this.logService.warn(`Worker ${workerName} not found. Skipping.`)
-      return
-    }
+  /**
+   * Checks what a run needs before any wrangler call, so a bad selection fails with nothing attempted
+   * @param workers Selected worker names
+   * @param params Command parameters
+   * @param options What the run will do with the workers
+   * @param options.followBindings Whether the run also deploys the bindings of each worker
+   * @param options.requireSecrets Whether the run uploads secrets
+   * @param visited Workers already checked
+   */
+  public validateWorkers(
+    workers: string[],
+    params: BaseCommandParams,
+    options: {followBindings?: boolean; requireSecrets?: boolean},
+    visited: Set<string> = new Set(),
+  ): void {
+    const baseConfigPath = params.baseConfig ? join(params.rootDir, params.baseConfig) : undefined
 
+    for (const workerName of workers) {
+      if (visited.has(workerName)) continue
+      visited.add(workerName)
+
+      this.fileService.validateWorker(params.rootDir, params.workersDirName, workerName)
+
+      const workerPath = join(params.rootDir, params.workersDirName, workerName)
+      const configPath = join(workerPath, WRANGLER_FILE)
+      this.fileService.validateEnvironment(workerName, [configPath, baseConfigPath], params.env)
+
+      if (options.requireSecrets) {
+        this.environmentService.validateSecretsFile(workerPath, params.env)
+      }
+
+      if (options.followBindings) {
+        const tempConfigPath = this.fileService.createTempWranglerConfig({
+          workerName,
+          configPath,
+          workerPath,
+          baseConfigPath,
+          replaceValues: params.variables,
+          env: params.env,
+        })
+        const dependencies = this.serviceBindingService
+          .getServiceBindings(tempConfigPath, params.env)
+          .map((binding) => binding.service)
+          .filter((service) => !this.fileService.isIgnoredWorker(service))
+
+        this.validateWorkers(dependencies, params, options, visited)
+      }
+    }
+  }
+
+  public initializeWorker(workerName: string, params: BaseCommandParams) {
     // Create temp config
     const workerPath = join(params.rootDir, params.workersDirName, workerName)
     const wranglerConfigPath = join(workerPath, WRANGLER_FILE)

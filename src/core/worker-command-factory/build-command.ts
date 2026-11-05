@@ -69,16 +69,7 @@ export class BuildCommand implements WorkerCommandExecutor {
       this.errorService.throwConfigurationError('Invalid command parameters for build command')
     }
 
-    if (this.fileService.isIgnoredWorker(workerName)) {
-      this.logService.log(`Worker ${workerName} is ignored, skipping`)
-      return
-    }
-
     const workerConfigPath = this.workerService.initializeWorker(workerName, params)
-
-    if (!workerConfigPath) {
-      return
-    }
 
     // Run wrangler command
     await this.wranglerService.buildWorker(workerConfigPath.tempWranglerConfigPath, params.env, params.minify)
@@ -89,7 +80,6 @@ export class BuildCommand implements WorkerCommandExecutor {
     const workersConfigPaths = workers
       .filter((workerName) => !this.fileService.isIgnoredWorker(workerName))
       .map((workerName) => this.workerService.initializeWorker(workerName, params))
-      .filter((s) => s !== undefined)
     for (const workerConfigPath of workersConfigPaths) {
       await this.wranglerService.buildWorker(workerConfigPath.tempWranglerConfigPath, params.env, params.minify)
     }

@@ -4,17 +4,39 @@ import {
   ConfigurationService,
   ServiceBindingService,
   EnvironmentService,
+  WorkerService,
 } from '../../../services/index.js'
 import {WorkerArgs, WorkerFlags} from '../../../flags/index.js'
 import {MonocfCommand} from '../command.js'
 import {WorkerCommandFactory} from '../../worker-command-factory/index.js'
 import {CliConfig, CliFlags} from '../../../types/config-types.js'
 
+/**
+ * The optional flags each command acts on. Anything else is rejected instead of being dropped.
+ */
+const FLAGS_BY_COMMAND: Record<WorkerCommand, Array<keyof WorkerFlags>> = {
+  build: ['minify'],
+  deploy: ['deployFromVersionId', 'deployBindings', 'deploySecrets', 'fromVersion', 'message', 'minify'],
+  dev: ['port'],
+  preview: ['deployBindings', 'deploySecrets', 'message', 'minify'],
+}
+
+const CHECKED_FLAGS: Array<keyof WorkerFlags> = [
+  'deployBindings',
+  'deployFromVersionId',
+  'deploySecrets',
+  'fromVersion',
+  'message',
+  'minify',
+  'port',
+]
+
 export class WranglerCommand extends MonocfCommand<WorkerArgs, WorkerFlags> {
   private serviceBindingService: ServiceBindingService
   private wranglerService: WranglerService
   private configService: ConfigurationService
   private environmentService: EnvironmentService
+  private workerService: WorkerService
 
   constructor(command: Commander) {
     super(command)
@@ -22,9 +44,17 @@ export class WranglerCommand extends MonocfCommand<WorkerArgs, WorkerFlags> {
     this.environmentService = new EnvironmentService(this.errorService, this.fileService)
     this.serviceBindingService = new ServiceBindingService(this.errorService, this.fileService, this.environmentService)
     this.wranglerService = new WranglerService(this.errorService, this.fileService, command.cmdEvents())
+    this.workerService = new WorkerService(
+      this.fileService,
+      this.logService,
+      this.environmentService,
+      this.serviceBindingService,
+    )
   }
 
   public async execute(args: WorkerArgs, flags: WorkerFlags): Promise<void> {
+    this.validateFlags(flags)
+
     // Load configuration
     const config = this.configService.loadConfiguration(flags, args)
 
@@ -37,12 +67,22 @@ export class WranglerCommand extends MonocfCommand<WorkerArgs, WorkerFlags> {
     this.environmentService.setRootDir(config.rootDir)
     this.wranglerService.setRootDir(config.rootDir)
 
+    // A version ID belongs to one worker, and -f can't run for several
+    if ((flags.fromVersion || flags.deployFromVersionId) && (config.all || config.deployBindings)) {
+      this.errorService.throwConfigurationError(
+        'Deploying from a version works for one named worker. It cannot be combined with --all or with --deploy-bindings, also when deployBindings is set in monocf.config.json.',
+      )
+    }
+
     // Create command parameters
-    const params: WorkerCommandParams = this.buildParams({
-      ...config,
-      ...args,
-      workerName: config.workerName,
-    })
+    const params: WorkerCommandParams = this.buildParams(
+      {
+        ...config,
+        ...args,
+        workerName: config.workerName,
+      },
+      flags,
+    )
 
     // Create command executor
     const commandExecutor = WorkerCommandFactory.createCommand(params.command, {
@@ -58,13 +98,20 @@ export class WranglerCommand extends MonocfCommand<WorkerArgs, WorkerFlags> {
       this.errorService.throwConfigurationError('Worker name is required if --all flag is not set')
     }
 
-    const workers = config.all
-      ? this.fileService.getWorkers(config.rootDir, config.workersDirName)
-      : [String(config.workerName)]
+    const workers = this.fileService.selectWorkers(
+      config.rootDir,
+      config.workersDirName,
+      config.all ? undefined : config.workerName,
+    )
 
     if (workers.length === 0) {
       this.errorService.throwConfigurationError(`No workers found`)
     }
+
+    this.workerService.validateWorkers(workers, params, {
+      followBindings: 'deployBindings' in params && params.deployBindings,
+      requireSecrets: 'deploySecrets' in params && params.deploySecrets,
+    })
 
     await commandExecutor.execute(workers, {
       ...params,
@@ -74,7 +121,34 @@ export class WranglerCommand extends MonocfCommand<WorkerArgs, WorkerFlags> {
     })
   }
 
-  private buildParams(params: CliConfig & CliFlags & WorkerArgs): WorkerCommandParams {
+  /**
+   * Rejects flags that would otherwise be silently ignored
+   * @param flags Command line flags
+   */
+  private validateFlags(flags: WorkerFlags): void {
+    if (flags.deployFromVersionId && !flags.fromVersion) {
+      this.errorService.throwConfigurationError('--deploy-from-version-id requires --from-version')
+    }
+
+    // wrangler deploy has no --message; versions deploy does
+    if (flags.command === 'deploy' && flags.message && !flags.fromVersion) {
+      this.errorService.throwConfigurationError('--message on deploy requires --from-version')
+    }
+
+    if (flags.fromVersion && flags.minify) {
+      this.errorService.throwConfigurationError('--minify has no effect with --from-version, which uploads nothing')
+    }
+
+    const command = this.validateCommand(flags.command!)
+    for (const flag of CHECKED_FLAGS) {
+      if (flags[flag] !== undefined && !FLAGS_BY_COMMAND[command].includes(flag)) {
+        const name = flag.replaceAll(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)
+        this.errorService.throwConfigurationError(`--${name} is not supported by the ${command} command`)
+      }
+    }
+  }
+
+  private buildParams(params: CliConfig & CliFlags & WorkerArgs, flags: WorkerFlags): WorkerCommandParams {
     return {
       command: this.validateCommand(params.command!),
       workerName: params.workerName || '',
@@ -92,7 +166,13 @@ export class WranglerCommand extends MonocfCommand<WorkerArgs, WorkerFlags> {
         deployFromVersionId: params.deployFromVersionId,
         message: params.message,
       }),
-      ...(params.command === 'preview' && {deploySecrets: params.deploySecrets}),
+      // Only the flag: preview has never read deployBindings from monocf.config.json
+      ...(params.command === 'preview' && {
+        deploySecrets: params.deploySecrets,
+        deployBindings: flags.deployBindings,
+        message: params.message,
+      }),
+      ...(params.command === 'dev' && {explicitPort: flags.port}),
     }
   }
 

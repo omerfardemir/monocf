@@ -59,14 +59,31 @@ export class EnvironmentService {
   }
 
   /**
-   * Creates a temporary environment file for the worker
+   * Validates that a worker has the exact environment file for a secret upload
+   * @param workerPath Path to the worker directory
+   * @param env Environment to use
+   * @throws If the file does not exist
+   */
+  validateSecretsFile(workerPath: string, env?: string): void {
+    const envPath = this.fileService.getExactEnvironmentFile(workerPath, env)
+    if (!existsSync(envPath)) {
+      this.errorService.throwConfigurationError(
+        `Secrets file not found at ${envPath}. Uploading secrets requires this exact file, with no fallback to another environment.`,
+      )
+    }
+  }
+
+  /**
+   * Creates the file for a secret upload from the exact environment files of the worker and the root
    * @param workerPath Path to the worker directory
    * @param env Environment to use
    * @returns Path to the temporary environment file
    */
   createTempEnvFile(workerPath: string, env?: string): string {
-    const workerEnvVars = this.parseEnvironmentVariables(this.getWorkerEnvFile(workerPath, env))
-    const rootEnvVars = this.parseEnvironmentVariables(this.getRootEnvFile(env))
+    this.validateSecretsFile(workerPath, env)
+
+    const workerEnvVars = this.readUnpatchedVariables(this.fileService.getExactEnvironmentFile(workerPath, env))
+    const rootEnvVars = this.readUnpatchedVariables(this.fileService.getExactEnvironmentFile(this.rootDir, env))
     const tempEnvPath = join(workerPath, TEMP_ENV_FILE)
 
     try {
@@ -134,6 +151,17 @@ export class EnvironmentService {
    */
   private getRootEnvFile(env?: string): string {
     return this.fileService.getEnvironmentFile(this.rootDir, env)
+  }
+
+  /**
+   * Reads a file as it was before this run patched it. Patching merges the root file, which
+   * can come from another environment through the local fallback, so it can't feed a secret upload.
+   * @param filePath Path to the environment file
+   * @returns Environment variables
+   */
+  private readUnpatchedVariables(filePath: string): Record<string, string> {
+    const backup = this.backupList.find(({envFile}) => envFile === filePath)
+    return backup ? backup.env : this.parseEnvironmentVariables(filePath)
   }
 
   /**

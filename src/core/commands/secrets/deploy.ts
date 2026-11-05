@@ -2,7 +2,13 @@ import {join} from 'node:path'
 import {existsSync} from 'node:fs'
 
 import {CreateWorkerArgs, DeploySecretsFlags} from '../../../flags/index.js'
-import {WranglerService, EnvironmentService, ConfigurationService} from '../../../services/index.js'
+import {
+  WranglerService,
+  EnvironmentService,
+  ConfigurationService,
+  ServiceBindingService,
+  WorkerService,
+} from '../../../services/index.js'
 import {Commander} from '../../../types/command-types.js'
 import {MonocfCommand} from '../command.js'
 import {WRANGLER_FILE} from '../../../types/wrangler-types.js'
@@ -11,12 +17,19 @@ export class DeploySecretsCommand extends MonocfCommand<CreateWorkerArgs, Deploy
   private wranglerService: WranglerService
   private environmentService: EnvironmentService
   private configService: ConfigurationService
+  private workerService: WorkerService
 
   constructor(command: Commander) {
     super(command)
     this.configService = new ConfigurationService(this.errorService)
     this.environmentService = new EnvironmentService(this.errorService, this.fileService)
     this.wranglerService = new WranglerService(this.errorService, this.fileService, command.cmdEvents())
+    this.workerService = new WorkerService(
+      this.fileService,
+      this.logService,
+      this.environmentService,
+      new ServiceBindingService(this.errorService, this.fileService, this.environmentService),
+    )
   }
 
   public async execute(args: CreateWorkerArgs, flags: DeploySecretsFlags) {
@@ -38,13 +51,17 @@ export class DeploySecretsCommand extends MonocfCommand<CreateWorkerArgs, Deploy
       this.errorService.throwConfigurationError('Worker name is required if --all flag is not set')
     }
 
-    const workers = config.all
-      ? this.fileService.getWorkers(config.rootDir, config.workersDirName)
-      : [String(args.workerName)]
+    const workers = this.fileService.selectWorkers(
+      config.rootDir,
+      config.workersDirName,
+      config.all ? undefined : args.workerName,
+    )
 
     if (workers.length === 0) {
       this.errorService.throwConfigurationError(`No workers found`)
     }
+
+    this.workerService.validateWorkers(workers, config, {requireSecrets: true})
 
     for (const workerName of workers) {
       const workerPath = join(config.rootDir, config.workersDirName, workerName)
