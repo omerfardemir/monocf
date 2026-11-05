@@ -18,6 +18,7 @@ export default class Plan extends BaseCommand {
       description: 'Use the manifest of an earlier monocf bundle, if it matches this env and commit. default: bundle now',
     }),
     env: Flags.string({char: 'e', description: 'Environment to use (dev, production etc.)', required: true}),
+    'first-run': Flags.boolean({description: 'Accept that no state exists and no worker is live: the first run for this env'}),
     json: Flags.boolean({description: 'Print results as NDJSON on stdout, ending in a plan event'}),
     markdown: Flags.string({description: 'Also write a summary for a pull request comment to this file'}),
     'on-drift': Flags.string({

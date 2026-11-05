@@ -1,0 +1,112 @@
+import {existsSync, mkdirSync, readFileSync, writeFileSync} from 'node:fs'
+import {join} from 'node:path'
+import {describe, expect, it} from 'vitest'
+
+import {createFixture, runCli, type Fixture} from '../helpers/harness.js'
+
+function project(): Fixture {
+  const fixture = createFixture({environments: ['staging'], workers: [{name: 'orders'}]})
+  mkdirSync(join(fixture.root, 'state', 'staging'), {recursive: true})
+  return fixture
+}
+
+const outputs = ['--out', 'old-plan.json', '--markdown', 'old-plan.md']
+
+function withOldOutputs(fixture: Fixture): void {
+  writeFileSync(join(fixture.root, 'old-plan.json'), 'old')
+  writeFileSync(join(fixture.root, 'old-plan.md'), 'old')
+}
+
+function expectOldOutputsGone(fixture: Fixture): void {
+  expect(existsSync(join(fixture.root, 'old-plan.json'))).toBe(false)
+  expect(existsSync(join(fixture.root, 'old-plan.md'))).toBe(false)
+}
+
+describe('a failed plan leaves no older plan or markdown', () => {
+  it('after a check error', async () => {
+    const fixture = project()
+    writeFileSync(join(fixture.worker('orders'), 'wrangler.jsonc'), JSON.stringify({main: 'src/gone.ts'}))
+    withOldOutputs(fixture)
+
+    const result = await runCli(fixture, ['plan', '-e', 'staging', '--state', 'file:state', ...outputs], {noCalls: true})
+
+    expect(result.exitCode).toBe(2)
+    expectOldOutputsGone(fixture)
+  })
+
+  it('after a state URL that is not supported', async () => {
+    const fixture = project()
+    withOldOutputs(fixture)
+
+    const result = await runCli(fixture, ['plan', '-e', 'staging', '--state', 'nope:state', ...outputs], {noCalls: true})
+
+    expect(result.exitCode).toBe(2)
+    expectOldOutputsGone(fixture)
+  })
+
+  it('after a project config that cannot be read', async () => {
+    const fixture = project()
+    writeFileSync(join(fixture.root, 'monocf.config.json'), '{nope')
+    withOldOutputs(fixture)
+
+    const result = await runCli(fixture, ['plan', '-e', 'staging', '--state', 'file:state', ...outputs], {noCalls: true})
+
+    expect(result.exitCode).not.toBe(0)
+    expectOldOutputsGone(fixture)
+  })
+
+  it('after a state directory that is missing', async () => {
+    const fixture = project()
+    withOldOutputs(fixture)
+
+    const result = await runCli(fixture, ['plan', '-e', 'staging', '--state', 'file:nowhere', ...outputs], {cloudflare: {}})
+
+    expect(result.exitCode).toBe(3)
+    expectOldOutputsGone(fixture)
+  })
+
+  it('after a read that fails', async () => {
+    const fixture = project()
+    withOldOutputs(fixture)
+
+    const result = await runCli(fixture, ['plan', '-e', 'staging', '--state', 'file:state', ...outputs], {
+      cloudflare: {},
+      rules: [{command: 'deployments status', exitCode: 1, stderr: 'nope\n'}],
+    })
+
+    expect(result.exitCode).toBe(1)
+    expectOldOutputsGone(fixture)
+  })
+})
+
+describe('where a plan writes', () => {
+  it('creates the parent of the markdown', async () => {
+    const fixture = project()
+
+    const result = await runCli(fixture, ['plan', '-e', 'staging', '--state', 'file:state', '--first-run', '--markdown', 'a/new/dir/plan.md'], {cloudflare: {}})
+
+    expect(result.exitCode, result.stderr).toBe(0)
+    expect(readFileSync(join(fixture.root, 'a', 'new', 'dir', 'plan.md'), 'utf8')).toContain('monocf plan')
+  })
+
+  it('gives exit 3 for a markdown path it cannot write, and no plan', async () => {
+    const fixture = project()
+    writeFileSync(join(fixture.root, 'in-the-way'), 'a file')
+
+    const result = await runCli(fixture, ['plan', '-e', 'staging', '--state', 'file:state', '--first-run', '--out', 'plan.json', '--markdown', 'in-the-way/plan.md'], {cloudflare: {}})
+
+    expect(result.exitCode).toBe(3)
+    expect(result.stderr).toContain("Can't write")
+    expect(existsSync(join(fixture.root, 'plan.json'))).toBe(false)
+  })
+
+  it('gives exit 3 for an output that is a directory', async () => {
+    const fixture = project()
+    mkdirSync(join(fixture.root, 'adir'))
+
+    const result = await runCli(fixture, ['plan', '-e', 'staging', '--state', 'file:state', '--out', 'adir'], {noCalls: true})
+
+    expect(result.exitCode).toBe(3)
+    expect(result.stderr).toContain("Can't write")
+  })
+})

@@ -1,10 +1,10 @@
-import {rmSync, writeFileSync} from 'node:fs'
+import {rmSync} from 'node:fs'
 import {join, resolve} from 'node:path'
 
 import {runRules, type Finding} from '../check/rules.js'
 import {effectiveField, readProjectInputs, resolveProject} from '../config/resolve.js'
 import {ConfigError, type ResolvedWorker} from '../config/types.js'
-import {EXIT_FAILED, EXIT_OK} from '../errors.js'
+import {EXIT_ENVIRONMENT, EXIT_FAILED, EXIT_OK, MonocfError} from '../errors.js'
 import {buildGraph} from '../graph/graph.js'
 import {formatMarkdown, formatSummary} from '../plan/format.js'
 import {createPlan, needsTag, type OnDrift, type Plan, type PlanBundle} from '../plan/plan.js'
@@ -36,6 +36,23 @@ const READ_CONCURRENCY = 8
 
 function assertNotBlank(flag: string, value: string | undefined): void {
   if (value?.trim() === '') throw new ConfigError(`${flag} must not be empty.`)
+}
+
+/** What's left of an earlier run must not outlive this one's failure: `apply` or a PR comment would pick it up. */
+function removeOutput(path: string): void {
+  try {
+    rmSync(path, {force: true})
+  } catch (error) {
+    throw new MonocfError(`Can't write ${path}: ${(error as Error).message}`, EXIT_ENVIRONMENT)
+  }
+}
+
+function writeOutput(path: string, body: string): void {
+  try {
+    writeFileAtomic(path, body)
+  } catch (error) {
+    throw new MonocfError(`Can't write ${path}: ${(error as Error).message}`, EXIT_ENVIRONMENT)
+  }
 }
 
 function workerNames(flag: string | undefined): string[] {
@@ -132,13 +149,19 @@ function reportFindings(findings: Finding[], json: boolean): void {
  * reads from Cloudflare. A plan with a blocked worker is still written, marked as not applicable, and exits 1.
  */
 export async function runPlan(flags: PlanFlags): Promise<void> {
+  assertNotBlank('--bundle-dir', flags.bundleDir)
+  assertNotBlank('--markdown', flags.markdown)
+  assertNotBlank('--out', flags.out)
+  const markdownPath = flags.markdown === undefined ? undefined : resolve(flags.markdown)
+  if (markdownPath !== undefined) removeOutput(markdownPath)
+  if (flags.out !== undefined) removeOutput(resolve(flags.out))
+
   const options = loadOptions(flags)
   const {env, rootDir} = options
   if (env === undefined) throw new ConfigError('plan needs --env.')
   if (flags.state === undefined) throw new ConfigError('plan needs --state.')
-  assertNotBlank('--bundle-dir', flags.bundleDir)
-  assertNotBlank('--markdown', flags.markdown)
-  assertNotBlank('--out', flags.out)
+  const planPath = flags.out ? resolve(flags.out) : join(rootDir, '.monocf', 'plan', `${env}.json`)
+  removeOutput(planPath)
   const location = parseStateUrl(flags.state)
   const {ignored, selected} = selectNamed(options, workerNames(flags.workers))
   const json = flags.json === true
@@ -163,13 +186,9 @@ export async function runPlan(flags: PlanFlags): Promise<void> {
     notices.push({message})
   })
 
-  const planPath = flags.out ? resolve(flags.out) : join(rootDir, '.monocf', 'plan', `${env}.json`)
-  const markdownPath = flags.markdown === undefined ? undefined : resolve(flags.markdown)
   let plan: Plan | undefined
 
   await withRun({action: 'plan', env, json, notices, resolved: workers, rootDir, workers: selected, wrangler}, async (context) => {
-    // A failed run must not leave an older plan for `apply` to find.
-    rmSync(planPath, {force: true})
     const bundle = await bundleFor(context, flags, {commit, env, rootDir, workers})
 
     const stateCall = withReadRetries((step) => callWrangler(context, step), context.interrupts.signal)
@@ -186,8 +205,9 @@ export async function runPlan(flags: PlanFlags): Promise<void> {
       state: store.describe(),
     })
 
-    writeFileAtomic(planPath, `${JSON.stringify(plan, null, 2)}\n`)
-    if (markdownPath !== undefined) writeFileSync(markdownPath, formatMarkdown(plan))
+    // The plan comes last, so that it's there only when everything else is.
+    if (markdownPath !== undefined) writeOutput(markdownPath, formatMarkdown(plan))
+    writeOutput(planPath, `${JSON.stringify(plan, null, 2)}\n`)
     return plan.applicable ? EXIT_OK : EXIT_FAILED
   })
 

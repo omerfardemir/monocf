@@ -242,7 +242,7 @@ Drift with `--on-drift warn` takes the action the table gives, with `drift` firs
 
 A read that fails with `fetch failed`, a 429 or a 5xx is tried up to three times, with the backoff of a write.
 
-An older plan at the output path is removed first, so a failed run can't leave one for `apply`.
+The older plan and markdown at the output paths are removed right after flag parsing, so no failed run can leave one for `apply` or a PR comment. The markdown is written before the plan, so a plan appears only when everything has succeeded. A path that can't be written is exit 3.
 
 ## Deploy
 
