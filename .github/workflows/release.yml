@@ -107,7 +107,7 @@ jobs:
               tag_commit=$(get "$api/git/tags/$tag_commit" --header "$auth" | jq -r .object.sha)
             fi
             if [ "$tag_commit" != "$commit" ] && [ "$publish" = true ]; then
-              echo "::error::$tag is already there, on $tag_commit, and $name@$version isn't on npm. This run would publish it from $commit. Change the version, or delete the tag if nothing was released from it."
+              echo "::error::$tag is already there, on $tag_commit, and $name@$version isn't on npm. This run would publish it from $commit. Change the version. Or, if nothing was released from that tag, delete its release, if it has one, and then the tag."
               exit 1
             elif [ "$tag_commit" != "$commit" ]; then
               echo "::error::$tag is on $tag_commit, but npm says $name@$version came from $commit. Move the tag to $commit, and run this workflow again."
@@ -116,7 +116,7 @@ jobs:
             target=
           elif [ "$release" = true ] && [ "$commit" != "$GITHUB_SHA" ]; then
             if ! git cat-file -e "$commit^{commit}" 2> /dev/null; then
-              echo "::error::npm says $name@$version came from $commit, which isn't on main. Its tag and release have to be made by hand."
+              echo "::error::npm says $name@$version came from $commit, which this repository doesn't have. Its tag and release have to be made by hand."
               exit 1
             fi
             if ! git diff --quiet "$commit" "$GITHUB_SHA" -- .github/workflows; then

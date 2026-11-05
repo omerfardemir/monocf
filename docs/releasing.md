@@ -40,7 +40,7 @@ Run the workflow again, or use **Re-run all jobs**. Both work out again what's m
 | `check` | Read its error, and do what it says. It stops on any unclear answer from npm or GitHub, so an outage can't look like a new version. It also stops on a branch other than `main`, and when the tag has to be pushed by hand, as described below. |
 | `test` | The run stopped before publishing. Fix it, merge the fix, and run it again. |
 | `publish` | If GitHub didn't start it, the `npm` environment doesn't accept `main`. Otherwise search the log for `oidc`, as the step logs at verbose for this reason. Correct the setup above, and run it again. |
-| `github-release` | npm already has the version. Run it again: it creates the release, or uploads the files the release is missing and keeps its notes. If the fix has to go in this workflow, merge it first. `check` will then ask you to push the tag by hand. |
+| `github-release` | npm already has the version. Run it again: it creates the release, or uploads the files the release is missing and keeps its notes. If the fix has to go in this workflow, merge it first. If the tag isn't there yet, `check` will then ask you to push it by hand. |
 
 A re-run uses the workflow file and the commit of its first attempt. A new run uses `main` as it is now.
 
