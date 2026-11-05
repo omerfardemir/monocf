@@ -24,7 +24,8 @@ export function isSuccessful({code, signal}: WranglerResult): boolean {
   return code === 0 && signal === null
 }
 
-const NO_CREDENTIALS = /CLOUDFLARE_API_TOKEN|not authenticated|authentication error|more than one account|code: (?:9106|10000)\b/i
+const NO_CREDENTIALS = /CLOUDFLARE_API_TOKEN|not authenticated|authentication error|invalid access token|more than one account|code: (?:6003|6111|9106|9109|10000)\b/i
+const TOO_MANY_FAILURES = /code: 10502\b|too many authentication failures/i
 const ACCOUNT_ID = /\b[0-9a-f]{32}\b/gi
 
 /** The lines worth quoting from wrangler's stderr. API errors quote a URL holding the account ID, which stays out of logs. */
@@ -40,6 +41,11 @@ function errorDetail(stderr: string): string {
 /** A read that failed. No credentials is an environment error, so CI can tell it from a Cloudflare problem. */
 export function readFailure(label: string, result: WranglerResult): MonocfError {
   if (result.signal) return new MonocfError(`${label}: wrangler was killed by ${result.signal}.`, signalExitCode(result.signal))
+  if (TOO_MANY_FAILURES.test(result.stderr)) {
+    const wait = `${label}: Cloudflare reports too many authentication failures (10502). Check the token, and wait for this to clear before trying again.`
+    return new MonocfError(wait, EXIT_ENVIRONMENT)
+  }
+
   const detail = errorDetail(result.stderr)
   const message = `${label}: wrangler failed with exit code ${result.code}${detail ? `: ${detail}` : '.'}`
   return new MonocfError(message, NO_CREDENTIALS.test(result.stderr) ? EXIT_ENVIRONMENT : EXIT_FAILED)
