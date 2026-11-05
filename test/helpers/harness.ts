@@ -1,4 +1,4 @@
-import {execFileSync, spawn, type ChildProcessByStdio} from 'node:child_process'
+import {execFileSync, spawn, spawnSync, type ChildProcessByStdio} from 'node:child_process'
 import {
   type Dirent,
   existsSync,
@@ -396,6 +396,17 @@ export function listTree(root: string): string[] {
 
   walk(root)
   return paths
+}
+
+/** This repository's real wrangler, for what monocf has no command of its own to reach. Isolated like a run of monocf. */
+export function runRealWrangler(args: string[], cwd: string): {exitCode: number | null; output: string} {
+  const cli = join(repoRoot, 'node_modules', 'wrangler', 'wrangler-dist', 'cli.js')
+  const result = spawnSync(process.execPath, [cli, ...args], {
+    cwd,
+    encoding: 'utf8',
+    env: {...isolatedEnvironment(makeTempDir()), NO_COLOR: '1', WRANGLER_SEND_METRICS: 'false'},
+  })
+  return {exitCode: result.status, output: result.stdout + result.stderr}
 }
 
 /** Everything under a directory that is not installed, with its content, for before-and-after comparisons. */
