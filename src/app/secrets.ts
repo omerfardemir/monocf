@@ -19,17 +19,16 @@ export interface SecretsFlags extends OptionFlags {
 
 interface WorkerTarget {
   configPath: string
-  cwd: string
   dir: string
   env?: string
 }
 
 /** `secret bulk` creates a missing worker in a non-interactive run, so a typo in a name would make a new one. */
-async function assertWorkerExists(context: RunContext, {configPath, cwd, dir, env}: WorkerTarget): Promise<void> {
+async function assertWorkerExists(context: RunContext, {configPath, dir, env}: WorkerTarget): Promise<void> {
   const {interrupts, runDir, wrangler} = context
   const step = {action: 'deployment-status', configPath} as const
   const running = spawnWrangler(wrangler, buildArgv(step, {env}), {
-    cwd,
+    cwd: runDir.workerDir(dir),
     mode: 'capture',
     outputFile: runDir.outputFile(dir),
   })
@@ -81,10 +80,9 @@ export async function runSecretsDeploy(name: string | undefined, flags: SecretsF
 
         await reportStep(context, 'secrets', dir, async () => {
           const configPath = materialiseConfig(worker, context.runDir)
-          if (!flags.create) await assertWorkerExists(context, {configPath, cwd: path, dir, env: options.env})
+          if (!flags.create) await assertWorkerExists(context, {configPath, dir, env: options.env})
           await runStep(context, {
             argvOptions: {env: options.env},
-            cwd: path,
             mode: aloneMode(context, false),
             step: {action: 'secret-bulk', configPath, file: writeSecretsFile(dir, secrets, context.runDir)},
             worker: dir,

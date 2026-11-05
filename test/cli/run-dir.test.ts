@@ -101,12 +101,13 @@ describe('the run directory', () => {
     for (const output of outputs) expect(output?.startsWith(result.calls[0].configDir!)).toBe(true)
   })
 
-  it('runs wrangler from the source directory of the worker', async () => {
+  it('runs wrangler from the directory of its config, since it resolves some paths from each', async () => {
     const fixture = project()
 
     const result = await runCli(fixture, ['worker', 'gateway', '-c', 'deploy', '-e', 'staging'])
 
-    expect(fromRoot(fixture, result.calls[0].cwd)).toBe('workers/gateway')
+    expect(fromRoot(fixture, result.calls[0].cwd)).toMatch(/^\.monocf\/runs\/[\da-f]+\/gateway$/)
+    expect(result.calls[0].cwd).toBe(result.calls[0].configDir)
   })
 
   it('points the rebased main at the source file', async () => {

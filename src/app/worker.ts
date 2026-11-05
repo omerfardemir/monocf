@@ -150,7 +150,6 @@ async function runBuild(
       async run(mode) {
         await runStep(context, {
           argvOptions: {env: options.env, minify: options.minify},
-          cwd: worker.path,
           mode,
           step: {
             action: 'build',
@@ -189,7 +188,6 @@ async function runUploads(context: RunContext, run: UploadRun) {
           const secretsFile = Object.keys(secrets).length > 0 ? writeSecretsFile(dir, secrets, context.runDir) : undefined
           const result = await runStep(context, {
             argvOptions: {env: options.env, message: options.message, minify: options.minify, release},
-            cwd: path,
             mode,
             step: {action, configPath: materialiseConfig(worker, context.runDir), secretsFile},
             worker: dir,
@@ -223,9 +221,9 @@ function latestVersion(stdout: string, worker: string): string {
 }
 
 async function runDeployFromVersion(context: RunContext, worker: ResolvedWorker, options: Options): Promise<void> {
-  const {dir, path} = worker
+  const {dir} = worker
   const configPath = materialiseConfig(worker, context.runDir)
-  const shared = {cwd: path, mode: aloneMode(context, false), worker: dir}
+  const shared = {mode: aloneMode(context, false), worker: dir}
   const argvOptions: ArgvOptions = {env: options.env, message: options.message}
 
   await reportStep(context, 'deploy', dir, async () => {
@@ -264,7 +262,6 @@ async function runDev(context: RunContext, {dependencies, explicitPort, options,
   })
   await runStep(context, {
     argvOptions: {env: options.env, release},
-    cwd: worker.path,
     mode: aloneMode(context, true),
     step: {action: 'dev', configPaths, persistTo: join(worker.path, '.wrangler', 'state'), port: explicitPort},
     worker: worker.dir,
@@ -301,7 +298,7 @@ async function runDevAll(context: RunContext, {options, proxyPort, release, work
         },
         {env: options.env, release},
       ),
-      cwd: worker.path,
+      cwd: runDir.workerDir(worker.dir),
       name: worker.dir,
     }
   })
@@ -314,7 +311,7 @@ async function runDevAll(context: RunContext, {options, proxyPort, release, work
       persistTo: join(options.rootDir, '.monocf', 'local-storage', PROXY_WORKER),
       port: proxyPort,
     }),
-    cwd: options.rootDir,
+    cwd: runDir.workerDir(PROXY_WORKER),
     name: PROXY_WORKER,
   })
 

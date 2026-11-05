@@ -86,8 +86,21 @@ describe('rebaseConfig', () => {
     expect(result.containers).toEqual([{image: 'registry.example.com/x:1'}, {image: `${up}/Dockerfile.local`}])
   })
 
-  it('adds the default watch directory for a build command, which is relative to the config', () => {
-    expect(rebaseConfig({build: {command: 'make'}}, context).build).toEqual({command: 'make', watch_dir: `${up}/src`})
+  it('adds the defaults of a build command, so it still runs in the worker and watches its source', () => {
+    expect(rebaseConfig({build: {command: 'make'}}, context).build).toEqual({
+      command: 'make',
+      cwd: up,
+      watch_dir: `${up}/src`,
+    })
+  })
+
+  it('rewrites the unsafe capnp paths, and leaves the schemas relative to their base path', () => {
+    expect(rebaseConfig({unsafe: {capnp: {compiled_schema: 'a.bin'}}}, context).unsafe).toEqual({
+      capnp: {compiled_schema: `${up}/a.bin`},
+    })
+    expect(rebaseConfig({unsafe: {capnp: {base_path: 'schemas', source_schemas: ['a.capnp']}}}, context).unsafe).toEqual({
+      capnp: {base_path: `${up}/schemas`, source_schemas: ['a.capnp']},
+    })
   })
 
   it('does not invent a build section', () => {

@@ -26,7 +26,7 @@ describe('spawning wrangler', () => {
 
     expect(result.exitCode).toBe(0)
     expect(result.calls).toHaveLength(1)
-    expect(fromRoot(fixture, result.calls[0].cwd)).toBe('workers/orders')
+    expect(fromRoot(fixture, result.calls[0].cwd)).toMatch(/^\.monocf\/runs\/[\da-f]+\/orders$/)
   })
 
   describe('without a usable wrangler in the project (R3)', () => {

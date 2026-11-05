@@ -4,8 +4,9 @@ import {isAbsolute, join, relative, resolve} from 'node:path'
 import {isPlainObject, type RawConfig} from '../config/types.js'
 
 /**
- * The fields that hold a path relative to the wrangler config, which moves into the run directory. A segment `[]`
- * walks a list, and `*` walks the values of a map. A schema test keeps this list complete against wrangler.
+ * The fields that hold a path relative to the wrangler config or to the working directory. Wrangler runs with both in
+ * the worker's run directory. A segment `[]` walks a list, and `*` walks the values of a map. A schema test checks that
+ * each path-like field of wrangler has been classified, and test/real/rebase.test.ts that wrangler finds the files.
  */
 export const REBASED_FIELDS = [
   'alias.*',
@@ -25,12 +26,13 @@ export const REBASED_FIELDS = [
   'site.bucket',
   'text_blobs.*',
   'tsconfig',
+  'unsafe.capnp.base_path',
+  'unsafe.capnp.compiled_schema',
   'wasm_modules.*',
 ] as const
 
 /**
- * Path-like fields that stay as written, with the reason. Wrangler reads `unsafe.capnp` from the working directory,
- * and that stays the worker's source directory.
+ * Path-like fields that stay as written, with the reason.
  */
 export const NOT_REBASED_FIELDS: Record<string, string> = {
   'assets.base_path': 'A public URL prefix.',
@@ -42,9 +44,7 @@ export const NOT_REBASED_FIELDS: Record<string, string> = {
   'rules[].globs[]': 'Globs relative to base_dir.',
   'site.exclude[]': 'Patterns relative to site.bucket.',
   'site.include[]': 'Patterns relative to site.bucket.',
-  'unsafe.capnp.base_path': 'Wrangler resolves this from the working directory, which stays the source directory.',
-  'unsafe.capnp.compiled_schema': 'Wrangler resolves this from the working directory, which stays the source directory.',
-  'unsafe.capnp.source_schemas[]': 'Wrangler resolves these from the working directory, which stays the source directory.',
+  'unsafe.capnp.source_schemas[]': 'Relative to unsafe.capnp.base_path.',
 }
 
 export interface RebaseContext {
@@ -105,9 +105,10 @@ function rebaseSection(section: RawConfig, context: RebaseContext): RawConfig {
     result = walk(result, field.split('.'), field, rewrite) as RawConfig
   }
 
-  // Wrangler's default for this field is relative to the config, and it matters only with a build command.
-  if (isPlainObject(result.build) && result.build.command !== undefined && result.build.watch_dir === undefined) {
-    result = {...result, build: {...result.build, watch_dir: rebasePath('./src', context)}}
+  // Wrangler's defaults are relative to its directories, and they matter only with a build command.
+  if (isPlainObject(result.build) && result.build.command !== undefined) {
+    const defaults = {cwd: rebasePath('.', context), watch_dir: rebasePath('./src', context)}
+    result = {...result, build: {...defaults, ...result.build}}
   }
 
   return isPlainObject(result.previews) ? {...result, previews: rebaseSection(result.previews, context)} : result

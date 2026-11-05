@@ -50,18 +50,17 @@ export function failureOf(label: string, action: Step['action'], result: Wrangle
 
 export interface StepRun {
   argvOptions?: ArgvOptions
-  cwd: string
   mode: OutputMode
   step: Step
   worker: string
 }
 
 /** Runs one wrangler process to its end. Exit 0 from an upload isn't proof, so a version ID has to be there too. */
-export async function runStep(context: RunContext, {argvOptions, cwd, mode, step, worker}: StepRun) {
+export async function runStep(context: RunContext, {argvOptions, mode, step, worker}: StepRun) {
   const {interrupts, runDir, wrangler} = context
   interrupts.throwIfInterrupted()
   const running = spawnWrangler(wrangler, buildArgv(step, argvOptions), {
-    cwd,
+    cwd: runDir.workerDir(worker),
     mode,
     outputFile: runDir.outputFile(worker),
   })

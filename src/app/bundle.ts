@@ -174,7 +174,6 @@ export async function runBundle(names: string[], flags: BundleFlags): Promise<vo
           rmSync(outdir, {force: true, maxRetries: 3, recursive: true, retryDelay: 100})
           await runStep(context, {
             argvOptions: {env},
-            cwd: worker.path,
             mode,
             step: {
               action: 'build',
