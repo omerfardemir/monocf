@@ -8,21 +8,39 @@ permissions:
   contents: read
 
 jobs:
-  publish:
+  # Runs the project's code with a token that can't write. The publish job needs this one to pass.
+  test:
     runs-on: ubuntu-latest
     permissions:
-      # Uploads the packaged artifacts to the GitHub release
-      contents: write
+      contents: read
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '22'
       - run: npm ci
       - run: npm run build
       - run: npm test
+
+  publish:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      # Uploads the packaged artifacts to the GitHub release
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+      - run: npm ci
+      - run: npm run build
       - run: npm run prepack
-      - uses: JS-DevTools/npm-publish@v3.1.1
+      - uses: JS-DevTools/npm-publish@19c28f1ef146469e409470805ea4279d47c3d35c # v3.1.1
         with:
           token: ${{ secrets.NPM_TOKEN }}
 
@@ -43,7 +61,7 @@ jobs:
 
       # Upload .tgz and .zip to GitHub Actions artifacts
       - name: Upload npm artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: npm-packages
           path: |
@@ -52,7 +70,7 @@ jobs:
   
       # Upload to GitHub Release page
       - name: Upload assets to GitHub Release
-        uses: ncipollo/release-action@v1
+        uses: ncipollo/release-action@339a81892b84b4eeb0f6e744e4574d79d0d9b8dd # v1.21.0
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           tag: ${{ github.ref_name }}
