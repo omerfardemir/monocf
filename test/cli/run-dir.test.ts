@@ -64,11 +64,11 @@ describe('the source tree stays as it was', () => {
     expect(result.exitCode).toBe(0)
     const after = snapshotTree(fixture.root)
     const added = Object.keys(after).filter((path) => !(path in before))
-    expect(added).toEqual([
+    expect(added.sort()).toEqual([
       'workers/gateway/dist/',
+      'workers/gateway/dist/README.md',
       'workers/gateway/dist/index.js',
       'workers/gateway/dist/index.js.map',
-      'workers/gateway/dist/README.md',
     ])
     for (const path of Object.keys(before)) expect(after[path]).toBe(before[path])
   })
@@ -625,6 +625,6 @@ describe.skipIf(isWindows)('signals', () => {
     const result = await running.done
 
     expect(result.exitCode).toBe(130)
-    expect(running.signals().sort()).toEqual(['orders SIGINT', 'proxy-worker SIGINT'])
+    expect(running.signals().sort()).toEqual(['.proxy SIGINT', 'orders SIGINT'])
   }, 30_000)
 })
