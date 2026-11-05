@@ -1,7 +1,7 @@
 import {mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync} from 'node:fs'
-import {isAbsolute, join, relative, resolve} from 'node:path'
+import {isAbsolute, join, parse, relative, resolve} from 'node:path'
 
-import {envSection, readProjectInputs, resolveProject} from '../config/resolve.js'
+import {effectiveField, envSection, readProjectInputs, resolveProject} from '../config/resolve.js'
 import {ConfigError, isPlainObject, type RawConfig, type ResolvedWorker} from '../config/types.js'
 import {validateSelection} from '../config/validate.js'
 import {EXIT_FAILED, MonocfError} from '../errors.js'
@@ -105,20 +105,32 @@ function describeWorker(worker: ResolvedWorker, outdir: string, env: string): Ma
   }
 }
 
+/** Wrangler names the output after the entry file. Whatever can't be read counts as unknown, not as no exports. */
+function exportsOf({config, dir}: ResolvedWorker, out: string, env: string): string[] | undefined {
+  const main = effectiveField(config, env, 'main')
+  const name = typeof main === 'string' ? parse(main).name : 'index'
+  try {
+    return parseExportNames(readFileSync(join(out, dir, `${name}.js`), 'utf8'))
+  } catch {
+    return undefined
+  }
+}
+
 /** Reports a service binding naming an entrypoint that its provider's bundle doesn't export. */
 function checkEntrypoints({emit}: Pick<RunContext, 'emit'>, workers: ResolvedWorker[], out: string, env: string): number {
-  const bundled = new Set(workers.map(({dir}) => dir))
+  const bundled = new Map(workers.map((worker) => [worker.dir, worker]))
   let errors = 0
   for (const {bindings, dir} of workers) {
     for (const {binding, entrypoint, target} of bindings) {
-      if (entrypoint !== undefined && target.kind === 'local' && bundled.has(target.dir)) {
-        const names = parseExportNames(readFileSync(join(out, target.dir, 'index.js'), 'utf8'))
+      const provider = target.kind === 'local' ? bundled.get(target.dir) : undefined
+      if (entrypoint !== undefined && provider) {
+        const names = exportsOf(provider, out, env)
         if (!names) {
-          const message = `${dir}: could not read the exports of ${target.dir}, so entrypoint ${entrypoint} of ${binding} is unchecked.`
+          const message = `${dir}: could not read the exports of ${provider.dir}, so entrypoint ${entrypoint} of ${binding} is unchecked.`
           emit({env, level: 'warning', message, rule: 'unknown-entrypoint', type: 'finding', worker: dir})
         } else if (!names.includes(entrypoint)) {
           errors++
-          const message = `${dir}: binding ${binding} names entrypoint ${entrypoint}, which ${target.dir} does not export.`
+          const message = `${dir}: binding ${binding} names entrypoint ${entrypoint}, which ${provider.dir} does not export.`
           emit({env, level: 'error', message, rule: 'unknown-entrypoint', type: 'finding', worker: dir})
         }
       }

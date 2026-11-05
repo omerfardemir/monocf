@@ -72,6 +72,23 @@ function bindingProject() {
   }
 }
 
+function entryWithAnotherName(entrypoint: string) {
+  return {
+    environments: ['dev'],
+    files: {
+      'workers/billing/src/api.ts': `import {WorkerEntrypoint} from 'cloudflare:workers'
+export class Api extends WorkerEntrypoint {}
+export default {fetch: () => new Response('billing')}
+`,
+    },
+    wrangler: 'real' as const,
+    workers: [
+      {config: {env: {dev: {services: [{binding: 'BILLING', entrypoint, service: 'billing'}]}}}, name: 'orders'},
+      {config: {main: 'src/api.ts'}, name: 'billing'},
+    ],
+  }
+}
+
 function manifest(result: {stdout: string}) {
   return JSON.parse(readFileSync(result.stdout.trim(), 'utf8'))
 }
@@ -154,8 +171,8 @@ export default {fetch: () => new Response('billing')}
       expect(source).not.toContain('runs/')
     })
 
-    // Each env has its own output directory. `worker -c build` shares `dist`, where wrangler reading a source map the
-    // other process is writing can fail with "Unexpected end of JSON input".
+    // Each env has its own output directory. Through `worker -c build`, which shares `dist`, wrangler now and then fails
+    // with "Unexpected end of JSON input".
     it('runs two envs at once without either seeing the other', async () => {
       const fixture = createFixture({
         environments: ['dev', 'staging'],
@@ -174,6 +191,16 @@ export default {fetch: () => new Response('billing')}
       expect(manifest(dev).workers.orders.deployedName).toBe('orders-v1-dev')
       expect(manifest(staging).workers.orders.deployedName).toBe('orders-v1-staging')
       expect(existsSync(join(fixture.root, '.monocf', 'runs'))).toBe(false)
+    })
+
+    it('reads the exports of a worker whose entry has another name', async () => {
+      const good = await runCli(createFixture(entryWithAnotherName('Api')), ['bundle', '-e', 'dev'])
+      const bad = await runCli(createFixture(entryWithAnotherName('Typo')), ['bundle', '-e', 'dev'])
+
+      expect(good.exitCode, good.stderr).toBe(0)
+      expect(good.stderr).not.toContain('unknown-entrypoint')
+      expect(bad.exitCode).toBe(1)
+      expect(bad.stderr).toContain('error unknown-entrypoint: orders: binding BILLING names entrypoint Typo')
     })
 
     it('reads the exports of real output, and catches a wrong entrypoint', async () => {
