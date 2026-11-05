@@ -1,10 +1,13 @@
+import {existsSync, rmSync, writeFileSync} from 'node:fs'
+import {join} from 'node:path'
 import {describe, expect, it} from 'vitest'
 
 import {activeOf, applyPlan, changeConfig, deployFixture, firstRun, lastRunRecord, manifestOf, newCode, planFor, stepOf, writesOf} from '../helpers/deploy-fixtures.js'
-import {runCli, type WranglerRule} from '../helpers/harness.js'
+import {runCli, type Fixture, type WranglerRule} from '../helpers/harness.js'
 
 const broke = '✘ [ERROR] Something broke\n'
 const unreadableAfterFirstRead = (name: string): WranglerRule => ({command: 'deployments status', exitCode: 1, skip: 1, stderr: broke, worker: name})
+const readState = (fixture: Fixture) => (existsSync(join(fixture.root, 'state', 'staging', 'manifest.json')) ? manifestOf(fixture) : undefined)
 
 describe('live moved between plan and apply (M01)', () => {
   // billing takes the upload path, and reports, with a site, a deploy.
@@ -85,6 +88,64 @@ describe('the "Uploaded and not promoted" line (M08)', () => {
     expect(result.exitCode).toBe(1)
     expect(lastRunRecord(fixture).workers.billing.changed).toBe(false)
     expect(result.stderr).toContain(LINE)
+  })
+})
+
+/** reports' triggers are behind what its config says, so its step is `triggers`. */
+async function aboutToApplyTriggers() {
+  const fixture = deployFixture({workers: [{name: 'reports'}]})
+  changeConfig(fixture, 'reports', {triggers: {crons: ['0 1 * * *']}})
+  const cloudflare = await firstRun(fixture)
+  const manifest = manifestOf(fixture)
+  manifest.workers.reports = {...manifest.workers.reports, triggersHash: 'earlier'}
+  writeFileSync(join(fixture.root, 'state', 'staging', 'manifest.json'), JSON.stringify(manifest))
+  const step = stepOf(await planFor(fixture, cloudflare), 'reports')
+  expect(step.action).toBe('triggers')
+  return {cloudflare, fixture, step}
+}
+
+/** The state is gone and the live version carries this bundle's tag, so its step is `adopt`. */
+async function aboutToAdopt() {
+  const fixture = deployFixture({workers: [{name: 'reports'}]})
+  const cloudflare = await firstRun(fixture)
+  rmSync(join(fixture.root, 'state', 'staging', 'manifest.json'))
+  const step = stepOf(await planFor(fixture, cloudflare), 'reports')
+  expect(step.action).toBe('adopt')
+  return {cloudflare, fixture, step}
+}
+
+describe('a step that writes no version, when live moved after the plan (R8)', () => {
+  it.each([
+    ['triggers', aboutToApplyTriggers],
+    ['adopt', aboutToAdopt],
+  ])('%s: stops with nothing written, and the state does not name the old version', async (_, setUp) => {
+    const {cloudflare, fixture, step} = await setUp()
+    const before = readState(fixture)
+    const live = cloudflare.workers![step.deployedName]
+    live.tags!.moved = null
+    live.active = [['moved', 100]]
+
+    const result = await applyPlan(fixture, cloudflare)
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toMatch(/moved is live now\. Plan again/)
+    expect(writesOf(result.calls)).toEqual([])
+    expect(readState(fixture)?.workers?.reports).toEqual(before?.workers?.reports)
+    expect(lastRunRecord(fixture).workers.reports).toMatchObject({changed: false, previousVersionId: 'moved', result: 'failed'})
+    expect(activeOf(result.cloudflare, step)).toBe('moved')
+  })
+
+  it.each([
+    ['triggers', aboutToApplyTriggers],
+    ['adopt', aboutToAdopt],
+  ])('%s: goes ahead when live is what the plan read', async (_, setUp) => {
+    const {cloudflare, fixture, step} = await setUp()
+
+    const result = await applyPlan(fixture, cloudflare)
+
+    expect(result.exitCode, result.stderr).toBe(0)
+    expect(writesOf(result.calls)).toEqual(['triggers reports'])
+    expect(manifestOf(fixture).workers.reports.versionId).toBe(step.previousVersionId)
   })
 })
 

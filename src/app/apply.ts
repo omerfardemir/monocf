@@ -5,7 +5,7 @@ import {dirname, join, resolve} from 'node:path'
 import {effectiveField, readProjectInputs, resolveProject} from '../config/resolve.js'
 import {ConfigError, isPlainObject, type ResolvedWorker} from '../config/types.js'
 import {assertResolved, definedEnvs} from '../config/validate.js'
-import {EXIT_FAILED, EXIT_OK} from '../errors.js'
+import {EXIT_FAILED, EXIT_OK, MonocfError} from '../errors.js'
 import {workerExternalHash} from '../fingerprint/external.js'
 import {configHash, doHash, triggersHash, triggersOf, type Triggers} from '../fingerprint/fingerprint.js'
 import {PLAN_SCHEMA_VERSION, tagFor, type Plan, type PlanStep} from '../plan/plan.js'
@@ -510,11 +510,21 @@ class Applier {
     }
   }
 
+  /** These steps write no version, so the entry names what the plan read. It has to be what's live now, or the state would say otherwise. */
+  private async assertLiveAsPlanned(target: Target): Promise<void> {
+    await this.readLiveBefore(target)
+    const {deployedName, previousVersionId} = target.step
+    if (target.liveBefore !== previousVersionId) {
+      throw new MonocfError(`${target.worker.dir}: the plan was made with ${previousVersionId} live on ${deployedName}, and ${target.liveBefore ?? 'something else'} is live now. Plan again.`, EXIT_FAILED)
+    }
+  }
+
   private triggersStep(target: Target): DeployStep {
     return {
       action: 'triggers',
       dependsOn: [],
-      run: async () => {
+      run: async (attempt) => {
+        if (attempt === 1) await this.assertLiveAsPlanned(target)
         target.attempted = true
         await this.wrangler(target, {action: 'triggers-deploy', configPath: this.configOf(target)}, {env: this.env})
         target.record.changed = true
@@ -529,7 +539,8 @@ class Applier {
     return {
       action: 'adopt',
       dependsOn: [],
-      run: async () => {
+      run: async (attempt) => {
+        if (attempt === 1) await this.assertLiveAsPlanned(target)
         target.attempted = true
         await this.wrangler(target, {action: 'triggers-deploy', configPath: this.configOf(target)}, {env: this.env})
         this.writer.update(target.worker.dir, this.entryFor(target, target.step.previousVersionId!))

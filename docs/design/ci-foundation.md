@@ -299,6 +299,8 @@ Each run ends with `<env>/runs/<run-id>.json`, a run ID being `YYYYMMDDTHHMMSSZ-
 
 "Uploaded and not promoted" only names a worker whose `changed` was read as `false`.
 
+A `triggers` or `adopt` step writes no version, and its entry names the version the plan read. So it reads what's live first, and if that isn't the plan's version it fails with nothing written, `changed: false`, and "Plan again".
+
 On a signal, `apply` stops starting steps, waits for the running ones, writes state and the record, prints the summary and exits 130 or 143.
 
 **Exit 0 isn't proof.** A step succeeded when wrangler exited with code 0 and no signal, the output file holds a version ID (`deploy`, `versions upload`), and a read-back of `deployments status` shows the expected version at 100%.
