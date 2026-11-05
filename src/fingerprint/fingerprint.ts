@@ -52,6 +52,8 @@ export function isHashed(path: string, paths: ReadonlySet<string> = new Set()): 
 // esbuild writes module paths into comments and `__commonJS` keys. pnpm cuts a long store directory name at a limit that
 // differs per platform, so the same package has two spellings on Windows and Linux. The directory says nothing the code
 // doesn't: a new version or patch with different code changes the bytes around it anyway.
+// It reads all the bytes, so a string literal holding such a path can change without changing the hash. No realistic
+// program depends on that.
 const PNPM_STORE_DIRECTORY = /node_modules\/\.pnpm\/[^/"'\s]+\/node_modules\//g
 const SCRIPT_FILE = /\.[cm]?js$/
 
