@@ -4,7 +4,7 @@ import {dirname, join} from 'node:path'
 
 import {EXIT_ENVIRONMENT, MonocfError} from '../errors.js'
 
-export const WRANGLER_FLOOR = '4.151.0'
+const WRANGLER_FLOOR = '4.151.0'
 
 export interface Wrangler {
   /** The real entry. bin/wrangler.js turns a signal death of this process into exit 0, so it's never spawned. */

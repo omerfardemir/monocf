@@ -89,7 +89,7 @@ export function parseVersionTag(label: string, stdout: string): string | undefin
 }
 
 /** Reads who made a version. `secret` for what `secret put` and `secret bulk` make, as seen on real Cloudflare. */
-export function parseTriggeredBy(label: string, stdout: string): string | undefined {
+function parseTriggeredBy(label: string, stdout: string): string | undefined {
   const parsed = parseJson(label, stdout)
   const annotations = isPlainObject(parsed) ? parsed.annotations : undefined
   const triggeredBy = isPlainObject(annotations) ? annotations['workers/triggered_by'] : undefined

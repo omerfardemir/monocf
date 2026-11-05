@@ -357,6 +357,23 @@ function refusal(
   return undefined
 }
 
+/** What stays on Cloudflare after this worker's step, for a person to remove: a last route, or a worker under its old name. */
+function leftBehindNotes(name: string, worker: ManifestWorker, entry: StateWorker | undefined, old: StateWorker | undefined): PlanNote[] {
+  const notes: PlanNote[] = []
+  if (hasRoutes(entry?.triggers) && !hasRoutes(worker.triggers)) {
+    // Wrangler only publishes a list with something in it. With no zone to check this against, a person has to do it.
+    const message = 'It no longer has a route, and removing the last one takes a person: wrangler leaves it attached.'
+    notes.push({kind: 'routes-removed', message, worker: name})
+  }
+
+  if (old && !entry) {
+    const message = `It now deploys as ${worker.deployedName}. The old name stays deployed until someone removes it.`
+    notes.push({deployedName: old.deployedName, kind: 'renamed', message, worker: name})
+  }
+
+  return notes
+}
+
 function compareNotes(a: PlanNote, b: PlanNote): number {
   const key = (note: PlanNote) => `${note.kind}\n${note.worker}\n${note.message}`
   return key(a) < key(b) ? -1 : Number(key(a) > key(b))
@@ -396,17 +413,7 @@ export function createPlan(
     decisions.set(name, decision)
     notes.push(...decision.notes.map((note) => ({...note, worker: name})))
     if (decision.action === 'create' && entry) recreated.push(name)
-    if (hasRoutes(entry?.triggers) && !hasRoutes(worker.triggers)) {
-      // Wrangler only publishes a list with something in it. With no zone to check this against, a person has to do it.
-      const message = 'It no longer has a route, and removing the last one takes a person: wrangler leaves it attached.'
-      notes.push({kind: 'routes-removed', message, worker: name})
-    }
-
-    const old = stored.get(name)
-    if (old && !entry) {
-      const message = `It now deploys as ${worker.deployedName}. The old name stays deployed until someone removes it.`
-      notes.push({deployedName: old.deployedName, kind: 'renamed', message, worker: name})
-    }
+    notes.push(...leftBehindNotes(name, worker, entry, stored.get(name)))
   }
 
   // A name gone from the repository needs nothing: the orphan note covers it.

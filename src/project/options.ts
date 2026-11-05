@@ -3,7 +3,7 @@ import {dirname, join, resolve} from 'node:path'
 import {ConfigError} from '../config/types.js'
 import {nodeReader, type FileReader, type ProjectFile} from './load.js'
 
-export const DEFAULT_BASE_CONFIG = 'base.wrangler.jsonc'
+const DEFAULT_BASE_CONFIG = 'base.wrangler.jsonc'
 const DEFAULT_PORT = 8787
 
 export interface OptionFlags {

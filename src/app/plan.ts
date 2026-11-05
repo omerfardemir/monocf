@@ -148,7 +148,7 @@ async function readActiveVersions(
 }
 
 /** Enough to tell two accounts apart by eye, with no ID in a log or a PR comment. */
-export function maskAccount(accountId: string): string {
+function maskAccount(accountId: string): string {
   return `${accountId.slice(0, 4)}…${accountId.slice(-4)}`
 }
 

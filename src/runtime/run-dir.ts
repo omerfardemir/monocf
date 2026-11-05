@@ -71,7 +71,7 @@ function isStale(runPath: string, now: number): boolean {
 }
 
 /** Removes what a killed run left behind: runs whose owner is dead, or that are older than a day. */
-export function removeStaleRuns(rootDir: string, now: number = Date.now()): void {
+function removeStaleRuns(rootDir: string, now: number = Date.now()): void {
   const runs = join(rootDir, MONOCF_DIR, RUNS_DIR)
   let names: string[]
   try {

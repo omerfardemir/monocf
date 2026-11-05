@@ -29,7 +29,7 @@ function countLine({workers}: RunRecord): string {
 }
 
 /** Uploaded and not promoted. The next version inherits secrets from the latest upload, so these are worth a name. */
-export function unpromotedUploads({workers}: RunRecord): string[] {
+function unpromotedUploads({workers}: RunRecord): string[] {
   return Object.entries(workers)
     .filter(([, {newVersionId, uploadedVersionId}]) => uploadedVersionId !== undefined && newVersionId === undefined)
     .map(([worker]) => worker)

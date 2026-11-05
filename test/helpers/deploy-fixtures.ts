@@ -6,7 +6,7 @@ import {expect} from 'vitest'
 import {createFixture, runCli, type CliResult, type FakeCloudflare, type Fixture, type RunOptions, type WranglerCall, type WranglerRule} from './harness.js'
 
 /** gateway calls orders, which calls billing. reports stands alone. */
-export const CHAIN = [
+const CHAIN = [
   {envBindings: {staging: ['orders']}, name: 'gateway'},
   {envBindings: {staging: ['billing']}, name: 'orders'},
   {name: 'billing'},
