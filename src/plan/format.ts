@@ -51,6 +51,7 @@ function noteLine({deployedName, kind, message, worker}: PlanNote): string {
 /** The human summary, for stderr. */
 export function formatSummary(plan: Plan): string {
   const lines = [`Plan for ${plan.env} at ${plan.commit}: ${countLine(plan) || 'no workers'}.`]
+  if (plan.accounts?.length) lines.push(`Account: ${plan.accounts.join(', ')}.`)
   for (const step of plan.steps) {
     if (step.action !== 'skip') lines.push(`  ${step.worker}: ${step.action} (${step.reasons.join(', ')})`)
   }
@@ -60,7 +61,8 @@ export function formatSummary(plan: Plan): string {
   const callers = callersToCheck(plan)
   if (callers.length > 0) lines.push(`Callers to check: ${callers.join(', ')}`)
   lines.push(...plan.notes.map((note) => `${WARNINGS.has(note.kind) ? 'warning' : 'note'} ${noteLine(note)}`))
-  if (!plan.applicable) lines.push('Blocked: this plan can\'t be applied. Look at the drift above, then plan again.')
+  if (plan.refused !== undefined) lines.push(`Refused: ${plan.refused}`)
+  else if (!plan.applicable) lines.push('Blocked: this plan can\'t be applied. Look at the drift above, then plan again.')
   return `${lines.join('\n')}\n`
 }
 
@@ -70,8 +72,10 @@ function cell(text: string): string {
 
 /** A compact summary for a PR comment. Names only: no secrets, no values, no IDs. */
 export function formatMarkdown(plan: Plan): string {
-  const lines = [`## monocf plan: ${plan.env}`, '', `Commit \`${plan.commit}\`, wrangler ${plan.wrangler}.`, '']
-  if (!plan.applicable) lines.push('**Blocked: this plan can\'t be applied.** Look at the drift below, then plan again.', '')
+  const account = plan.accounts?.length ? ` Account: ${plan.accounts.join(', ')}.` : ''
+  const lines = [`## monocf plan: ${plan.env}`, '', `Commit \`${plan.commit}\`, wrangler ${plan.wrangler}.${account}`, '']
+  if (plan.refused !== undefined) lines.push(`**Refused:** ${plan.refused}`, '')
+  else if (!plan.applicable) lines.push('**Blocked: this plan can\'t be applied.** Look at the drift below, then plan again.', '')
 
   lines.push('| Action | Workers |', '|---|---|', ...actionCounts(plan).map(([action, count]) => `| ${action} | ${count} |`), '')
 

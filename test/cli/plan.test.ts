@@ -17,7 +17,7 @@ function project(options: Partial<Parameters<typeof createFixture>[0]> = {}): Fi
   return fixture
 }
 
-const args = ['plan', '-e', 'staging', '--state', 'file:state']
+const args = ['plan', '-e', 'staging', '--state', 'file:state', '--first-run']
 
 function reads(calls: WranglerCall[], command: string): string[] {
   return calls.filter(({argv}) => argv.join(' ').startsWith(command)).map(({argv}) => argv[argv.indexOf('--name') + 1])
@@ -112,7 +112,7 @@ describe('a read that fails for a moment', {timeout: 60_000}, () => {
   it('is tried again after a 5xx from the state bucket', async () => {
     const fixture = project()
 
-    const result = await runCli(fixture, ['plan', '-e', 'staging', '--state', 'r2://monocf-state/ci'], {
+    const result = await runCli(fixture, ['plan', '-e', 'staging', '--state', 'r2://monocf-state/ci', '--first-run'], {
       cloudflare: {buckets: {'monocf-state': {}}},
       rules: [{command: 'r2 bucket info', exitCode: 1, stderr: 'A request failed with status: 503\n', times: 1}],
     })
@@ -427,7 +427,7 @@ describe('monocf plan', () => {
   })
 
   describe('the state store', () => {
-    const r2 = ['plan', '-e', 'staging', '--state', 'r2://monocf-state/ci']
+    const r2 = ['plan', '-e', 'staging', '--state', 'r2://monocf-state/ci', '--first-run']
 
     it('exits 3 on a missing bucket, and never reads it as empty state', async () => {
       const fixture = project()

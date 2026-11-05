@@ -75,12 +75,16 @@ export interface PlanNote {
 }
 
 export interface Plan {
-  /** False when any step is blocked, so `apply` refuses the plan. */
+  /** The masks of the accounts this plan looked at, or what chose them. No ID. */
+  accounts?: string[]
+  /** False when any step is blocked or the plan is refused, so `apply` refuses it too. */
   applicable: boolean
   commit: string
   createdAt: string
   env: string
   notes: PlanNote[]
+  /** Why this looks like the wrong account or state rather than a real plan, and which flag accepts it. Exit 3. */
+  refused?: string
   schemaVersion: number
   state: string
   steps: PlanStep[]
@@ -95,8 +99,18 @@ export interface PlanBundle {
   wrangler: string
 }
 
+/** What tells a wrong account from a first run. Without these, a plan has no opinion on it. */
+export interface PlanGuards {
+  /** By worker, where the account is known. */
+  accountHashes: Record<string, string | undefined>
+  accounts: string[]
+  allowRecreate: boolean
+  firstRun: boolean
+}
+
 export interface PlanOptions {
   createdAt: string
+  guards?: PlanGuards
   onDrift: OnDrift
   /** Every worker that isn't selected through the ignore file, with its edges. A caller here is never touched, so a note names it. */
   ignored?: {graph: Graph; workers: string[]}
@@ -310,6 +324,39 @@ function routeToDeploy(decision: Decision, worker: ManifestWorker, entry: StateW
   }
 }
 
+/**
+ * A real account with no such worker answers 10007, as a first run does. These are the cases that can't be told apart, each
+ * with the flag that says it's meant. Nothing has been deployed by the time this says no.
+ */
+function refusal(
+  {accountHashes, allowRecreate, firstRun}: PlanGuards,
+  {active, entryOf, names, state}: {active: Record<string, ActiveInfo>; entryOf: (name: string) => StateWorker | undefined; names: string[]; state: null | StateManifest},
+): string | undefined {
+  const isMissing = (name: string) => active[name].state === 'missing'
+  if (!allowRecreate) {
+    const other = names.find((name) => {
+      const stored = entryOf(name)?.accountHash
+      const current = accountHashes[name]
+      return stored !== undefined && current !== undefined && stored !== current
+    })
+    if (other !== undefined) {
+      return `The account for ${other} isn't the one that last deployed it. Check account_id and CLOUDFLARE_ACCOUNT_ID. If this move is meant, pass --allow-recreate.`
+    }
+
+    const known = names.filter((name) => entryOf(name) !== undefined)
+    const gone = known.filter((name) => isMissing(name))
+    if (known.length >= 2 && gone.length * 2 > known.length) {
+      return `${gone.length} of the ${known.length} workers the state knows read as missing, which is what the wrong account looks like. Check account_id and CLOUDFLARE_ACCOUNT_ID. If they were really deleted, pass --allow-recreate.`
+    }
+  }
+
+  if (!firstRun && state === null && names.length > 0 && names.every((name) => isMissing(name))) {
+    return "There's no state, and no worker is live, which is what the wrong account or a wrong state location looks like. Check them. If this is the first run for this env, pass --first-run."
+  }
+
+  return undefined
+}
+
 function compareNotes(a: PlanNote, b: PlanNote): number {
   const key = (note: PlanNote) => `${note.kind}\n${note.worker}\n${note.message}`
   return key(a) < key(b) ? -1 : Number(key(a) > key(b))
@@ -325,7 +372,7 @@ export function createPlan(
   state: null | StateManifest,
   active: Record<string, ActiveInfo>,
   graph: Graph,
-  {createdAt, ignored, onDrift, repositoryWorkers, state: stateUrl}: PlanOptions,
+  {createdAt, guards, ignored, onDrift, repositoryWorkers, state: stateUrl}: PlanOptions,
 ): Plan {
   const stored = new Map(Object.entries(state?.workers ?? {}))
   const order = computeOrder(graph).levels.flat()
@@ -408,6 +455,7 @@ export function createPlan(
     }
   })
 
+  const refused = guards && refusal(guards, {active, entryOf, names, state})
   return {
     schemaVersion: PLAN_SCHEMA_VERSION,
     env: bundle.env,
@@ -415,7 +463,9 @@ export function createPlan(
     createdAt,
     state: stateUrl,
     wrangler: bundle.wrangler,
-    applicable: steps.every(({action}) => action !== 'blocked'),
+    ...(guards && {accounts: guards.accounts}),
+    applicable: refused === undefined && steps.every(({action}) => action !== 'blocked'),
+    ...(refused !== undefined && {refused}),
     steps,
     notes: notes.sort(compareNotes),
   }

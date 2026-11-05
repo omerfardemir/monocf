@@ -14,6 +14,7 @@ export default class Plan extends BaseCommand {
   ]
   static flags = {
     ...projectFlags,
+    'allow-recreate': Flags.boolean({description: 'Accept that known workers read as missing, or that their account changed'}),
     'bundle-dir': Flags.string({
       description: 'Use the manifest of an earlier monocf bundle, if it matches this env and commit. default: bundle now',
     }),
@@ -34,9 +35,11 @@ export default class Plan extends BaseCommand {
   async run(): Promise<void> {
     const {flags} = await this.parse(Plan)
     await runPlan({
+      allowRecreate: flags['allow-recreate'],
       baseConfig: flags['base-config'],
       bundleDir: flags['bundle-dir'],
       env: flags.env,
+      firstRun: flags['first-run'],
       json: flags.json,
       markdown: flags.markdown,
       onDrift: flags['on-drift'] as 'fail' | 'warn',

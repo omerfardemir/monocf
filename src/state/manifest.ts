@@ -1,3 +1,5 @@
+import {createHash} from 'node:crypto'
+
 import {isPlainObject} from '../config/types.js'
 import {EXIT_ENVIRONMENT, MonocfError} from '../errors.js'
 import type {Triggers} from '../fingerprint/fingerprint.js'
@@ -6,6 +8,8 @@ export const STATE_SCHEMA_VERSION = 1
 
 /** What was last deployed for a worker, by a run that saw it through. */
 export interface StateWorker {
+  /** A hash of the account that last deployed it, which keeps the ID itself out of state. */
+  accountHash?: string
   bundleHash: string
   commit: string
   configHash: string
@@ -27,6 +31,10 @@ export interface StateManifest {
   schemaVersion: number
   updatedAt: string
   workers: Record<string, StateWorker>
+}
+
+export function accountHash(accountId: string): string {
+  return createHash('sha256').update(accountId).digest('hex')
 }
 
 export function manifestKey(env: string): string {

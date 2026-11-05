@@ -243,6 +243,14 @@ Drift with `--on-drift warn` takes the action the table gives, with `drift` firs
 
 `dependsOn` holds the nearest callees that do something. It looks through a `skip` or `adopt`, so an order that runs through one still holds. Members of a cycle only a queue closes don't wait for each other. `callers` and `transitiveCallers` come from the whole graph, whatever `--workers` selects, and give the smoke-test scope.
 
+**A wrong account mustn't look like a first run.** A real account with no such worker answers 10007, so `plan` refuses, with exit 3 and `applicable: false`, in three cases, naming the flag that accepts each:
+
+1. The manifest knows two or more selected workers, and more than half of those read as missing: `--allow-recreate`. One recreated worker in a larger set stays a normal `create`.
+2. A worker's account hash in the manifest differs from the account it would use now: `--allow-recreate`. `apply` stores a SHA-256 of the account on each entry when the account is known. The ID never reaches state, plans or logs.
+3. There's no manifest and every selected worker reads as missing: `--first-run`. An existing environment doesn't hit this, since its workers read as `adopt` or `baseline`.
+
+The human summary and the markdown print the account's mask, `abcd…wxyz`, or "chosen by wrangler" when it isn't known.
+
 **Secret rotation isn't drift.** `secret put` and `secret bulk` make a new active version with no tag, and on real Cloudflare its `workers/triggered_by` annotation is `secret`. When the manifest knows the worker and the active version's tag matches nothing, that annotation gives `upload` with the reason `secret-changed`, at note level, and `--on-drift fail` doesn't block it. The upload tags known code and inherits the secret, also if the secret version came from an abandoned upload. A worker with no state entry stays a baseline, since its lineage is unknown.
 
 Reads and the state store's wrangler calls run from a new empty directory under the OS temp directory, so wrangler finds no config, no cached account and no `.env` there. A `wrangler.jsonc` at the project root would otherwise beat the account monocf passes. The account is worked out as a write's is: the worker's `account_id`, then its `.env` files, then the environment. `WRANGLER_LOG` is dropped for these calls, since debug output reaches stdout. A write passes `--config`, which rules out a root config too.

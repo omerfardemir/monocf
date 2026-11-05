@@ -7,13 +7,13 @@ import {ConfigError, type ResolvedWorker} from '../config/types.js'
 import {EXIT_ENVIRONMENT, EXIT_FAILED, EXIT_OK, MonocfError} from '../errors.js'
 import {buildGraph} from '../graph/graph.js'
 import {formatMarkdown, formatSummary} from '../plan/format.js'
-import {createPlan, needsTag, type OnDrift, type Plan, type PlanBundle} from '../plan/plan.js'
+import {createPlan, needsTag, type OnDrift, type Plan, type PlanBundle, type PlanGuards} from '../plan/plan.js'
 import {nodeReader} from '../project/load.js'
 import {discoverWorkers} from '../project/workers.js'
 import type {OptionFlags} from '../project/options.js'
 import {SCHEMA_VERSION} from '../report/events.js'
 import {writeFileAtomic} from '../runtime/atomic.js'
-import {manifestKey, parseStateManifest, type StateManifest} from '../state/manifest.js'
+import {accountHash, manifestKey, parseStateManifest, type StateManifest} from '../state/manifest.js'
 import {openStateStore, parseStateUrl} from '../state/store.js'
 import {locateWrangler} from '../wrangler/locate.js'
 import {readActiveVersion, readVersionOrigin, type ActiveInfo, type WranglerCall} from '../wrangler/read.js'
@@ -24,7 +24,9 @@ import {checkoutHead, isTreeDirty, loadOptions, resolveCommit, selectNamed} from
 import {accountOf, callWrangler, createSink, runWorkerSteps, withRun, type RunContext} from './run.js'
 
 export interface PlanFlags extends OptionFlags {
+  allowRecreate?: boolean
   bundleDir?: string
+  firstRun?: boolean
   json?: boolean
   markdown?: string
   onDrift?: OnDrift
@@ -145,6 +147,29 @@ async function readActiveVersions(
   return Object.fromEntries(active)
 }
 
+/** Enough to tell two accounts apart by eye, with no ID in a log or a PR comment. */
+export function maskAccount(accountId: string): string {
+  return `${accountId.slice(0, 4)}…${accountId.slice(-4)}`
+}
+
+const CHOSEN_BY_WRANGLER = 'chosen by wrangler'
+
+function guardsFor(context: RunContext, workers: ResolvedWorker[], env: string, flags: PlanFlags): PlanGuards {
+  const accounts = workers.map((worker) => [worker.dir, accountOf(context, worker, env)] as const)
+  const known = accounts.map(([, account]) => account)
+  return {
+    accountHashes: Object.fromEntries(accounts.map(([dir, account]) => [dir, account && accountHash(account)])),
+    accounts: [...new Set(known.map((account) => (account ? maskAccount(account) : CHOSEN_BY_WRANGLER)))].sort(),
+    allowRecreate: flags.allowRecreate === true,
+    firstRun: flags.firstRun === true,
+  }
+}
+
+function exitCodeOf(plan: Plan): number {
+  if (plan.refused !== undefined) return EXIT_ENVIRONMENT
+  return plan.applicable ? EXIT_OK : EXIT_FAILED
+}
+
 function pickWorkers(bundle: BundleManifest, selected: string[]): PlanBundle {
   const workers = Object.fromEntries(Object.entries(bundle.workers).filter(([name]) => selected.includes(name)))
   return {commit: bundle.commit, env: bundle.env, workers, wrangler: bundle.wrangler}
@@ -213,6 +238,7 @@ export async function runPlan(flags: PlanFlags): Promise<void> {
     const active = await readActiveVersions(context, workers, {env, state})
     plan = createPlan(pickWorkers(bundle, selected), state, active, graph, {
       createdAt: new Date().toISOString(),
+      guards: guardsFor(context, workers, env, flags),
       ignored: {graph: buildGraph(project.workers), workers: ignored},
       onDrift: flags.onDrift ?? 'warn',
       repositoryWorkers: discoverWorkers(options),
@@ -222,7 +248,7 @@ export async function runPlan(flags: PlanFlags): Promise<void> {
     // The plan comes last, so that it's there only when everything else is.
     if (markdownPath !== undefined) writeOutput(markdownPath, formatMarkdown(plan))
     writeOutput(planPath, `${JSON.stringify(plan, null, 2)}\n`)
-    return plan.applicable ? EXIT_OK : EXIT_FAILED
+    return exitCodeOf(plan)
   })
 
   if (json) {
@@ -232,5 +258,5 @@ export async function runPlan(flags: PlanFlags): Promise<void> {
     process.stdout.write(`${planPath}\n`)
   }
 
-  process.exitCode = plan!.applicable ? EXIT_OK : EXIT_FAILED
+  process.exitCode = exitCodeOf(plan!)
 }
