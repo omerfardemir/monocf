@@ -820,7 +820,7 @@ npx wrangler r2 bucket create my-monocf-state
 
 Then pass `--state r2://my-monocf-state/monocf` to `plan` and `rollback`. The last part is a prefix, and one bucket can hold every env. The keys are `<env>/manifest.json` and `<env>/runs/<run-id>.json`.
 
-- **`CLOUDFLARE_ACCOUNT_ID` is required for the state store.** State calls belong to no worker, so a worker's `account_id` doesn't reach them.
+- **`CLOUDFLARE_ACCOUNT_ID` is required for the state store** when the login reaches more than one account. State calls belong to no worker, so a worker's `account_id` doesn't reach them. Without it, `plan`, `apply` and `rollback` stop with exit 3 at the first state call and name the variable.
 - A missing bucket is exit 3. A bucket with no manifest yet is a first run.
 - `file:<dir>` also works, for tests and local use. The directory must exist, or it's exit 3.
 

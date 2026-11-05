@@ -72,6 +72,7 @@ function fileStore({dir, url}: Extract<StateLocation, {kind: 'file'}>): StateSto
 
 // `r2 object get` says this for a missing bucket too, which is why check() has to look at the bucket first.
 const MISSING_KEY = /specified key does not exist/i
+const MORE_THAN_ONE_ACCOUNT = /more than one account/i
 // What the API says for a bucket that isn't there, as code 10006.
 const MISSING_BUCKET = /specified bucket does not exist|\bcode: 10006\b/i
 
@@ -87,6 +88,15 @@ function r2Store({bucket, prefix, url}: Extract<StateLocation, {kind: 'r2'}>, ca
       if (result.signal) throw readFailure(`state bucket ${bucket}`, result)
       if (!isSuccessful(result)) {
         const {message} = readFailure(`state bucket ${bucket}`, result)
+        // State calls have no worker, so no account_id: only the environment can say which account holds the bucket.
+        if (MORE_THAN_ONE_ACCOUNT.test(result.stderr) && !process.env.CLOUDFLARE_ACCOUNT_ID) {
+          throw new MonocfError(
+            `Can't use the state bucket ${bucket}: this login has more than one account, and nothing says which holds it. Set CLOUDFLARE_ACCOUNT_ID to that account's ID.
+${message}`,
+            EXIT_ENVIRONMENT,
+          )
+        }
+
         // A rate limit or an outage left after the retries isn't a missing bucket, so only that answer gets the hint.
         const hint = MISSING_BUCKET.test(result.stderr) ? ` It doesn't exist. Create it with: wrangler r2 bucket create ${bucket}` : ''
         throw new MonocfError(`Can't use the state bucket ${bucket}.${hint}\n${message}`, EXIT_ENVIRONMENT)

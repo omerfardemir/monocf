@@ -148,6 +148,19 @@ describe('a read that fails for a moment', {timeout: 60_000}, () => {
     expect(limited.stderr).not.toContain('Create it with')
   })
 
+  it('says to set CLOUDFLARE_ACCOUNT_ID when a login with several accounts cannot choose the state bucket', async () => {
+    const several = '✘ [ERROR] More than one account available but unable to select one in non-interactive mode.\n'
+    const result = await runCli(project(), ['plan', '-e', 'staging', '--state', 'r2://monocf-state/ci', '--first-run'], {
+      cloudflare: {buckets: {'monocf-state': {}}},
+      env: {CLOUDFLARE_ACCOUNT_ID: ''},
+      rules: [{command: 'r2 bucket info', exitCode: 1, stderr: several}],
+    })
+
+    expect(result.exitCode).toBe(3)
+    expect(result.stderr).toContain('this login has more than one account, and nothing says which holds it. Set CLOUDFLARE_ACCOUNT_ID')
+    expect(result.calls.filter(({argv}) => argv[0] === 'r2')).toHaveLength(1)
+  })
+
   it('stops after three attempts', async () => {
     const result = await runCli(project(), args, {
       cloudflare: {},
