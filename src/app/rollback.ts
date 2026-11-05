@@ -392,7 +392,7 @@ async function restore({context, env, runId, writer}: Execution, target: Target,
       })
     }
 
-    await verifyActive(call, {accountId, deployedName, dir}, versionId)
+    await verifyActive(call, {accountId, deployedName, dir}, versionId, {replaced: record.previousVersionId, signal: context.interrupts.signal})
     target.restoring = false
     record.newVersionId = versionId
     if (record.changed !== false) record.changed = true

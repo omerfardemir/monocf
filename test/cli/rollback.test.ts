@@ -158,6 +158,19 @@ describe('rollback --to-run', () => {
     expect(result.stderr).toContain('verify-mismatch')
   })
 
+  it('reads again while Cloudflare still names the version it replaced', async () => {
+    const {before, cloudflare, fixture, plan, runId} = await deployedTwice(['billing'])
+    const step = stepOf(plan, 'billing')
+    const versions = [{percentage: 100, version_id: activeOf(cloudflare, step)}]
+    // The first read is what's live before the restore. The second is the one that verifies it.
+    const stale = {command: 'deployments status', skip: 1, stdout: JSON.stringify({versions}), times: 1, worker: step.deployedName}
+
+    const result = await rollback(fixture, ['--to-run', runId], {cloudflare, rules: [stale]})
+
+    expect(result.exitCode, result.stderr).toBe(0)
+    expect(activeOf(result.cloudflare, step)).toBe(before.billing.versionId)
+  })
+
   it('reports the code of a version Cloudflare no longer has', async () => {
     const {before, cloudflare, fixture, plan, runId} = await deployedTwice(['billing'])
     delete cloudflare.workers![stepOf(plan, 'billing').deployedName].tags![before.billing.versionId]

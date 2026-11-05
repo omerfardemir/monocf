@@ -167,3 +167,39 @@ describe('a retried deploy, when another version went live meanwhile', () => {
     expect(manifestOf(fixture).workers.reports.versionId).toBe(live)
   })
 })
+
+const serving = (versionId: string) => JSON.stringify({versions: [{percentage: 100, version_id: versionId}]})
+const statusReads = (calls: {argv: string[]}[]) => calls.filter(({argv}) => argv.join(' ').startsWith('deployments status')).length
+
+async function promoting() {
+  const fixture = deployFixture({workers: [{name: 'billing'}]})
+  const cloudflare = await firstRun(fixture)
+  const step = stepOf(await planFor(fixture, cloudflare, {rules: newCode('billing')}), 'billing')
+  return {cloudflare, fixture, step}
+}
+
+describe('the read that verifies a promote', () => {
+  it('is made again while Cloudflare still names the version the promote replaced', async () => {
+    const {cloudflare, fixture, step} = await promoting()
+    // The first read is what's live before the promote. The second is the one that verifies it.
+    const stale: WranglerRule = {command: 'deployments status', skip: 1, stdout: serving(step.previousVersionId), times: 1, worker: step.deployedName}
+
+    const applied = await applyPlan(fixture, cloudflare, {rules: [stale]})
+
+    expect(applied.exitCode, applied.stderr).toBe(0)
+    expect(statusReads(applied.calls)).toBe(3)
+    expect(activeOf(applied.cloudflare, step)).not.toBe(step.previousVersionId)
+  })
+
+  it('fails at once when it names any other version', async () => {
+    const {cloudflare, fixture, step} = await promoting()
+    const other: WranglerRule = {command: 'deployments status', skip: 1, stdout: serving('someone-elses'), times: 1, worker: step.deployedName}
+
+    const applied = await applyPlan(fixture, cloudflare, {rules: [other]})
+
+    expect(applied.exitCode).toBe(1)
+    expect(applied.stderr).toContain('verify-mismatch')
+    // Before, the verify, and the read of what happened that follows any failed step: none in between.
+    expect(statusReads(applied.calls)).toBe(3)
+  })
+})

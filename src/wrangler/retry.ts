@@ -23,7 +23,7 @@ export function retryDelayMs(attempt: number, random: () => number = Math.random
   return BASE_DELAY_MS * 2 ** (attempt - 1) * (0.5 + random() / 2)
 }
 
-async function pause(ms: number, signal?: AbortSignal): Promise<void> {
+export async function pause(ms: number, signal?: AbortSignal): Promise<void> {
   try {
     await wait(ms, undefined, {signal})
   } catch {

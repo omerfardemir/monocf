@@ -7,7 +7,7 @@ import {accountHash, manifestKey, parseStateManifest, runKey, STATE_SCHEMA_VERSI
 import type {RunRecord} from '../state/run-record.js'
 import type {StateStore} from '../state/store.js'
 import {readActiveVersion, type ActiveInfo, type WranglerCall} from '../wrangler/read.js'
-import {isTransient, MAX_ATTEMPTS, retryDelayMs, withReadRetries} from '../wrangler/retry.js'
+import {isTransient, MAX_ATTEMPTS, pause, retryDelayMs, withReadRetries} from '../wrangler/retry.js'
 import {accountOf, callWrangler, WranglerFailure, type RunContext} from './run.js'
 
 export const DEFAULT_CONCURRENCY = 6
@@ -139,13 +139,30 @@ function describeActive(active: ActiveInfo): string {
   return active.shares.map(({percentage, versionId}) => `${versionId} at ${percentage}%`).join(', ')
 }
 
-/** Exit 0 isn't proof: parallel writes to one worker all exit 0, with a silent winner. */
+/**
+ * Cloudflare can still name the version a step replaced for a few seconds after a `versions deploy` that took, as seen right
+ * after a rollback. A read that names it is made again after each of these, 30 s in all, before it counts as a mismatch.
+ */
+export const STALE_READ_DELAYS_MS: readonly number[] = [2000, 4000, 8000, 16_000]
+
+/**
+ * Exit 0 isn't proof: parallel writes to one worker all exit 0, with a silent winner. `replaced` is what was live before, and only
+ * a read that still names it is tried again: anything else is a real mismatch.
+ */
 export async function verifyActive(
   call: WranglerCall,
   {accountId, deployedName, dir}: {accountId?: string; deployedName: string; dir: string},
   expected: string,
+  {delaysMs = STALE_READ_DELAYS_MS, replaced, signal}: {delaysMs?: readonly number[]; replaced?: string; signal?: AbortSignal} = {},
 ): Promise<void> {
-  const active = await readActiveVersion(call, deployedName, accountId)
+  let active = await readActiveVersion(call, deployedName, accountId)
+  for (const delay of delaysMs) {
+    const stale = replaced !== undefined && replaced !== expected && active.state === 'active' && active.versionId === replaced
+    if (!stale || signal?.aborted) break
+    await pause(delay, signal)
+    active = await readActiveVersion(call, deployedName, accountId)
+  }
+
   if (active.state !== 'active' || active.versionId !== expected) {
     throw new MonocfError(`${dir}: verify-mismatch: expected ${expected} at 100%, and Cloudflare serves ${describeActive(active)}.`, EXIT_FAILED)
   }

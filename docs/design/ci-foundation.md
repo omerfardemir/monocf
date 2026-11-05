@@ -305,7 +305,7 @@ A `triggers` or `adopt` step writes no version, and its entry names the version 
 
 On a signal, `apply` stops starting steps, waits for the running ones, writes state and the record, prints the summary and exits 130 or 143.
 
-**Exit 0 isn't proof.** A step succeeded when wrangler exited with code 0 and no signal, the output file holds a version ID (`deploy`, `versions upload`), and a read-back of `deployments status` shows the expected version at 100%.
+**Exit 0 isn't proof.** A step succeeded when wrangler exited with code 0 and no signal, the output file holds a version ID (`deploy`, `versions upload`), and a read-back of `deployments status` shows the expected version at 100%. Cloudflare can still name the version the step replaced for a few seconds, as seen right after a rollback, so a read-back that names it is made again after 2, 4, 8 and 16 s, 30 s in all. A read-back that names any other version fails at once.
 
 Behaviour this design has to work with:
 

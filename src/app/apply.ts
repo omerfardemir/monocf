@@ -436,7 +436,8 @@ class Applier {
   }
 
   private async verify(target: Target, versionId: string): Promise<void> {
-    await verifyActive(this.call(target), {accountId: target.accountId, deployedName: target.step.deployedName, dir: target.worker.dir}, versionId)
+    const where = {accountId: target.accountId, deployedName: target.step.deployedName, dir: target.worker.dir}
+    await verifyActive(this.call(target), where, versionId, {replaced: target.liveBefore, signal: this.context.interrupts.signal})
   }
 
   /**
