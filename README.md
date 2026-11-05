@@ -853,7 +853,7 @@ monocf check --all-envs --strict     # exit 2 on any error or warning
 monocf plan -e staging --state r2://my-monocf-state/monocf --markdown plan.md --out plan.json
 ```
 
-`plan` deploys nothing. `--markdown` writes a summary to post as a comment. It holds worker names, actions and reasons, and no values.
+`plan` deploys nothing. It runs the same rules as `check` for its env first, and any error stops it with exit 2 and no plan, so a pull request that fails `check` gets no plan either. Warnings don't stop it. `--markdown` writes a summary to post as a comment. It holds worker names, actions and reasons, and no values.
 
 ### Environment branches
 
@@ -977,7 +977,7 @@ A worker used only in production stays out of the other pipelines with one line 
 workers/nightly-report except production,local
 ```
 
-`plan` then selects it for `production` and leaves it out of `dev` and `staging`, and `graph`, `check`, `bundle` and `deploy -a` agree. Two things happen when you change such a line for a worker that already exists.
+`plan` then selects it for `production` and leaves it out of `dev` and `staging`, and `graph`, `check`, `bundle` and `deploy -a` agree. `local` keeps `-e local` working, and has to be an env a config defines: in a project without one, write `except production`, or every command stops on the unknown env. Two things happen when you change such a line for a worker that already exists.
 
 **A worker that's live and now left out stays live.** If the state knows it, `plan` adds an `ignored-but-deployed` note. monocf never touches it, so deleting it, if you don't want it there, is a person's job. A line with no scope gets no such note.
 
@@ -1157,6 +1157,8 @@ Removing every cron is handled too: `apply` writes an explicit `"crons": []`, si
 
 ## Migrating from 0.2
 
+The [changelog](https://github.com/omerfardemir/monocf/blob/main/CHANGELOG.md) lists every change in 0.3.0, the breaking ones first.
+
 Install and floors:
 
 - wrangler is now a peer dependency, at 4.151.0 or newer. Add it to your project and pin it.
@@ -1178,8 +1180,8 @@ These now fail with exit 2 where they used to be ignored or misread:
 - `--deploy-from-version-id` without `--from-version`.
 - `--from-version` with `--all` or `--deploy-bindings`.
 - `--message` or `--deploy-bindings` on `build` or `dev`, `--deploy-secrets` on `build` or `dev`, `--port` on anything but `dev`, `--minify` on `dev`.
-- An unknown `-c` value, a blank value for a string flag, and an unknown `--env`.
-- A named worker that's missing or ignored in this env, including one inferred from the directory you run in. A package script such as `monocf worker -c build` in an ignored worker used to run and now fails, so change its line in `.monocfignore`, as above, or take the worker out of that script.
+- A blank value for a string flag, and an unknown `--env`.
+- A named worker that's missing, or ignored in this env, including one inferred from the directory you run in. 0.2 skipped an ignored worker with exit 0 and ran nothing, apart from `secrets deploy`, which did run. A package script such as `monocf worker -c build` in an ignored worker now fails a monorepo build, so change its line in `.monocfignore`, as above, or take the worker out of that script.
 - An unknown key in `monocf.config.json`.
 - An unknown placeholder, or one outside a string, as in `"cpu_ms": {cpu}`.
 - `null` in a worker config under a base config.
