@@ -272,6 +272,18 @@ describe('binding targets', () => {
     })
   })
 
+  it('suggests the directory name only for a service binding, the one field monocf rewrites', () => {
+    const workflows = [{binding: 'FLOW', script_name: 'billing-v1-staging'}]
+    const files = {
+      ...base,
+      ...worker('orders', {env: {staging: {services: [{binding: 'B', service: 'billing-v1-staging'}], workflows}}}),
+      ...worker('billing'),
+    }
+    const [service, workflow] = noticesOf(resolveFiles(files, 'staging').project.notices, 'hardcoded-name')
+    expect(service.message).toContain('Use the directory name')
+    expect(workflow.message).not.toContain('Use the directory name')
+  })
+
   it('prefers a directory over a deployed name', () => {
     const files = {
       ...base,

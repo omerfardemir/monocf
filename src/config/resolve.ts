@@ -247,9 +247,11 @@ function resolveTarget(
     return {kind: 'external', name}
   }
 
+  // Only service bindings get rewritten, so elsewhere a directory name would reach wrangler as it is.
+  const advice = source === 'services' ? ' Use the directory name instead.' : ''
   notices.push({
     binding,
-    message: `${worker}: ${binding} hardcodes ${name}, the deployed name of ${owner.dir}${owner.env ? ` in ${owner.env}` : ''}. Use the directory name instead.`,
+    message: `${worker}: ${binding} hardcodes ${name}, the deployed name of ${owner.dir}${owner.env ? ` in ${owner.env}` : ''}.${advice}`,
     name,
     source,
     targetDir: owner.dir,
