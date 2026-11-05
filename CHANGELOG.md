@@ -65,4 +65,5 @@ monocf can now run a Cloudflare Workers monorepo from CI: a dependency graph, a 
 - A signal stops wrangler and cleans up, rather than leaving a deploy running.
 - Debug output is gone from stdout.
 - `worker create` creates the workers directory when it doesn't exist yet, rather than failing.
+- An `orphan` note clears: once the worker is deleted from Cloudflare too, `plan` notes `orphan-gone` and `apply` drops its entry from the state.
 - `apply` and `rollback` exit with 128 + n when a wrangler is killed by signal n from outside, as single-worker commands did, rather than 1.

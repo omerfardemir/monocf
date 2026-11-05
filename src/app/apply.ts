@@ -687,6 +687,8 @@ export async function runApply(planPath: string, flags: ApplyFlags): Promise<voi
 
     const applier = new Applier(context, {concurrency: flags.concurrency ?? DEFAULT_CONCURRENCY, options, plan, runId, startedAt, targets}, writer)
     await applier.execute()
+    // An entry whose worker the plan found gone from the repository and from Cloudflare means nothing any more.
+    writer.forget(plan.notes.filter(({deployedName, kind, worker}) => kind === 'orphan-gone' && manifest.workers[worker]?.deployedName === deployedName).map(({worker}) => worker))
     await writer.settled()
 
     const record: RunRecord = {

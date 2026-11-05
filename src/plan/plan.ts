@@ -70,6 +70,7 @@ export type PlanNoteKind =
   | 'drift'
   | 'ignored-but-deployed'
   | 'orphan'
+  | 'orphan-gone'
   | 'recreated'
   | 'renamed'
   | 'routes-removed'
@@ -130,6 +131,8 @@ export interface PlanOptions {
    * `byScope` holds the ones only a scope leaves out, which a state entry then gives a note.
    */
   ignored?: {byScope?: string[]; graph: Graph; workers: string[]}
+  /** Orphans whose deployed name Cloudflare says doesn't exist, in the account the state recorded. `apply` drops their entries. */
+  goneOrphans?: string[]
   /** Every worker directory in the repository, ignored ones too. A state entry for anything else is an orphan. */
   repositoryWorkers: string[]
   state: string
@@ -445,6 +448,29 @@ function compareNotes(a: PlanNote, b: PlanNote): number {
   return key(a) < key(b) ? -1 : Number(key(a) > key(b))
 }
 
+/** Notes for state entries no step covers: workers gone from the repository, and ones a scope leaves out of this env. */
+function stateEntryNotes(
+  stored: Map<string, StateWorker>,
+  {env, goneOrphans, ignored, repositoryWorkers}: {env: string; goneOrphans: string[]; ignored?: PlanOptions['ignored']; repositoryWorkers: string[]},
+): PlanNote[] {
+  const notes: PlanNote[] = []
+  for (const [name, entry] of stored) {
+    if (goneOrphans.includes(name)) {
+      const message = 'The state manifest knows this worker, and it is gone from the repository and from Cloudflare. apply removes it from the state.'
+      notes.push({deployedName: entry.deployedName, kind: 'orphan-gone', message, worker: name})
+    } else if (!repositoryWorkers.includes(name)) {
+      const message =
+        'The state manifest knows this worker, but it is gone from the repository. monocf never deletes it. Once it is deleted from Cloudflare, the next plan and apply drop it from the state.'
+      notes.push({deployedName: entry.deployedName, kind: 'orphan', message, worker: name})
+    } else if (ignored?.byScope?.includes(name)) {
+      const message = `The state manifest knows this worker, and .monocfignore leaves it out of ${env}. monocf leaves it deployed and doesn't touch it. If it's unwanted, deleting it is a person's job.`
+      notes.push({deployedName: entry.deployedName, kind: 'ignored-but-deployed', message, worker: name})
+    }
+  }
+
+  return notes
+}
+
 /**
  * Compares what this commit would upload with what is live, and says what each selected worker needs. Pure: the same inputs
  * give the same plan. The bundle holds exactly the selected workers, the graph every worker that isn't ignored.
@@ -455,7 +481,7 @@ export function createPlan(
   state: null | StateManifest,
   active: Record<string, ActiveInfo>,
   graph: Graph,
-  {createdAt, guards, ignored, onDrift, repositoryWorkers, state: stateUrl}: PlanOptions,
+  {createdAt, goneOrphans = [], guards, ignored, onDrift, repositoryWorkers, state: stateUrl}: PlanOptions,
 ): Plan {
   const stored = new Map(Object.entries(state?.workers ?? {}))
   const order = computeOrder(graph).levels.flat()
@@ -487,15 +513,7 @@ export function createPlan(
   notes.push(...uploadCallersOfRecreated(decisions, {graph, ignored, marked, recreated}))
   for (const name of names) routeToDeploy(decisions.get(name)!, bundle.workers[name], entryOf(name))
 
-  for (const [name, entry] of stored) {
-    if (!repositoryWorkers.includes(name)) {
-      const message = 'The state manifest knows this worker, but it is gone from the repository. monocf never deletes it.'
-      notes.push({deployedName: entry.deployedName, kind: 'orphan', message, worker: name})
-    } else if (ignored?.byScope?.includes(name)) {
-      const message = `The state manifest knows this worker, and .monocfignore leaves it out of ${bundle.env}. monocf leaves it deployed and doesn't touch it. If it's unwanted, deleting it is a person's job.`
-      notes.push({deployedName: entry.deployedName, kind: 'ignored-but-deployed', message, worker: name})
-    }
-  }
+  notes.push(...stateEntryNotes(stored, {env: bundle.env, goneOrphans, ignored, repositoryWorkers}))
 
   const deploying = names.filter((name) => {
     const {action} = decisions.get(name)!

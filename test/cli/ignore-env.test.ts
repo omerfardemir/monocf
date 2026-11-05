@@ -563,7 +563,8 @@ describe('plan', () => {
       const manifest = manifestOf(built)
       writeFileSync(path, JSON.stringify({...manifest, workers: {...manifest.workers, gone: {...manifest.workers.reports, deployedName: 'gone-v1-staging'}}}))
 
-      await planFor(built, cloudflare)
+      // Still live, so it stays an orphan: one deleted from Cloudflare too would leave the state.
+      await planFor(built, {...cloudflare, workers: {...cloudflare.workers, 'gone-v1-staging': cloudflare.workers!['reports-v1-staging']}})
 
       const notes = readPlan(built).notes.map(({kind, worker}: {kind: string; worker: string}) => `${kind} ${worker}`)
       expect(notes).toEqual(['ignored-but-deployed reports', 'orphan gone'])

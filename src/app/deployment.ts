@@ -73,6 +73,16 @@ export class StateWriter {
     }
   }
 
+  /** Drops entries for workers gone from the repository and from Cloudflare, as a plan found them. */
+  forget(workers: string[]): void {
+    for (const worker of workers) {
+      delete this.manifest.workers[worker]
+      this.clearMark(worker)
+    }
+
+    if (workers.length > 0) this.flush()
+  }
+
   /** Drops what no longer means anything: a name gone from the repository can't be given a version. */
   unmark(workers: string[]): void {
     for (const worker of workers) this.clearMark(worker)

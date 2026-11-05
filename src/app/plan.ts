@@ -120,6 +120,29 @@ async function bundleFor(
 }
 
 /** A failed read stops the plan. There's no way to tell what a worker needs without knowing what is live. */
+/**
+ * The orphans Cloudflare says don't exist. An orphan has no config, so it's read in the account the environment names, and
+ * only when that's the account its entry recorded: another account would say "doesn't exist" of a worker that's live. A read
+ * that fails keeps the orphan, as does one with no account to compare.
+ */
+async function readGoneOrphans(context: RunContext, state: null | StateManifest, repositoryWorkers: string[]): Promise<string[]> {
+  const orphans = Object.entries(state?.workers ?? {}).filter(([name]) => !repositoryWorkers.includes(name))
+  const account = process.env.CLOUDFLARE_ACCOUNT_ID?.trim() || undefined
+  if (orphans.length === 0 || account === undefined) return []
+  const call: WranglerCall = withReadRetries((step, accountId) => callWrangler(context, step, {accountId}), context.interrupts.signal)
+  const gone: string[] = []
+  for (const [name, {accountHash: recorded, deployedName}] of orphans) {
+    if (recorded !== accountHash(account)) continue
+    try {
+      if ((await readActiveVersion(call, deployedName, account)).state === 'missing') gone.push(name)
+    } catch {
+      // It stays an orphan: a failed read says nothing.
+    }
+  }
+
+  return gone
+}
+
 async function readActiveVersions(
   context: RunContext,
   workers: ResolvedWorker[],
@@ -276,9 +299,11 @@ export async function runPlan(flags: PlanFlags): Promise<void> {
     const active = await readActiveVersions(context, workers, {env, state})
     const outputs = outputsOf(rootDir, [bundle.reusedFrom, markdownPath])
     const repositoryWorkers = discoverWorkers(options)
+    const goneOrphans = await readGoneOrphans(context, state, repositoryWorkers)
     plan = {
       ...createPlan(pickWorkers(bundle, selected, head), state, active, graph, {
         createdAt: new Date().toISOString(),
+        goneOrphans,
         guards: guardsFor(context, workers, env, flags),
         ignored: {byScope: ignoredByScope(options, repositoryWorkers), graph: buildGraph(project.workers), workers: ignored},
         onDrift: flags.onDrift ?? 'warn',
