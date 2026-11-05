@@ -55,7 +55,7 @@ export type Notice =
       type: 'hardcoded-name'
       worker: string
     }
-  | {file: string; message: string; type: 'missing-package-json' | 'missing-version'; worker: string}
+  | {file: string; message: string; type: 'missing-package-json' | 'missing-version' | 'worker-name'; worker: string}
 
 /** A usage or config error: nothing was attempted. */
 export class ConfigError extends MonocfError {

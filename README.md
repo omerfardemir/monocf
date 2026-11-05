@@ -170,7 +170,7 @@ Wrangler's own rule still applies after the merge: **`vars` and bindings don't i
 ### Names
 
 - A worker deploys as `<name>` with no env and `<name>-<env>` with one, and with an env this always applies: an `env.<env>.name` in your config is overwritten.
-- Any character other than `a-z`, `0-9` and `-` in a name becomes a dash. Uppercase letters aren't lowercased, so write names in lowercase. `check` reports a deployed name that's too long or malformed.
+- Any character other than `a-z`, `0-9` and `-` in a name becomes a dash, uppercase letters included, so write names in lowercase. `check` reports a deployed name that's too long or malformed, and warns, as `worker-name`, about a name that deploys as something other than what's written, or that starts or ends with a dash.
 - An unknown `--env` is an error, so a typo can't create a new worker.
 
 ### Service bindings

@@ -178,6 +178,29 @@ describe('monocf check', () => {
     expect(strict.exitCode).toBe(2)
   })
 
+  it('warns about a name monocf would deploy as something else, or with a dash at an end', async () => {
+    const fixture = createFixture({
+      base: false,
+      environments: ['dev'],
+      workers: [
+        {config: {env: {dev: {}}, name: 'orDers'}, name: 'orders'},
+        {config: {env: {dev: {}}, name: 'billing-'}, name: 'billing'},
+        {config: {env: {dev: {}}, name: 'reports'}, name: 'reports'},
+      ],
+    })
+
+    const result = await offline(fixture, ['check', '-e', 'dev', '--json'])
+
+    const named = JSON.parse(result.stdout).findings.filter(({rule}: {rule: string}) => rule === 'worker-name')
+    expect(named).toHaveLength(2)
+    expect(named).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({level: 'warning', message: expect.stringContaining('The name "orDers" deploys as or-ers'), worker: 'orders'}),
+        expect.objectContaining({level: 'warning', message: expect.stringContaining('The name "billing-" starts or ends with a dash'), worker: 'billing'}),
+      ]),
+    )
+  })
+
   it('passes --strict with a cycle that only a queue closes, and says so as a note', async () => {
     const fixture = createFixture({
       base: false,

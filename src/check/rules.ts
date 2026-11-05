@@ -270,6 +270,10 @@ const externalBinding: Rule = (context) =>
     worker,
   }))
 
+/** monocf would deploy the worker under a name other than the one written, which nothing else points out. */
+const workerName: Rule = (context) =>
+  selectedNotices(context, 'worker-name').map(({message, worker}) => ({level: 'warning', message, rule: 'worker-name', worker}))
+
 const ignoredStale: Rule = ({directories, options, reader}) =>
   readIgnoreLines(options, reader)
     .filter(({problem, text}) => problem === undefined && text.trim() !== '' && !text.trim().startsWith('#'))
@@ -383,6 +387,7 @@ const RULES: Rule[] = [
   duplicateBindingName,
   resolveFailures,
   externalBinding,
+  workerName,
   ignoredStale,
   ignoredNegationUnused,
   ignoredMalformed,

@@ -127,7 +127,7 @@ export function accountIdOf(config: RawConfig, env: string | undefined): string 
   return typeof field === 'string' && field.trim() !== '' ? field : undefined
 }
 
-/** Replaces every character a worker name can't hold with a dash. Uppercase letters aren't lowercased. */
+/** Replaces every character a worker name can't hold with a dash, uppercase letters included. */
 export function sanitizeWorkerName(name: string): string {
   return name.replaceAll(/[^a-z0-9-]/g, '-')
 }
@@ -210,11 +210,22 @@ interface PreparedWorker {
 function prepareWorker(raw: RawWorker, inputs: ProjectInputs, options: Options): PreparedWorker {
   const {env} = options
   const config = mergeAndSubstitute(raw, inputs, options)
-  const name = sanitizeWorkerName(validateName(config, raw.configPath))
+  const written = validateName(config, raw.configPath)
+  const name = sanitizeWorkerName(written)
   config.name = name
   if (env !== undefined) applyPatch(config, {env: {[env]: {name: `${name}-${env}`}}}, raw.configPath)
-  const notices = injectVars(config, raw, name, env)
+  const notices = [...nameNotices(written, name, raw), ...injectVars(config, raw, name, env)]
   return {config, name, notices, raw}
+}
+
+/** A name that deploys as something other than what's written, or with a dash at either end, which the env suffix doubles. */
+function nameNotices(written: string, name: string, raw: RawWorker): Notice[] {
+  const problems = [
+    ...(written === name ? [] : [`deploys as ${name}, as a worker name holds only lowercase letters, digits and dashes`]),
+    ...(/^-|-$/.test(written) ? ['starts or ends with a dash, and an env name follows a dash'] : []),
+  ]
+  if (problems.length === 0) return []
+  return [{file: raw.configPath, message: `The name "${written}" ${problems.join(', and ')}. Rename it.`, type: 'worker-name', worker: raw.dir}]
 }
 
 function deployedNameOf(name: string, env?: string): string {
