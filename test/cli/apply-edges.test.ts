@@ -1,0 +1,108 @@
+import {describe, expect, it} from 'vitest'
+
+import {activeOf, applyPlan, changeConfig, deployFixture, firstRun, lastRunRecord, manifestOf, newCode, planFor, stepOf, writesOf} from '../helpers/deploy-fixtures.js'
+import {runCli, type WranglerRule} from '../helpers/harness.js'
+
+const broke = '✘ [ERROR] Something broke\n'
+const unreadableAfterFirstRead = (name: string): WranglerRule => ({command: 'deployments status', exitCode: 1, skip: 1, stderr: broke, worker: name})
+
+describe('live moved between plan and apply (M01)', () => {
+  // billing takes the upload path, and reports, with a site, a deploy.
+  it.each([
+    ['billing', 'upload'],
+    ['reports', 'full-deploy'],
+  ])('%s: the record and a rollback go back to what the run replaced, not what the plan saw (%s)', async (worker, action) => {
+    const fixture = deployFixture({workers: [{name: 'billing'}, {config: {site: {bucket: './site'}}, name: 'reports'}]})
+    const cloudflare = await firstRun(fixture)
+    const plan = await planFor(fixture, cloudflare, {rules: newCode(worker)})
+    const step = stepOf(plan, worker)
+    expect(step.action).toBe(action)
+    const live = cloudflare.workers![step.deployedName]
+    live.tags!.moved = null
+    live.active = [['moved', 100]]
+
+    const applied = await applyPlan(fixture, cloudflare)
+
+    expect(applied.exitCode, applied.stderr).toBe(0)
+    expect(lastRunRecord(fixture).workers[worker].previousVersionId).toBe('moved')
+    const rolled = await runCli(fixture, ['rollback', '-e', 'staging', '--state', 'file:state', '--to-run', lastRunRecord(fixture).runId], {cloudflare: applied.cloudflare})
+    expect(rolled.exitCode, rolled.stderr).toBe(0)
+    expect(activeOf(rolled.cloudflare, step)).toBe('moved')
+  })
+})
+
+describe('an unknown result across a Durable Object change (M04)', () => {
+  it('refuses to roll back without --force, though the state still has the old classes', async () => {
+    const fixture = deployFixture({workers: [{name: 'reports'}]})
+    const cloudflare = await firstRun(fixture)
+    const oldDoHash = manifestOf(fixture).workers.reports.doHash
+    changeConfig(fixture, 'reports', {durable_objects: {bindings: [{class_name: 'Counter', name: 'COUNTER'}]}, migrations: [{new_sqlite_classes: ['Counter'], tag: 'v1'}]})
+    const plan = await planFor(fixture, cloudflare)
+    const step = stepOf(plan, 'reports')
+    expect(step.action).toBe('full-deploy')
+    const deploy: WranglerRule = {command: 'deploy', effectThenFail: true, exitCode: 1, stderr: broke, worker: 'reports'}
+
+    const failed = await applyPlan(fixture, cloudflare, {rules: [deploy, unreadableAfterFirstRead(step.deployedName)]})
+
+    expect(failed.exitCode).toBe(1)
+    expect(lastRunRecord(fixture).workers.reports.changed).toBe('unknown')
+    expect(manifestOf(fixture).workers.reports.doHash).toBe(oldDoHash)
+    const live = activeOf(failed.cloudflare, step)
+
+    const result = await runCli(fixture, ['rollback', '-e', 'staging', '--state', 'file:state', '--to-run', lastRunRecord(fixture).runId], {cloudflare: failed.cloudflare, noCalls: true})
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain('Durable Object classes differ')
+    expect(writesOf(result.calls)).toEqual([])
+    expect(activeOf(result.cloudflare, step)).toBe(live)
+  })
+})
+
+describe('the "Uploaded and not promoted" line (M08)', () => {
+  const LINE = 'Uploaded and not promoted: billing'
+
+  it('is left out when the promote may have taken effect, as the read after it failed', async () => {
+    const fixture = deployFixture({workers: [{name: 'billing'}]})
+    const cloudflare = await firstRun(fixture)
+    const step = stepOf(await planFor(fixture, cloudflare, {rules: newCode('billing')}), 'billing')
+    const promote: WranglerRule = {command: 'versions deploy', effectThenFail: true, exitCode: 1, stderr: broke}
+
+    const result = await applyPlan(fixture, cloudflare, {rules: [promote, unreadableAfterFirstRead(step.deployedName)]})
+
+    expect(result.exitCode).toBe(1)
+    expect(lastRunRecord(fixture).workers.billing.changed).toBe('unknown')
+    expect(result.stderr).not.toContain(LINE)
+    expect(result.stderr).toContain('billing may have changed what is live')
+  })
+
+  it('is there when the read says nothing moved', async () => {
+    const fixture = deployFixture({workers: [{name: 'billing'}]})
+    const cloudflare = await firstRun(fixture)
+    await planFor(fixture, cloudflare, {rules: newCode('billing')})
+
+    const result = await applyPlan(fixture, cloudflare, {rules: [{command: 'versions deploy', exitCode: 1, stderr: broke}]})
+
+    expect(result.exitCode).toBe(1)
+    expect(lastRunRecord(fixture).workers.billing.changed).toBe(false)
+    expect(result.stderr).toContain(LINE)
+  })
+})
+
+describe('a retried deploy, when another version went live meanwhile (M10)', () => {
+  it("doesn't take that version for its own, as its tag isn't this run's", async () => {
+    const fixture = deployFixture({workers: [{config: {site: {bucket: './site'}}, name: 'reports'}]})
+    const cloudflare = await firstRun(fixture)
+    const step = stepOf(await planFor(fixture, cloudflare, {rules: newCode('reports')}), 'reports')
+    const lost: WranglerRule = {command: 'deploy', exitCode: 1, otherDeploy: 'someone-else', stderr: '✘ [ERROR] fetch failed\n', times: 1, worker: 'reports'}
+
+    const result = await applyPlan(fixture, cloudflare, {rules: [lost]})
+
+    expect(result.exitCode, result.stderr).toBe(0)
+    expect(writesOf(result.calls)).toEqual(['deploy reports', 'deploy reports'])
+    const live = activeOf(result.cloudflare, step)
+    expect(live).not.toBe('someone-else')
+    expect(result.cloudflare!.workers![step.deployedName].tags![live]).toBe(`monocf:${step.fingerprint}`)
+    expect(lastRunRecord(fixture).workers.reports.newVersionId).toBe(live)
+    expect(manifestOf(fixture).workers.reports.versionId).toBe(live)
+  })
+})
