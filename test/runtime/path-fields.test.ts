@@ -71,10 +71,25 @@ describe('rebaseConfig', () => {
     expect(String(main).startsWith('..')).toBe(true)
   })
 
-  it('rewrites an alias that is a path, and leaves one that is a package', () => {
+  it('rewrites an alias that is a path, and leaves one that resolves to nothing', () => {
     const result = rebaseConfig({alias: {a: './shim.ts', b: '../shared/shim.ts', c: 'other-package'}}, context)
 
     expect(result.alias).toEqual({a: `${up}/shim.ts`, b: '../../../../workers/shared/shim.ts', c: 'other-package'})
+  })
+
+  it('leaves an alias to a Node builtin as written', () => {
+    const result = rebaseConfig({alias: {a: 'node:path', b: 'fs', c: 'fs/promises'}}, context)
+
+    expect(result.alias).toEqual({a: 'node:path', b: 'fs', c: 'fs/promises'})
+  })
+
+  it('writes a package alias as a path, from where the worker finds the package', () => {
+    const result = rebaseConfig(
+      {alias: {a: 'wrangler/package.json'}},
+      {exists: () => false, from: process.cwd(), to: join(process.cwd(), '.monocf', 'runs', 'abc', 'orders')},
+    )
+
+    expect(result.alias).toEqual({a: '../../../../node_modules/wrangler/package.json'})
   })
 
   it('tells a registry image from a local Dockerfile', () => {

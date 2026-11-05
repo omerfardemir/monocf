@@ -1,4 +1,5 @@
 import {existsSync} from 'node:fs'
+import {createRequire, isBuiltin} from 'node:module'
 import {isAbsolute, join, relative, resolve} from 'node:path'
 
 import {isPlainObject, type RawConfig} from '../config/types.js'
@@ -81,16 +82,34 @@ function isPathLikeImage(value: string, {exists = existsSync, from}: RebaseConte
   return value.startsWith('.') || exists(join(from, value))
 }
 
-function rebasePath(value: string, {from, to}: RebaseContext): string {
+function relativeFromConfig(path: string, {to}: RebaseContext): string {
+  return relative(to, path).replaceAll('\\', '/')
+}
+
+function rebasePath(value: string, context: RebaseContext): string {
   if (isAbsolute(value)) return value
-  return relative(to, resolve(from, value)).replaceAll('\\', '/')
+  return relativeFromConfig(resolve(context.from, value), context)
+}
+
+/**
+ * Wrangler resolves a package alias from the config's directory, where it would miss the worker's own node_modules and
+ * could find another copy of the package. So the package is found here, the way the worker finds it, and the alias
+ * becomes a path. What can't be resolved stays as written, for wrangler to report.
+ */
+function rebasePackageAlias(value: string, context: RebaseContext): string {
+  if (isBuiltin(value)) return value
+  try {
+    return relativeFromConfig(createRequire(join(context.from, 'package.json')).resolve(value), context)
+  } catch {
+    return value
+  }
 }
 
 function rewriter(context: RebaseContext): Rewrite {
   const rebase: Rewrite = (value, field) => {
     if (Array.isArray(value)) return value.map((element) => rebase(element, field))
     if (typeof value !== 'string') return value
-    if (field === 'alias.*' && !value.startsWith('.')) return value
+    if (field === 'alias.*' && !value.startsWith('.')) return rebasePackageAlias(value, context)
     if (field === 'containers[].image' && !isPathLikeImage(value, context)) return value
     return rebasePath(value, context)
   }

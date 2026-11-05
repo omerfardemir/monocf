@@ -44,6 +44,13 @@ function mapped(marker: string, file: string): Record<string, string> {
   }
 }
 
+function copyOfPackage(modules: string, marker: string): Record<string, string> {
+  return {
+    [`${modules}/shim-pkg/index.js`]: `module.exports = '${marker}'\n`,
+    [`${modules}/shim-pkg/package.json`]: JSON.stringify({main: 'index.js', name: 'shim-pkg', version: '1.0.0'}),
+  }
+}
+
 describe('real wrangler finds what the rebased config points at', {timeout: 180_000}, () => {
   describe('tsconfig', () => {
     const files = {
@@ -72,6 +79,51 @@ describe('real wrangler finds what the rebased config points at', {timeout: 180_
 
       expect(bundle).toContain('from-the-env-tsconfig')
       expect(bundle).not.toContain('from-the-top-tsconfig')
+    })
+  })
+
+  describe('alias', () => {
+    const files = {'src/index.ts': `import value from 'aliased'\n${respondsWith('value')}`}
+    const config = {alias: {aliased: 'shim-pkg'}}
+
+    it('bundles the copy of a package the worker sees, when the root has another', async () => {
+      const bundle = await bundleOf({
+        config,
+        files: {...files, ...copyOfPackage('node_modules', 'worker-copy')},
+        rootFiles: copyOfPackage('node_modules', 'root-copy'),
+      })
+
+      expect(bundle).toContain('worker-copy')
+      expect(bundle).not.toContain('root-copy')
+    })
+
+    it('finds a package only the worker has, as in a pnpm workspace', async () => {
+      const bundle = await bundleOf({config, files: {...files, ...copyOfPackage('node_modules', 'worker-copy')}})
+
+      expect(bundle).toContain('worker-copy')
+    })
+
+    it('finds a package only the root has', async () => {
+      const bundle = await bundleOf({config, files, rootFiles: copyOfPackage('node_modules', 'root-copy')})
+
+      expect(bundle).toContain('root-copy')
+    })
+
+    it('finds a relative path', async () => {
+      const bundle = await bundleOf({
+        config: {alias: {aliased: './lib/shim.ts'}},
+        files: {...files, 'lib/shim.ts': `export default 'from-a-relative-alias'\n`},
+      })
+
+      expect(bundle).toContain('from-a-relative-alias')
+    })
+
+    it('fails the build on a package nothing has', async () => {
+      const fixture = project({config, files})
+
+      const result = await runCli(fixture, ['worker', 'orders', '-c', 'build'])
+
+      expect(result.exitCode).toBe(1)
     })
   })
 
