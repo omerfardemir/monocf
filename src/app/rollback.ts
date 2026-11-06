@@ -508,12 +508,12 @@ function detachStep({context, env, writer}: Execution, {queues, target, worker}:
 }
 
 /** The first worker in the way: this one, or a caller it waits for, however far up. */
-function blockerOf(name: string, callers: Map<string, string[]>, failed: Set<string>): string | undefined {
+function blockerOf(name: string, callers: Map<string, string[]>, blocked: Map<string, string>): string | undefined {
   const waiting = [name]
   const seen = new Set<string>()
   while (waiting.length > 0) {
     const next = waiting.pop()!
-    if (failed.has(next)) return next
+    if (blocked.has(next)) return next
     if (!seen.has(next)) {
       seen.add(next)
       waiting.push(...(callers.get(next) ?? []))
@@ -526,7 +526,8 @@ function blockerOf(name: string, callers: Map<string, string[]>, failed: Set<str
 /**
  * Cloudflare takes one worker consumer per queue, and `triggers deploy` only adds. So every consumer the run attached goes
  * first, from every worker, before any `triggers deploy` puts an earlier one back, which may be on the same queue. A worker
- * whose detach fails stays as it is, and so do the workers that wait for it.
+ * whose detach fails stays as it is. So does a worker that would take back a queue that one still holds, as its triggers would
+ * fail with 11004, and so do the workers that wait for either.
  */
 async function execute(execution: Execution, records: RunRecord['workers']): Promise<void> {
   const {context, createdDetaches, targets, workers} = execution
@@ -545,12 +546,20 @@ async function execute(execution: Execution, records: RunRecord['workers']): Pro
     steps: detaches.map((detach) => detachStep(execution, detach, records[detach.worker.dir])),
   })
 
+  const held = new Map(detaches.filter(({worker}) => failed.has(worker.dir)).flatMap(({queues, worker}) => queues.map((queue) => [queue, worker.dir])))
+  const blocked = new Map([...failed].map((name) => [name, name]))
+  for (const {refusal, restoreTriggers, worker} of targets) {
+    const holder = namesOf(restoreTriggers?.consumers, 'queue').map((queue) => held.get(queue)).find((name) => name !== undefined)
+    if (holder !== undefined && !refusal && !blocked.has(worker.dir)) blocked.set(worker.dir, holder)
+  }
+
   const callers = callersFirst(workers, targets.map(({worker}) => worker.dir))
   const runnable = targets.filter(({worker}) => {
-    const blocker = blockerOf(worker.dir, callers, failed)
-    if (blocker !== undefined && blocker !== worker.dir) {
-      settle(records[worker.dir], {id: worker.dir, reason: blocker, status: 'skipped'}, false)
-      context.emit({action: 'rollback', reason: blocker, status: 'skipped', type: 'step-finished', worker: worker.dir})
+    const blocker = blockerOf(worker.dir, callers, blocked)
+    if (blocker !== undefined && !failed.has(worker.dir)) {
+      const reason = blocked.get(blocker)!
+      settle(records[worker.dir], {id: worker.dir, reason, status: 'skipped'}, false)
+      context.emit({action: 'rollback', reason, status: 'skipped', type: 'step-finished', worker: worker.dir})
     }
 
     return blocker === undefined

@@ -358,6 +358,23 @@ describe('rollback, when a worker that took a consumer fails to let it go', () =
     expect(lastRunRecord(fixture).workers).toMatchObject({billing: {reason: 'orders', result: 'skipped'}, gateway: {result: 'ok'}, orders: {result: 'failed'}})
     expect(Object.keys(result.cloudflare!.consumers!.jobs)).toEqual([stepOf(plan, 'orders').deployedName])
   })
+
+  it('leaves the worker that would take the queue back as it is, and the same rollback again finishes', async () => {
+    const {cloudflare, fixture, names} = await moved()
+    const applied = await applyPlan(fixture, cloudflare)
+    expect(applied.exitCode, applied.stderr).toBe(0)
+    const {runId} = lastRunRecord(fixture)
+
+    const result = await runCli(fixture, rollbackArgs(runId), {cloudflare: applied.cloudflare, rules: [outage]})
+
+    expect(result.exitCode).toBe(1)
+    expect(writesOf(result.calls)).toEqual([])
+    expect(lastRunRecord(fixture).workers).toMatchObject({billing: {reason: 'reports', result: 'skipped'}, reports: {result: 'failed'}})
+    expect(Object.keys(result.cloudflare!.consumers!.jobs)).toEqual([names.reports])
+    const again = await runCli(fixture, rollbackArgs(runId), {cloudflare: result.cloudflare})
+    expect(again.exitCode, again.stderr).toBe(0)
+    expect(Object.keys(again.cloudflare!.consumers!.jobs)).toEqual([names.billing])
+  })
 })
 
 describe('rollback, when the worker that would take a queue back is refused', () => {
