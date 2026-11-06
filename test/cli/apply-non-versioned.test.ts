@@ -10,6 +10,7 @@ import {
   firstRun,
   lastRunRecord,
   manifestOf,
+  newCode,
   planFor,
   stepOf,
   writesOf,
@@ -120,6 +121,42 @@ describe('apply, with a queue consumer on a live worker', () => {
     expect(stepOf(await planFor(fixture, failed.cloudflare!), 'reports')).toMatchObject({removedConsumers: ['jobs']})
   })
 
+  it('records a worker whose detach went through as skipped, when a worker it calls then fails', async () => {
+    const fixture = deployFixture()
+    const live = await liveWithJobs(fixture)
+    const path = join(fixture.worker('orders'), 'wrangler.jsonc')
+    const config = JSON.parse(readFileSync(path, 'utf8'))
+    changeConfig(fixture, 'orders', {...config, env: {staging: {...config.env.staging, ...consumer(1)}}})
+    await planFor(fixture, live)
+    const before = await applyPlan(fixture, live)
+    expect(before.exitCode, before.stderr).toBe(0)
+    writeFileSync(path, JSON.stringify(config))
+    commitAll(fixture)
+    const plan = await planFor(fixture, before.cloudflare!, {rules: newCode('billing')})
+    expect(stepOf(plan, 'orders')).toMatchObject({dependsOn: ['billing'], removedConsumers: ['jobs']})
+
+    const result = await applyPlan(fixture, before.cloudflare!, {rules: [{command: 'versions upload', exitCode: 1, stderr: 'boom\n', worker: 'billing'}]})
+
+    expect(result.exitCode).toBe(1)
+    expect(result.cloudflare!.consumers!.jobs).toEqual({})
+    expect(lastRunRecord(fixture).workers.orders).toMatchObject({changed: true, result: 'skipped'})
+  })
+
+  it('puts the consumer back on rollback, when the run detached it and its promote then changed nothing', async () => {
+    const fixture = deployFixture()
+    const {cloudflare, name} = await applyChange(fixture, await liveWithJobs(fixture), consumer(1))
+    staging(fixture, {})
+    await planFor(fixture, cloudflare)
+    const failed = await applyPlan(fixture, cloudflare, {rules: [{command: 'versions deploy', exitCode: 1, stderr: 'boom\n', worker: 'reports'}]})
+    expect(failed.exitCode).toBe(1)
+    expect(failed.cloudflare!.consumers!.jobs).toEqual({})
+
+    const result = await runCli(fixture, rollbackArgs(lastRunRecord(fixture).runId), {cloudflare: failed.cloudflare})
+
+    expect(result.exitCode, result.stderr).toBe(0)
+    expect(Object.keys(result.cloudflare!.consumers!.jobs)).toEqual([name])
+  })
+
   it('has the next plan detach it, when the detach fails', async () => {
     const fixture = deployFixture()
     const {cloudflare} = await applyChange(fixture, await liveWithJobs(fixture), consumer(1))
@@ -184,6 +221,15 @@ describe('apply, moving a queue consumer to another worker in one commit', () =>
     expect(Object.keys(result.cloudflare!.consumers!.jobs)).toEqual([names.reports])
     const next = await planFor(fixture, result.cloudflare!)
     expect(next.steps.filter(({action}: {action: string}) => action !== 'skip')).toEqual([])
+  })
+
+  it('moves it to a worker the commit creates, in one run', async () => {
+    const {cloudflare, fixture, names} = await movedToNewWorker()
+
+    const result = await applyPlan(fixture, cloudflare)
+
+    expect(result.exitCode, result.stderr).toBe(0)
+    expect(Object.keys(result.cloudflare!.consumers!.jobs)).toEqual([names.ledger])
   })
 
   it('attaches it on the next run, when the attach failed after the detach', async () => {
