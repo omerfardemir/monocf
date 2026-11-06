@@ -868,7 +868,7 @@ monocf apply plan.json --expect-branch-tip origin/main --summary-file "$GITHUB_S
 
 Here "triggers" means everything a new version doesn't carry, so that a promote alone can't change it: crons, routes, `workers_dev`, `preview_urls`, `queues.consumers`, the Workflows a worker defines, `tail_consumers` and `streaming_tail_consumers`. A change to any of them runs `triggers deploy` after the promote, which attaches and updates queue consumers and registers Workflows. Tail consumers are set by the promote itself. Wrangler never takes these away when a config drops them, not even `wrangler deploy`, so `apply` does what it can itself:
 
-- A queue consumer the config dropped is detached with `wrangler queues consumer remove`, if it's still attached, in step 1. A queue that no longer exists counts as detached, as there's nothing to detach. If the run stops after that and before the worker taking the consumer over attaches it, the queue has no consumer until the next `apply`, which attaches it. Messages wait in the queue meanwhile. A failed detach fails its worker before any of its new code goes live. So a consumer the config drops stops at the start of the run, even when that worker's new code then fails to go live.
+- A queue consumer the config dropped is detached with `wrangler queues consumer remove`, if it's still attached, in step 1. A queue that no longer exists counts as detached, as there's nothing to detach. If the run stops after that and before the worker taking the consumer over attaches it, the queue has no consumer until the next `apply`, which attaches it. Messages wait in the queue meanwhile. A failed detach fails its worker before any of its new code goes live. So a consumer the config drops stops at the start of the run, even when that worker's new code then fails to go live. A worker removed from the repository, or newly in `.monocfignore`, isn't touched, so it keeps its consumers. Detach them with `wrangler queues consumer remove <queue> <deployed name>`, or delete the worker, before another worker takes the queue: otherwise that worker's `triggers deploy` fails with 11004.
 - Tail consumer lists the config dropped are written as empty lists, which is what clears them, as `"crons": []` does for crons.
 - A Workflow the config dropped stays registered, still pointing at the worker, as nothing in wrangler deletes one and deleting it deletes its instances. `plan` says so with a `workflow-removed` note that names the command, `wrangler workflows delete <name>`.
 
@@ -1061,13 +1061,20 @@ Its limits:
 
 - **Triggers.** Code, vars and secrets follow a version. Crons, routes, queue consumers, Workflows and tail consumers don't, so monocf restores them separately, for `--to-run` only. First, from every worker, it detaches a queue consumer the run added that the earlier triggers don't hold. Then it promotes with the earlier tail consumers, and runs `triggers deploy` with the earlier crons, routes, consumers and Workflows. Cloudflare takes one worker consumer per queue, so this order is what lets one rollback put back a consumer the run moved from one worker to another. `--to` leaves them as they are.
 - **A Workflow the run registered** stays registered, as nothing in wrangler deletes one and deleting it deletes its instances. The rollback says so. To delete it, run `wrangler workflows delete <name>`.
-- **A queue consumer whose handler the run removed.** If the run dropped a consumer and the worker's `queue()` handler with it, the rollback can't attach the consumer again. Cloudflare refuses with 11001, "Queue handler is missing", though the version put back has a handler: it checks the worker's latest upload, not the version that's live, and a rollback uploads nothing. That worker fails with exit 1, and running the rollback again doesn't help. If the run moved the consumer to another worker, the rollback has detached it there, so the queue has no consumer, and messages wait in it. The way out is a commit that reverts the change, and an `apply`, which uploads a version with the handler and attaches the consumer.
 - **Durable Objects.** Cloudflare refuses a rollback across a class addition, and takes one across a class deletion with exit 0, leaving the class broken. So monocf refuses any rollback across a Durable Object change. `--force` accepts that risk.
 - **Retained versions.** Cloudflare keeps a limited number of versions. A version it no longer has fails that worker with exit 1.
-- **Workers the run created** have nothing to go back to. They're skipped with a note, and stay deployed. The one thing they lose is a queue consumer that a worker the rollback puts back takes again, as a queue has one worker consumer. The next `apply` attaches it again.
+- **Workers the run created** have nothing to go back to. They're skipped with a note, and stay deployed.
 - **A recreated provider.** A caller's earlier version can't reach a provider that was recreated. If the run created that provider, the rollback refuses that caller without `--force`. Whichever way a caller goes back, the next `plan` gives it a new version.
 - **A first route.** If the run gave a worker its first route, the rollback leaves it attached, as wrangler only publishes a list with something in it, and says so. Remove it by hand.
 - **A broken `.monocfignore`.** A line `check` calls `ignored-malformed` or `ignored-unknown-env` stops a rollback, as it stops every command that selects workers. Rollback doesn't need a clean checkout, so fixing the line, even uncommitted, lets it run.
+
+What a rollback can't do with queue consumers, as Cloudflare takes one worker consumer per queue. Each case exits 1 or says so in the record, and messages wait in a queue while it has no consumer:
+
+- **A consumer whose handler the run removed.** If the run dropped a consumer and the worker's `queue()` handler with it, the rollback can't attach the consumer again. Cloudflare refuses with 11001, "Queue handler is missing", though the version put back has a handler: it checks the worker's latest upload, not the version that's live, and a rollback uploads nothing. That worker fails with exit 1, and running the rollback again doesn't help. If the run moved the consumer to another worker, the rollback has detached it there, so the queue has no consumer, and messages wait in it. The way out is a commit that reverts the change, and an `apply`, which uploads a version with the handler and attaches the consumer.
+- **A worker the run created** gives up a consumer that a worker the rollback puts back takes again. The created worker stays, with a note that says so. The next `apply` attaches the consumer to it again, and so does a `--to-run` of that rollback.
+- **A failed detach.** If a worker fails to let go of a consumer the run attached, it stays as it is. So does the worker that would take that queue back, as its `triggers deploy` would fail with 11004, and so do the workers that wait for either. The rollback exits 1, and running it again finishes it.
+- **A refused worker.** If the worker that had a consumer is refused, as across a Durable Object change, the worker that took it over still lets it go. So the queue has no consumer until an `apply`, or a rollback with `--force`.
+- **A worker gone from the repository, or newly in `.monocfignore`,** isn't touched, and keeps its consumers, as in [`apply`](#continuous-deployment).
 
 ## Exit codes and JSON output
 
@@ -1145,7 +1152,7 @@ When in doubt, a file counts: a false "changed" costs one redeploy, and a false 
 
 `upload` can also carry `drift`, `split`, `baseline`, `secret-changed` or `provider-recreated`, as the sections above describe.
 
-**A worker gone from the repository** gets an `orphan` note while the state knows it. monocf never deletes a worker, so the note stays while the worker is live. Delete it yourself with `wrangler delete <deployed name>`. The next `plan` reads it, finds it gone, and notes `orphan-gone`, and that plan's `apply` drops its entry from the state, which clears the note. The read uses `CLOUDFLARE_ACCOUNT_ID`, and only when that's the account the entry recorded, as another account would say any worker is gone. So an orphan that deployed to another account through its own `account_id` never clears by itself: once it's deleted, remove its entry from the state manifest by hand.
+**A worker gone from the repository** gets an `orphan` note while the state knows it. monocf never deletes a worker, so the note stays while the worker is live, and the worker keeps its queue consumers. Delete it yourself with `wrangler delete <deployed name>`. The next `plan` reads it, finds it gone, and notes `orphan-gone`, and that plan's `apply` drops its entry from the state, which clears the note. The read uses `CLOUDFLARE_ACCOUNT_ID`, and only when that's the account the entry recorded, as another account would say any worker is gone. So an orphan that deployed to another account through its own `account_id` never clears by itself: once it's deleted, remove its entry from the state manifest by hand.
 
 Removing every cron is handled too: `apply` writes an explicit `"crons": []`, since wrangler leaves deployed crons alone when the key is absent.
 
@@ -1203,6 +1210,8 @@ These now fail with exit 2 where they used to be ignored or misread:
 
 Other changes:
 
+- A `.monocfignore` line ending in `/`, such as `workers/orders/`, now ignores that worker. 0.2 matched nothing with such a line, so the worker was still deployed. Take the line out if the worker should still deploy.
+- Progress lines and wrangler's output go to `stderr`, apart from `dev`, which hands wrangler the terminal. A script that read wrangler's output from monocf's `stdout` reads `stderr` now.
 - `monocf worker -c <action>` still works and prints a deprecation line. Use `monocf <action>`.
 - `-e dev` now reads `.dev.vars.dev`, like any other env.
 - Exit codes follow the table above. A failed wrangler gives 1, not its own code.
