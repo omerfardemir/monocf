@@ -313,6 +313,22 @@ describe('rollback, of a run that moved a queue consumer', () => {
     expect(Object.keys(again.cloudflare!.consumers!.jobs)).toEqual([names.ledger])
   })
 
+  it('can itself be rolled back, which gives the consumer back to the worker the run created', async () => {
+    const {cloudflare, fixture, names} = await movedToNewWorker()
+    const applied = await applyPlan(fixture, cloudflare)
+    expect(applied.exitCode, applied.stderr).toBe(0)
+    const rolledBack = await runCli(fixture, rollbackArgs(lastRunRecord(fixture).runId), {cloudflare: applied.cloudflare})
+    expect(rolledBack.exitCode, rolledBack.stderr).toBe(0)
+
+    const result = await runCli(fixture, rollbackArgs(lastRunRecord(fixture).runId), {cloudflare: rolledBack.cloudflare})
+
+    expect(result.exitCode, result.stderr).toBe(0)
+    expect(writesOf(result.calls)).not.toContain('promote ledger')
+    expect(Object.keys(result.cloudflare!.consumers!.jobs)).toEqual([names.ledger])
+    const plan = await planFor(fixture, result.cloudflare!)
+    expect(plan.steps.filter(({action}: {action: string}) => action !== 'skip')).toEqual([])
+  })
+
   it('can itself be rolled back, when it detached a consumer and its promote then changed nothing', async () => {
     const fixture = deployFixture()
     const {cloudflare, name} = await applyChange(fixture, await liveWithJobs(fixture), consumer(1))

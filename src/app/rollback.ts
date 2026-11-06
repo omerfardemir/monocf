@@ -491,6 +491,12 @@ function detachStep({context, env, writer}: Execution, {queues, target, worker}:
       const gone: string[] = []
       for (const queue of queues) {
         if ((await readQueueConsumers(workerCall(context, dir), queue, accountId)).includes(deployedName)) {
+          // A later `--to-run` of this rollback then has what was live, and gives the consumer back with the triggers alone.
+          if (target === undefined && record.previousVersionId === undefined) {
+            const active = await readActiveVersion(workerCall(context, dir), deployedName, accountId)
+            if (active.state === 'active') record.previousVersionId = active.versionId
+          }
+
           mark()
           record.changed = 'unknown'
           await runStep(context, {accountId, argvOptions: {}, mode: {prefix: `[${dir}] `}, step: {action: 'queue-consumer-remove', queue, script: deployedName}, worker: dir})
