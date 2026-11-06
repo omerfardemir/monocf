@@ -2,7 +2,7 @@
   "name": "monocf",
   "description": "Plan, deploy and roll back a monorepo of Cloudflare Workers from CI, in dependency order",
   "version": "0.3.0",
-  "author": "Omer Demir",
+  "author": "omerfardemir",
   "bin": {
     "monocf": "bin/run.js"
   },
