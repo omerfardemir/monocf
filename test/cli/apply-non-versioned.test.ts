@@ -329,6 +329,33 @@ describe('rollback, of a run that moved a queue consumer', () => {
     expect(plan.steps.filter(({action}: {action: string}) => action !== 'skip')).toEqual([])
   })
 
+  it("can itself be rolled back after newer code went live on the worker the run created, and doesn't say that newer version holds the run's code", async () => {
+    const {cloudflare, fixture, names} = await movedToNewWorker()
+    const applied = await applyPlan(fixture, cloudflare)
+    expect(applied.exitCode, applied.stderr).toBe(0)
+    const runCode = readFileSync(join(fixture.worker('ledger'), 'src', 'index.ts'), 'utf8')
+    const rolledBack = await runCli(fixture, rollbackArgs(lastRunRecord(fixture).runId), {cloudflare: applied.cloudflare})
+    expect(rolledBack.exitCode, rolledBack.stderr).toBe(0)
+    const rollbackId = lastRunRecord(fixture).runId
+    writeFileSync(join(fixture.worker('ledger'), 'src', 'index.ts'), "export default {fetch: () => new Response('ledger, newer')}\n")
+    commitAll(fixture)
+    await planFor(fixture, rolledBack.cloudflare!, {rules: newCode('ledger')})
+    const newer = await applyPlan(fixture, rolledBack.cloudflare!)
+    expect(newer.exitCode, newer.stderr).toBe(0)
+    const newerVersion = manifestOf(fixture).workers.ledger.versionId
+
+    const result = await runCli(fixture, rollbackArgs(rollbackId), {cloudflare: newer.cloudflare})
+
+    expect(result.exitCode, result.stderr).toBe(0)
+    expect(Object.keys(result.cloudflare!.consumers!.jobs)).toEqual([names.ledger])
+    expect(manifestOf(fixture).workers.ledger.versionId).toBe(newerVersion)
+    // Back to the run's code, while the newer version is still live.
+    writeFileSync(join(fixture.worker('ledger'), 'src', 'index.ts'), runCode)
+    commitAll(fixture)
+    const plan = await planFor(fixture, result.cloudflare!)
+    expect(stepOf(plan, 'ledger').action).not.toBe('skip')
+  })
+
   it('can itself be rolled back, when it detached a consumer and its promote then changed nothing', async () => {
     const fixture = deployFixture()
     const {cloudflare, name} = await applyChange(fixture, await liveWithJobs(fixture), consumer(1))

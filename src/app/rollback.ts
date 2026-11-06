@@ -368,8 +368,9 @@ function unknownEntry(worker: ResolvedWorker, env: string, current: StateWorker 
 }
 
 function restoredEntry({earlier, keptRoutes, knownEntry, restoreTriggers, worker}: Target, env: string, current: StateWorker | undefined, live: string): StateWorker {
-  const entry = knownEntry
-    ? {...knownEntry, deployedAt: new Date().toISOString(), versionId: live}
+  // The earlier entry only speaks for the version it names, and a later run may have put newer code live since.
+  const entry = knownEntry?.versionId === live
+    ? {...knownEntry, deployedAt: new Date().toISOString()}
     : {...unknownEntry(worker, env, current, live), ...(earlier && {doHash: earlier.doHash, triggers: earlier.triggers, triggersHash: earlier.triggersHash})}
   if (keptRoutes === undefined) return entry
   // The state says what's really attached, so the next plan names it.
