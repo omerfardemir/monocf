@@ -475,9 +475,9 @@ function settle(record: RecordEntry, result: DeployResult, refused: boolean): vo
 
 /**
  * No deploy removes a consumer. Before the remove, the entry stops matching any triggers, so if the rest never happens the next
- * plan applies them again. Once it's gone, the entry stops listing it.
+ * plan applies them again. Once it's gone, the entry stops listing it. `holding` keeps the queues it hasn't let go of yet.
  */
-function detachStep({context, env, writer}: Execution, {queues, target, worker}: Detach, record: RecordEntry): DeployStep {
+function detachStep({context, env, writer}: Execution, {queues, target, worker}: Detach, record: RecordEntry, holding: Set<string>): DeployStep {
   const {deployedName, dir} = worker
   const mark = (queue?: string): void => {
     const entry = writer.manifest.workers[dir]
@@ -506,6 +506,8 @@ function detachStep({context, env, writer}: Execution, {queues, target, worker}:
           mark(queue)
           gone.push(queue)
         }
+
+        holding.delete(queue)
       }
 
       if (target === undefined && gone.length > 0) record.message = `${record.message} ${takenBackNote(gone)}`
@@ -543,6 +545,7 @@ async function execute(execution: Execution, records: RunRecord['workers']): Pro
     ...createdDetaches,
   ].filter(({queues}) => queues.length > 0)
   const failed = new Set<string>()
+  const holding = new Map(detaches.map(({queues, worker}) => [worker.dir, new Set(queues)]))
   await runDeploySteps(context, {
     concurrency: DEFAULT_CONCURRENCY,
     onResult(step, result) {
@@ -550,10 +553,10 @@ async function execute(execution: Execution, records: RunRecord['workers']): Pro
       failed.add(step.worker)
       settle(records[step.worker], result, false)
     },
-    steps: detaches.map((detach) => detachStep(execution, detach, records[detach.worker.dir])),
+    steps: detaches.map((detach) => detachStep(execution, detach, records[detach.worker.dir], holding.get(detach.worker.dir)!)),
   })
 
-  const held = new Map(detaches.filter(({worker}) => failed.has(worker.dir)).flatMap(({queues, worker}) => queues.map((queue) => [queue, worker.dir])))
+  const held = new Map([...failed].flatMap((name) => [...(holding.get(name) ?? [])].map((queue) => [queue, name])))
   const blocked = new Map([...failed].map((name) => [name, name]))
   for (const {refusal, restoreTriggers, worker} of targets) {
     const holder = namesOf(restoreTriggers?.consumers, 'queue').map((queue) => held.get(queue)).find((name) => name !== undefined)

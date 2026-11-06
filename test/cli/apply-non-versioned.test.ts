@@ -209,6 +209,16 @@ async function movedToNewWorker(extra: Record<string, unknown> = {}) {
   return {cloudflare, fixture, names: {billing: stepOf(plan, 'billing').deployedName, ledger: stepOf(plan, 'ledger').deployedName}}
 }
 
+/** Sets the queues a worker consumes in staging, and keeps the rest of its config. */
+function consumes(fixture: Fixture, worker: string, queues: string[]): void {
+  const path = join(fixture.worker(worker), 'wrangler.jsonc')
+  const config = JSON.parse(readFileSync(path, 'utf8'))
+  const section = {...config.env?.staging}
+  delete section.queues
+  const consumers = queues.map((queue) => ({max_batch_size: 1, queue}))
+  writeFileSync(path, JSON.stringify({...config, env: {...config.env, staging: {...section, ...(queues.length > 0 && {queues: {consumers}})}}}))
+}
+
 const rollbackArgs = (runId: string) => ['rollback', '-e', 'staging', '--state', 'file:state', '--to-run', runId]
 
 describe('apply, moving a queue consumer to another worker in one commit', () => {
@@ -417,6 +427,36 @@ describe('rollback, when a worker that took a consumer fails to let it go', () =
     const again = await runCli(fixture, rollbackArgs(runId), {cloudflare: result.cloudflare})
     expect(again.exitCode, again.stderr).toBe(0)
     expect(Object.keys(again.cloudflare!.consumers!.jobs)).toEqual([names.billing])
+  })
+
+  it('restores the worker that takes back a queue it let go of before it failed on another', async () => {
+    const fixture = deployFixture()
+    const live = {...(await firstRun(fixture)), queues: ['jobs', 'mail']}
+    consumes(fixture, 'gateway', ['jobs'])
+    consumes(fixture, 'billing', ['mail'])
+    commitAll(fixture)
+    await planFor(fixture, live)
+    const before = await applyPlan(fixture, live)
+    expect(before.exitCode, before.stderr).toBe(0)
+    consumes(fixture, 'billing', [])
+    consumes(fixture, 'gateway', [])
+    consumes(fixture, 'reports', ['jobs', 'mail'])
+    commitAll(fixture)
+    const plan = await planFor(fixture, before.cloudflare!)
+    const applied = await applyPlan(fixture, before.cloudflare!)
+    expect(applied.exitCode, applied.stderr).toBe(0)
+    const {runId} = lastRunRecord(fixture)
+
+    // reports lets jobs go, and then fails on mail.
+    const result = await runCli(fixture, rollbackArgs(runId), {cloudflare: applied.cloudflare, rules: [{...outage, skip: 1}]})
+
+    expect(result.exitCode).toBe(1)
+    expect(lastRunRecord(fixture).workers).toMatchObject({billing: {reason: 'reports', result: 'skipped'}, gateway: {result: 'ok'}, reports: {result: 'failed'}})
+    expect(Object.keys(result.cloudflare!.consumers!.jobs)).toEqual([stepOf(plan, 'gateway').deployedName])
+    expect(Object.keys(result.cloudflare!.consumers!.mail)).toEqual([stepOf(plan, 'reports').deployedName])
+    const again = await runCli(fixture, rollbackArgs(runId), {cloudflare: result.cloudflare})
+    expect(again.exitCode, again.stderr).toBe(0)
+    expect(Object.keys(again.cloudflare!.consumers!.mail)).toEqual([stepOf(plan, 'billing').deployedName])
   })
 })
 
