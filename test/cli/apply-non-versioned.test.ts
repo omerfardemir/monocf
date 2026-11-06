@@ -23,6 +23,11 @@ const consumer = (batch: number) => ({queues: {consumers: [{max_batch_size: batc
 const workflow = {workflows: [{binding: 'FLOW', class_name: 'Flow', name: 'nightly-flow'}]}
 const tail = {tail_consumers: [{service: 'logs'}]}
 
+/** Wrangler refuses to attach a consumer to a queue that doesn't exist. */
+async function liveWithJobs(fixture: Fixture): Promise<FakeCloudflare> {
+  return {...(await firstRun(fixture)), queues: ['jobs']}
+}
+
 async function applyChange(fixture: Fixture, cloudflare: FakeCloudflare, section: Record<string, unknown>, top: Record<string, unknown> = {}) {
   staging(fixture, section, top)
   const plan = await planFor(fixture, cloudflare)
@@ -34,7 +39,7 @@ async function applyChange(fixture: Fixture, cloudflare: FakeCloudflare, section
 describe('apply, with a queue consumer on a live worker', () => {
   it('attaches one that is added, updates its settings, and detaches it once removed', async () => {
     const fixture = deployFixture()
-    const live = await firstRun(fixture)
+    const live = await liveWithJobs(fixture)
 
     const added = await applyChange(fixture, live, consumer(1))
     expect(stepOf(added.plan, 'reports')).toMatchObject({action: 'upload', triggersChanged: true})
@@ -52,9 +57,22 @@ describe('apply, with a queue consumer on a live worker', () => {
     expect(stepOf(after, 'reports')).toMatchObject({action: 'skip'})
   })
 
+  it('fails the worker, and attaches nothing, when the queue does not exist', async () => {
+    const fixture = deployFixture()
+    const live = await firstRun(fixture)
+    staging(fixture, consumer(1))
+    await planFor(fixture, live)
+
+    const result = await applyPlan(fixture, live)
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain('Queue "jobs" does not exist.')
+    expect(result.cloudflare!.consumers?.jobs).toBeUndefined()
+  })
+
   it('leaves alone a consumer someone already detached, and still finishes', async () => {
     const fixture = deployFixture()
-    const {cloudflare, name} = await applyChange(fixture, await firstRun(fixture), consumer(1))
+    const {cloudflare, name} = await applyChange(fixture, await liveWithJobs(fixture), consumer(1))
     delete cloudflare.consumers!.jobs[name]
 
     const removed = await applyChange(fixture, cloudflare, {})
@@ -65,7 +83,7 @@ describe('apply, with a queue consumer on a live worker', () => {
   it('detaches it from a worker that takes a full deploy too', async () => {
     const fixture = deployFixture({workers: [{config: {site: {bucket: './site'}}, name: 'reports'}]})
     const site = {site: {bucket: './site'}}
-    const {cloudflare} = await applyChange(fixture, await firstRun(fixture), consumer(1), site)
+    const {cloudflare} = await applyChange(fixture, await liveWithJobs(fixture), consumer(1), site)
 
     const removed = await applyChange(fixture, cloudflare, {}, site)
 
@@ -75,8 +93,9 @@ describe('apply, with a queue consumer on a live worker', () => {
 
   it('counts one whose queue is gone as detached, as there is nothing to detach', async () => {
     const fixture = deployFixture()
-    const {cloudflare} = await applyChange(fixture, await firstRun(fixture), consumer(1))
+    const {cloudflare} = await applyChange(fixture, await liveWithJobs(fixture), consumer(1))
     delete cloudflare.consumers!.jobs
+    cloudflare.queues = []
 
     const removed = await applyChange(fixture, cloudflare, {})
 
@@ -87,7 +106,7 @@ describe('apply, with a queue consumer on a live worker', () => {
 
   it('fails the worker on any other failure to read the queue', async () => {
     const fixture = deployFixture()
-    const {cloudflare} = await applyChange(fixture, await firstRun(fixture), consumer(1))
+    const {cloudflare} = await applyChange(fixture, await liveWithJobs(fixture), consumer(1))
     staging(fixture, {})
     await planFor(fixture, cloudflare)
     const stderr = '✘ [ERROR] A request to the Cloudflare API (/accounts/0123456789abcdef0123456789abcdef/queues) failed. [code: 10001]\n'
@@ -101,7 +120,7 @@ describe('apply, with a queue consumer on a live worker', () => {
 
   it('has the next plan detach it, when the detach fails', async () => {
     const fixture = deployFixture()
-    const {cloudflare} = await applyChange(fixture, await firstRun(fixture), consumer(1))
+    const {cloudflare} = await applyChange(fixture, await liveWithJobs(fixture), consumer(1))
     staging(fixture, {})
     await planFor(fixture, cloudflare)
     const failed = await applyPlan(fixture, cloudflare, {rules: [{command: 'queues consumer remove', exitCode: 1, failMessage: 'outage', times: 1}]})
@@ -120,7 +139,7 @@ describe('apply, with a queue consumer on a live worker', () => {
 /** billing consumes jobs, and then one commit moves it to reports. */
 async function moved() {
   const fixture = deployFixture()
-  const live = await firstRun(fixture)
+  const live = await liveWithJobs(fixture)
   changeConfig(fixture, 'billing', {env: {staging: consumer(1)}})
   await planFor(fixture, live)
   const before = await applyPlan(fixture, live)
@@ -279,7 +298,7 @@ describe('apply, with tail consumers on a live worker', () => {
 describe('rollback, across these', () => {
   it('detaches the consumer, clears the tail consumers, and names the Workflow, that the run added', async () => {
     const fixture = deployFixture()
-    const live = await firstRun(fixture)
+    const live = await liveWithJobs(fixture)
     const {cloudflare, name} = await applyChange(fixture, live, {...consumer(1), ...tail, ...workflow})
     const {runId} = lastRunRecord(fixture)
 
@@ -307,7 +326,7 @@ describe('rollback, across these', () => {
 
   it('puts back the consumer settings and tail consumers that the run changed', async () => {
     const fixture = deployFixture()
-    const before = await applyChange(fixture, await firstRun(fixture), {...consumer(1), ...tail})
+    const before = await applyChange(fixture, await liveWithJobs(fixture), {...consumer(1), ...tail})
     const {cloudflare, name} = await applyChange(fixture, before.cloudflare, {...consumer(2), tail_consumers: [{service: 'audit'}]})
     const {runId} = lastRunRecord(fixture)
 

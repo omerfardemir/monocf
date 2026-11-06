@@ -202,15 +202,22 @@ function r2Answer(state, path) {
   return {stdout: 'Upload complete.\n'}
 }
 
+/** One in `queues`, or one that has had a consumer, exists. */
+function queueExists(state, queue) {
+  return state.queues?.includes(queue) || state.consumers?.[queue] !== undefined
+}
+
+function noSuchQueue(queue) {
+  return {exitCode: 1, stderr: `✘ [ERROR] Queue "${queue}" does not exist. To create it, run: wrangler queues create ${queue}\n`}
+}
+
 /**
  * As real wrangler 4.151: a list of worker consumers, and `queues consumer remove` fails on one that isn't attached. Both fail
- * for a queue that doesn't exist: one in `queues`, or one that has had a consumer, does.
+ * for a queue that doesn't exist.
  */
 function queueAnswer(state, path) {
   const queue = startsWithCommand('queues consumer worker list') ? argv[4] : argv[3]
-  if (!state.queues?.includes(queue) && !state.consumers?.[queue]) {
-    return {exitCode: 1, stderr: `✘ [ERROR] Queue "${queue}" does not exist. To create it, run: wrangler queues create ${queue}\n`}
-  }
+  if (!queueExists(state, queue)) return noSuchQueue(queue)
 
   const consumers = state.consumers?.[queue] ?? {}
   if (startsWithCommand('queues consumer worker list')) {
@@ -335,6 +342,12 @@ function applyTriggerResources(state) {
   return refused
 }
 
+/** As wrangler's `ensureQueuesExistByConfig`, which `deploy` and `triggers deploy` run before they change anything. */
+function missingQueue(state) {
+  if (!startsWithCommand('deploy') && !startsWithCommand('triggers deploy')) return
+  return (ownSection().queues?.consumers ?? []).map(({queue}) => queue).find((queue) => !queueExists(state, queue))
+}
+
 /** As real wrangler 4.151 says it, with exit 1, once every other trigger has been applied. */
 function partiallyUpdated(refused) {
   const lines = refused.map((queue) => `    - A request to the Cloudflare API (/accounts/0123456789abcdef0123456789abcdef/queues/q/consumers) failed.\n      - Queue '${queue}' (UUID 'q') already has a consumer. [code: 11004]\n`)
@@ -368,6 +381,9 @@ function cloudflareWrite() {
     worker.tags = {...worker.tags, [id]: flagValues(['--tag'])[0] ?? null}
     return id
   }
+
+  const missing = missingQueue(state)
+  if (missing !== undefined) return noSuchQueue(missing)
 
   if (isDeploy) {
     state.workers[deployedName] ??= {active: [], tags: {}}
