@@ -175,15 +175,15 @@ describe('apply, with a queue consumer on a live worker', () => {
   })
 })
 
-/** billing consumes jobs, and then a commit, not yet made, drops it there. */
-async function billingConsumes() {
+/** billing consumes jobs, and then a commit, not yet made, drops it there, and adds `extra` to its config. */
+async function billingConsumes(extra: Record<string, unknown> = {}) {
   const fixture = deployFixture()
   const live = await liveWithJobs(fixture)
   changeConfig(fixture, 'billing', {env: {staging: consumer(1)}})
   await planFor(fixture, live)
   const before = await applyPlan(fixture, live)
   expect(before.exitCode, before.stderr).toBe(0)
-  writeFileSync(join(fixture.worker('billing'), 'wrangler.jsonc'), JSON.stringify({env: {staging: {}}}))
+  writeFileSync(join(fixture.worker('billing'), 'wrangler.jsonc'), JSON.stringify({env: {staging: {}}, ...extra}))
   return {cloudflare: before.cloudflare!, fixture}
 }
 
@@ -196,8 +196,8 @@ async function moved() {
 }
 
 /** billing consumes jobs, and then one commit moves it to ledger, a worker the commit adds. */
-async function movedToNewWorker() {
-  const {cloudflare, fixture} = await billingConsumes()
+async function movedToNewWorker(extra: Record<string, unknown> = {}) {
+  const {cloudflare, fixture} = await billingConsumes(extra)
   const dir = fixture.worker('ledger')
   mkdirSync(join(dir, 'src'), {recursive: true})
   writeFileSync(join(dir, 'wrangler.jsonc'), JSON.stringify({env: {staging: consumer(1)}}))
@@ -335,6 +335,44 @@ describe('rollback, of a run that moved a queue consumer', () => {
 
     expect(result.exitCode, result.stderr).toBe(0)
     expect(result.stderr).toContain('ledger: detach it from queue jobs, as a worker this rollback puts back takes it again')
+  })
+})
+
+describe('rollback, when a worker that took a consumer fails to let it go', () => {
+  const outage = {command: 'queues consumer remove', exitCode: 1, failMessage: 'outage', stderr: 'outage\n'}
+
+  it('skips the workers that caller waits for, and restores its callers', async () => {
+    const fixture = deployFixture()
+    const live = await liveWithJobs(fixture)
+    const path = join(fixture.worker('orders'), 'wrangler.jsonc')
+    const config = JSON.parse(readFileSync(path, 'utf8'))
+    changeConfig(fixture, 'orders', {...config, env: {staging: {...config.env.staging, ...consumer(1)}}})
+    const plan = await planFor(fixture, live, {rules: newCode('billing', 'gateway')})
+    const applied = await applyPlan(fixture, live)
+    expect(applied.exitCode, applied.stderr).toBe(0)
+
+    const result = await runCli(fixture, rollbackArgs(lastRunRecord(fixture).runId), {cloudflare: applied.cloudflare, rules: [outage]})
+
+    expect(result.exitCode).toBe(1)
+    expect(writesOf(result.calls)).toEqual(['promote gateway'])
+    expect(lastRunRecord(fixture).workers).toMatchObject({billing: {reason: 'orders', result: 'skipped'}, gateway: {result: 'ok'}, orders: {result: 'failed'}})
+    expect(Object.keys(result.cloudflare!.consumers!.jobs)).toEqual([stepOf(plan, 'orders').deployedName])
+  })
+})
+
+describe('rollback, when the worker that would take a queue back is refused', () => {
+  it('leaves the consumer on a worker the run created', async () => {
+    const withDurableObject = {durable_objects: {bindings: [{class_name: 'Counter', name: 'COUNTER'}]}, migrations: [{new_sqlite_classes: ['Counter'], tag: 'v1'}]}
+    const {cloudflare, fixture, names} = await movedToNewWorker(withDurableObject)
+    const applied = await applyPlan(fixture, cloudflare)
+    expect(applied.exitCode, applied.stderr).toBe(0)
+
+    // billing is refused, so nothing takes jobs back, and the rollback calls nothing.
+    const result = await runCli(fixture, rollbackArgs(lastRunRecord(fixture).runId), {cloudflare: applied.cloudflare, noCalls: true})
+
+    expect(result.exitCode).toBe(1)
+    expect(lastRunRecord(fixture).workers.billing).toMatchObject({result: 'refused'})
+    expect(Object.keys(result.cloudflare!.consumers!.jobs)).toEqual([names.ledger])
   })
 })
 
