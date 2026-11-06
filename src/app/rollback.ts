@@ -28,9 +28,11 @@ import {
   runDeploySteps,
   stateCall,
   StateWriter,
+  triggersNotApplied,
   verifyActive,
   workerCall,
   writeRunRecord,
+  type DeployResult,
   type DeployStep,
 } from './deployment.js'
 import {loadOptions, selectNamed} from './project.js'
@@ -49,6 +51,8 @@ export interface RollbackFlags extends OptionFlags {
 const UNKNOWN = 'unknown-after-rollback'
 
 interface Target {
+  /** A consumer the run attached is gone, which a version left as it was doesn't undo. */
+  detached?: true
   /** The entry from before the run, for what an unknown entry can still say: its Durable Objects and triggers. */
   earlier?: StateWorker
   /** A route the restored triggers can't remove, as wrangler only publishes a list with something in it. */
@@ -287,6 +291,23 @@ function targetsFromRun(
   return targets
 }
 
+/**
+ * A worker this run created has no earlier version, so it stays. But Cloudflare takes one worker consumer per queue, so a
+ * consumer it took over goes when a worker this rollback puts back takes it again.
+ */
+function createdDetachesFrom(record: RunRecord, targets: Target[], workers: Map<string, ResolvedWorker>): Detach[] {
+  const takenBack = new Set(targets.filter(({refusal}) => !refusal).flatMap(({restoreTriggers}) => namesOf(restoreTriggers?.consumers, 'queue')))
+  return Object.entries(record.workers).flatMap(([name, {action, changed, planned}]) => {
+    const worker = workers.get(name)
+    const queues = namesOf(planned?.triggers.consumers, 'queue').filter((queue) => takenBack.has(queue))
+    return action === 'create' && changed !== false && worker !== undefined && queues.length > 0 ? [{queues, worker}] : []
+  })
+}
+
+function takenBackNote(queues: string[]): string {
+  return `Its consumer of ${queues.join(', ')} was detached, as a worker this rollback put back takes it again.`
+}
+
 function callersFirst(workers: ResolvedWorker[], names: string[]): Map<string, string[]> {
   const callees = nearestWithin(buildGraph(workers), names)
   const callers = new Map<string, string[]>(names.map((name) => [name, []]))
@@ -302,15 +323,24 @@ function describeTarget({notes = [], refusal, restoreTriggers, runTriggers, veri
   if (verifyOnly) return `${worker.dir}: check that ${versionId} is still live, as this run didn't change it`
   const detached = addedByRun(runTriggers, restoreTriggers, 'consumers', 'queue')
   const parts = [
+    ...(detached.length > 0 ? [`detach it from queue ${detached.join(', ')}`] : []),
     ...(versionId === undefined ? [] : [`versions deploy ${versionId}@100%`]),
     ...(restoreTriggers ? [`triggers deploy with crons ${JSON.stringify(restoreTriggers.crons ?? [])}`] : []),
-    ...(detached.length > 0 ? [`detach it from queue ${detached.join(', ')}`] : []),
   ]
   return [`${worker.dir}: ${parts.join(', then ') || 'nothing to do'}`, ...notes].join(' ')
 }
 
+/** A worker that loses consumers before any `triggers deploy` attaches one. */
+interface Detach {
+  queues: string[]
+  target?: Target
+  worker: ResolvedWorker
+}
+
 interface Execution {
   context: RunContext
+  /** Workers this run created, which keep all but a consumer that a worker rolled back takes again. */
+  createdDetaches: Detach[]
   env: string
   runId: string
   store: StateStore
@@ -353,16 +383,6 @@ function restoredWorker({earlier, restoreTriggers, runTriggers, worker}: Target,
   return tailsFrom ? withEarlierTails(worker, env, tailsFrom, runTriggers) : worker
 }
 
-/** `triggers deploy` only adds, so a consumer the run attached and the earlier triggers don't hold is detached here. */
-async function detachAddedConsumers(context: RunContext, {restoreTriggers, runTriggers, worker}: Target, shared: {accountId?: string; mode: {prefix: string}; worker: string}): Promise<void> {
-  const call = workerCall(context, worker.dir)
-  for (const queue of addedByRun(runTriggers, restoreTriggers, 'consumers', 'queue')) {
-    if ((await readQueueConsumers(call, queue, shared.accountId)).includes(worker.deployedName)) {
-      await runStep(context, {...shared, argvOptions: {}, step: {action: 'queue-consumer-remove', queue, script: worker.deployedName}})
-    }
-  }
-}
-
 async function restore({context, env, runId, writer}: Execution, target: Target, attempt: number, record: RunRecord['workers'][string]) {
   const {message, notes, restoreTriggers, verifyOnly, versionId, worker} = target
   const {dir, deployedName} = worker
@@ -402,7 +422,6 @@ async function restore({context, env, runId, writer}: Execution, target: Target,
     const configPath = writeTriggersConfig(worker, env, restoreTriggers, context.runDir)
     record.changed = 'unknown'
     await runStep(context, {...shared, argvOptions: {}, step: {action: 'triggers-deploy', configPath}})
-    await detachAddedConsumers(context, target, shared)
     record.changed = true
   }
 
@@ -423,7 +442,7 @@ async function restore({context, env, runId, writer}: Execution, target: Target,
  * leaves it unknown, which a later rollback treats as changed. Triggers can't be read back, so a failure there stays unknown too.
  * `persist`, as this follows a signal too.
  */
-async function readWhatHappened({context, env}: Execution, {versionId, worker}: Target, record: RunRecord['workers'][string]): Promise<void> {
+async function readWhatHappened({context, env}: Execution, {detached, versionId, worker}: Target, record: RunRecord['workers'][string]): Promise<void> {
   const call = withReadRetries((read, accountId) => callWrangler(context, read, {accountId, persist: true, worker: worker.dir}))
   try {
     const active = await readActiveVersion(call, worker.deployedName, accountOf(context, worker, env))
@@ -432,43 +451,123 @@ async function readWhatHappened({context, env}: Execution, {versionId, worker}: 
       record.newVersionId = versionId
       record.changed = true
     } else if (active.versionId === record.previousVersionId) {
-      record.changed = false
+      record.changed = detached === true
     }
   } catch {
     // It stays unknown: this is what a failed read says.
   }
 }
 
-async function execute(execution: Execution, records: RunRecord['workers']): Promise<void> {
-  const {context, targets, workers} = execution
-  const callers = callersFirst(workers, targets.map(({worker}) => worker.dir))
-  const byName = new Map(targets.map((target) => [target.worker.dir, target]))
-  const steps: DeployStep[] = targets.map((target) => ({
-    action: 'rollback',
-    dependsOn: callers.get(target.worker.dir) ?? [],
-    async run(attempt) {
-      if (target.refusal) throw new MonocfError(target.refusal, EXIT_FAILED)
-      return restore(execution, target, attempt, records[target.worker.dir])
-    },
-    worker: target.worker.dir,
-  }))
+const RESULTS: Record<DeployResult['status'], RecordResult> = {cancelled: 'cancelled', failed: 'failed', skipped: 'skipped', succeeded: 'ok'}
 
-  const results: Record<string, RecordResult> = {cancelled: 'cancelled', failed: 'failed', skipped: 'skipped', succeeded: 'ok'}
+function settle(record: RecordEntry, result: DeployResult, refused: boolean): void {
+  record.result = RESULTS[result.status]
+  if (result.status === 'failed') {
+    const {exitCode, message} = result.error as Error & {exitCode?: number}
+    record.message = message
+    if (refused) record.result = 'refused'
+    else if (exitCode !== undefined && exitCode > 128) record.result = 'cancelled'
+  }
+
+  if (result.status === 'skipped') record.reason = result.reason
+}
+
+/**
+ * No deploy removes a consumer. Before the remove, the entry stops matching any triggers, so if the rest never happens the next
+ * plan applies them again. Once it's gone, the entry stops listing it.
+ */
+function detachStep({context, env, writer}: Execution, {queues, target, worker}: Detach, record: RecordEntry): DeployStep {
+  const {deployedName, dir} = worker
+  const mark = (queue?: string): void => {
+    const entry = writer.manifest.workers[dir]
+    if (entry !== undefined) writer.update(dir, triggersNotApplied(entry, queue))
+  }
+
+  return {
+    action: 'detach',
+    dependsOn: [],
+    async run() {
+      const accountId = accountOf(context, worker, env)
+      const gone: string[] = []
+      for (const queue of queues) {
+        if ((await readQueueConsumers(workerCall(context, dir), queue, accountId)).includes(deployedName)) {
+          mark()
+          record.changed = 'unknown'
+          await runStep(context, {accountId, argvOptions: {}, mode: {prefix: `[${dir}] `}, step: {action: 'queue-consumer-remove', queue, script: deployedName}, worker: dir})
+          record.changed = true
+          if (target) target.detached = true
+          mark(queue)
+          gone.push(queue)
+        }
+      }
+
+      if (target === undefined && gone.length > 0) record.message = `${record.message} ${takenBackNote(gone)}`
+    },
+    worker: dir,
+  }
+}
+
+/** The first worker in the way: this one, or a caller it waits for, however far up. */
+function blockerOf(name: string, callers: Map<string, string[]>, failed: Set<string>): string | undefined {
+  const waiting = [name]
+  const seen = new Set<string>()
+  while (waiting.length > 0) {
+    const next = waiting.pop()!
+    if (failed.has(next)) return next
+    if (!seen.has(next)) {
+      seen.add(next)
+      waiting.push(...(callers.get(next) ?? []))
+    }
+  }
+
+  return undefined
+}
+
+/**
+ * Cloudflare takes one worker consumer per queue, and `triggers deploy` only adds. So every consumer the run attached goes
+ * first, from every worker, before any `triggers deploy` puts an earlier one back, which may be on the same queue. A worker
+ * whose detach fails stays as it is, and so do the workers that wait for it.
+ */
+async function execute(execution: Execution, records: RunRecord['workers']): Promise<void> {
+  const {context, createdDetaches, targets, workers} = execution
+  const detaches = [
+    ...targets.filter(({refusal}) => !refusal).map((target) => ({queues: addedByRun(target.runTriggers, target.restoreTriggers, 'consumers', 'queue'), target, worker: target.worker})),
+    ...createdDetaches,
+  ].filter(({queues}) => queues.length > 0)
+  const failed = new Set<string>()
   await runDeploySteps(context, {
     concurrency: DEFAULT_CONCURRENCY,
     onResult(step, result) {
-      const record = records[step.worker]
-      record.result = results[result.status]
-      if (result.status === 'failed') {
-        const {exitCode, message} = result.error as Error & {exitCode?: number}
-        record.message = message
-        if (byName.get(step.worker)?.refusal) record.result = 'refused'
-        else if (exitCode !== undefined && exitCode > 128) record.result = 'cancelled'
-      }
-
-      if (result.status === 'skipped') record.reason = result.reason
+      if (result.status === 'succeeded') return
+      failed.add(step.worker)
+      settle(records[step.worker], result, false)
     },
-    steps,
+    steps: detaches.map((detach) => detachStep(execution, detach, records[detach.worker.dir])),
+  })
+
+  const callers = callersFirst(workers, targets.map(({worker}) => worker.dir))
+  const runnable = targets.filter(({worker}) => {
+    const blocker = blockerOf(worker.dir, callers, failed)
+    if (blocker !== undefined && blocker !== worker.dir) {
+      settle(records[worker.dir], {id: worker.dir, reason: blocker, status: 'skipped'}, false)
+      context.emit({action: 'rollback', reason: blocker, status: 'skipped', type: 'step-finished', worker: worker.dir})
+    }
+
+    return blocker === undefined
+  })
+  const byName = new Map(targets.map((target) => [target.worker.dir, target]))
+  await runDeploySteps(context, {
+    concurrency: DEFAULT_CONCURRENCY,
+    onResult: (step, result) => settle(records[step.worker], result, byName.get(step.worker)?.refusal !== undefined),
+    steps: runnable.map((target) => ({
+      action: 'rollback',
+      dependsOn: callers.get(target.worker.dir) ?? [],
+      async run(attempt) {
+        if (target.refusal) throw new MonocfError(target.refusal, EXIT_FAILED)
+        return restore(execution, target, attempt, records[target.worker.dir])
+      },
+      worker: target.worker.dir,
+    })),
   })
 
   await Promise.all(targets.filter(({restoring}) => restoring).map((target) => readWhatHappened(execution, target, records[target.worker.dir])))
@@ -509,6 +608,7 @@ export async function runRollback(workerName: string | undefined, flags: Rollbac
 
     let commit = 'unknown'
     let targets: Target[]
+    let createdDetaches: Detach[] = []
     if (flags.toRun === undefined) {
       const worker = workers.get(workerName!)!
       context.emit({message: `${workerName}: Durable Object compatibility can't be checked without a run record, and --force accepts that.`, type: 'notice', worker: workerName})
@@ -520,10 +620,15 @@ export async function runRollback(workerName: string | undefined, flags: Rollbac
       commit = record.commit
       // The whole graph: a caller's earlier version can't reach a provider this run recreated, even one that's ignored now.
       targets = targetsFromRun(record, {env, force: flags.force === true, graph: buildGraph(project.workers), ignored, manifest: manifest.workers, skip, workers})
+      createdDetaches = createdDetachesFrom(record, targets, workers)
     }
 
     if (flags.dryRun) {
       for (const target of targets) context.emit({message: describeTarget(target), type: 'notice', worker: target.worker.dir})
+      for (const {queues, worker} of createdDetaches) {
+        context.emit({message: `${worker.dir}: detach it from queue ${queues.join(', ')}, as a worker this rollback puts back takes it again`, type: 'notice', worker: worker.dir})
+      }
+
       exitCode = targets.some(({refusal}) => refusal) || Object.values(records).some(({result}) => result === 'refused') ? EXIT_FAILED : EXIT_OK
       return exitCode
     }
@@ -540,7 +645,7 @@ export async function runRollback(workerName: string | undefined, flags: Rollbac
 
     // Before the old version is back, so a crash in between leaves the need on record.
     if (marks.length > 0) await writer.mark(marks)
-    await execute({context, env, runId, store, targets, workers: notIgnored, writer}, records)
+    await execute({context, createdDetaches, env, runId, store, targets, workers: notIgnored, writer}, records)
     await writer.settled()
 
     const record: RunRecord = {commit, env, finishedAt: new Date().toISOString(), kind: 'rollback', runId, schemaVersion: RUN_RECORD_SCHEMA_VERSION, startedAt, workers: records}
@@ -551,7 +656,7 @@ export async function runRollback(workerName: string | undefined, flags: Rollbac
     ]
     process.stderr.write(formatRunSummary(record, problems))
     context.interrupts.throwIfInterrupted()
-    const unfinished = targets.some(({worker}) => records[worker.dir].result !== 'ok') || Object.values(records).some(({result}) => result === 'refused')
+    const unfinished = targets.some(({worker}) => records[worker.dir].result !== 'ok') || Object.values(records).some(({result}) => ['cancelled', 'failed', 'refused'].includes(result))
     exitCode = context.interrupts.killedExit ?? (unfinished || problems.length > 0 ? EXIT_FAILED : EXIT_OK)
     return exitCode
   })

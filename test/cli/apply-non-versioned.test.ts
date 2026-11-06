@@ -1,10 +1,11 @@
-import {readFileSync, writeFileSync} from 'node:fs'
+import {mkdirSync, readFileSync, writeFileSync} from 'node:fs'
 import {join} from 'node:path'
 import {describe, expect, it} from 'vitest'
 
 import {
   applyPlan,
   changeConfig,
+  commitAll,
   deployFixture,
   firstRun,
   lastRunRecord,
@@ -137,8 +138,8 @@ describe('apply, with a queue consumer on a live worker', () => {
   })
 })
 
-/** billing consumes jobs, and then one commit moves it to reports. */
-async function moved() {
+/** billing consumes jobs, and then a commit, not yet made, drops it there. */
+async function billingConsumes() {
   const fixture = deployFixture()
   const live = await liveWithJobs(fixture)
   changeConfig(fixture, 'billing', {env: {staging: consumer(1)}})
@@ -146,10 +147,32 @@ async function moved() {
   const before = await applyPlan(fixture, live)
   expect(before.exitCode, before.stderr).toBe(0)
   writeFileSync(join(fixture.worker('billing'), 'wrangler.jsonc'), JSON.stringify({env: {staging: {}}}))
-  changeConfig(fixture, 'reports', {env: {staging: consumer(1)}})
-  const plan = await planFor(fixture, before.cloudflare!)
-  return {cloudflare: before.cloudflare!, fixture, names: {billing: stepOf(plan, 'billing').deployedName, reports: stepOf(plan, 'reports').deployedName}}
+  return {cloudflare: before.cloudflare!, fixture}
 }
+
+/** billing consumes jobs, and then one commit moves it to reports. */
+async function moved() {
+  const {cloudflare, fixture} = await billingConsumes()
+  changeConfig(fixture, 'reports', {env: {staging: consumer(1)}})
+  const plan = await planFor(fixture, cloudflare)
+  return {cloudflare, fixture, names: {billing: stepOf(plan, 'billing').deployedName, reports: stepOf(plan, 'reports').deployedName}}
+}
+
+/** billing consumes jobs, and then one commit moves it to ledger, a worker the commit adds. */
+async function movedToNewWorker() {
+  const {cloudflare, fixture} = await billingConsumes()
+  const dir = fixture.worker('ledger')
+  mkdirSync(join(dir, 'src'), {recursive: true})
+  writeFileSync(join(dir, 'wrangler.jsonc'), JSON.stringify({env: {staging: consumer(1)}}))
+  writeFileSync(join(dir, 'package.json'), JSON.stringify({name: 'ledger', version: '1.0.0'}))
+  writeFileSync(join(dir, 'src', 'index.ts'), "export default {fetch: () => new Response('ledger')}\n")
+  commitAll(fixture)
+  const plan = await planFor(fixture, cloudflare)
+  expect(stepOf(plan, 'ledger')).toMatchObject({action: 'create'})
+  return {cloudflare, fixture, names: {billing: stepOf(plan, 'billing').deployedName, ledger: stepOf(plan, 'ledger').deployedName}}
+}
+
+const rollbackArgs = (runId: string) => ['rollback', '-e', 'staging', '--state', 'file:state', '--to-run', runId]
 
 describe('apply, moving a queue consumer to another worker in one commit', () => {
   it('detaches it from the worker that drops it before the other attaches it, so one run does it', async () => {
@@ -208,6 +231,64 @@ describe('apply, moving a queue consumer to another worker in one commit', () =>
 
     expect(result.exitCode, result.stderr).toBe(0)
     expect(Object.keys(result.cloudflare!.consumers!.jobs)).toEqual([names.reports])
+  })
+})
+
+describe('rollback, of a run that moved a queue consumer', () => {
+  it('puts it back in one rollback, as the worker that took it lets it go before anything attaches it', async () => {
+    const {cloudflare, fixture, names} = await moved()
+    const applied = await applyPlan(fixture, cloudflare)
+    expect(applied.exitCode, applied.stderr).toBe(0)
+
+    // A slow detach: one that ran beside the other worker's attach would come after it.
+    const result = await runCli(fixture, rollbackArgs(lastRunRecord(fixture).runId), {cloudflare: applied.cloudflare, rules: [{command: 'queues consumer remove', delayMs: 3000}]})
+
+    expect(result.exitCode, result.stderr).toBe(0)
+    expect(Object.keys(result.cloudflare!.consumers!.jobs)).toEqual([names.billing])
+  })
+
+  it('detaches it from a worker the run created, which otherwise stays, and the next run moves it again', async () => {
+    const {cloudflare, fixture, names} = await movedToNewWorker()
+    const applied = await applyPlan(fixture, cloudflare)
+    expect(applied.exitCode, applied.stderr).toBe(0)
+
+    const result = await runCli(fixture, rollbackArgs(lastRunRecord(fixture).runId), {cloudflare: applied.cloudflare})
+
+    expect(result.exitCode, result.stderr).toBe(0)
+    expect(Object.keys(result.cloudflare!.consumers!.jobs)).toEqual([names.billing])
+    expect(result.cloudflare!.workers![names.ledger]).toBeDefined()
+    expect(lastRunRecord(fixture).workers.ledger).toMatchObject({changed: true, result: 'skipped'})
+    expect(lastRunRecord(fixture).workers.ledger.message).toContain('Its consumer of jobs was detached')
+
+    const plan = await planFor(fixture, result.cloudflare!)
+    expect(stepOf(plan, 'ledger')).toMatchObject({action: 'triggers'})
+    const again = await applyPlan(fixture, result.cloudflare!)
+    expect(again.exitCode, again.stderr).toBe(0)
+    expect(Object.keys(again.cloudflare!.consumers!.jobs)).toEqual([names.ledger])
+  })
+
+  it('can itself be rolled back, when it detached a consumer and its promote then changed nothing', async () => {
+    const fixture = deployFixture()
+    const {cloudflare, name} = await applyChange(fixture, await liveWithJobs(fixture), consumer(1))
+    const failed = await runCli(fixture, rollbackArgs(lastRunRecord(fixture).runId), {cloudflare, rules: [{command: 'versions deploy', exitCode: 1, stderr: 'boom\n', worker: 'reports'}]})
+    expect(failed.exitCode).toBe(1)
+    expect(failed.cloudflare!.consumers!.jobs).toEqual({})
+
+    const result = await runCli(fixture, rollbackArgs(lastRunRecord(fixture).runId), {cloudflare: failed.cloudflare})
+
+    expect(result.exitCode, result.stderr).toBe(0)
+    expect(Object.keys(result.cloudflare!.consumers!.jobs)).toEqual([name])
+  })
+
+  it('says so in a dry run', async () => {
+    const {cloudflare, fixture} = await movedToNewWorker()
+    const applied = await applyPlan(fixture, cloudflare)
+    expect(applied.exitCode, applied.stderr).toBe(0)
+
+    const result = await runCli(fixture, [...rollbackArgs(lastRunRecord(fixture).runId), '--dry-run'], {cloudflare: applied.cloudflare, noCalls: true})
+
+    expect(result.exitCode, result.stderr).toBe(0)
+    expect(result.stderr).toContain('ledger: detach it from queue jobs, as a worker this rollback puts back takes it again')
   })
 })
 
