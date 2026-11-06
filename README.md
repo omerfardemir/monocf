@@ -1091,7 +1091,7 @@ These are a stable contract.
 
 A wrangler that fails gives exit 1, and its own exit code appears in the message. On Windows a kill from outside can't be told apart from exit 1.
 
-`stdout` carries results only. Progress and wrangler's output go to `stderr`.
+`stdout` carries results only. Progress and wrangler's output go to `stderr`, except that `dev` without `--json` and `whoami` hand wrangler the terminal.
 
 With `--json`, commands print one JSON object per line. Each has a `schemaVersion` and a `type`:
 
@@ -1211,7 +1211,7 @@ These now fail with exit 2 where they used to be ignored or misread:
 Other changes:
 
 - A `.monocfignore` line ending in `/`, such as `workers/orders/`, now ignores that worker. 0.2 matched nothing with such a line, so the worker was still deployed. Take the line out if the worker should still deploy.
-- Progress lines and wrangler's output go to `stderr`, apart from `dev`, which hands wrangler the terminal. A script that read wrangler's output from monocf's `stdout` reads `stderr` now.
+- Progress lines and wrangler's output go to `stderr`. `dev` without `--json` and `whoami` still hand wrangler the terminal, and `dev --json` sends wrangler's output to `stderr`. `build -a` no longer prints the list of generated configs. A script that read wrangler's output from monocf's `stdout` reads `stderr` now.
 - `monocf worker -c <action>` still works and prints a deprecation line. Use `monocf <action>`.
 - `-e dev` now reads `.dev.vars.dev`, like any other env.
 - Exit codes follow the table above. A failed wrangler gives 1, not its own code.
