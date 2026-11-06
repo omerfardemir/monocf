@@ -1,47 +1,242 @@
-# test
-name: version, tag and github release
+name: release
 
+# Started by hand, on main: Actions, release, Run workflow. It does only what the version in
+# package.json is still missing, so running it again picks a failed release up where it stopped.
+# docs/releasing.md has the setup on npmjs.com, and what to do when a run fails.
+#
+# Everything is in one workflow because a release made with GITHUB_TOKEN can't start another
+# workflow. This way the repository stores no secrets.
 on:
-  push:
-    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 jobs:
-  release:
-    permissions: write-all
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.check.outputs.tag }}
+      commit: ${{ steps.check.outputs.commit }}
+      target: ${{ steps.check.outputs.target }}
+      publish: ${{ steps.check.outputs.publish }}
+      release: ${{ steps.check.outputs.release }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # The whole history, to compare the workflows at the commit npm names with these.
+          fetch-depth: 0
+      - name: See what this version is missing
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # The run form lets anyone pick a branch. This stops a run started on another branch by
+          # mistake. It's in the file being run, so a branch with its own copy could leave it out.
+          # What stops that branch publishing is the publish job's environment, below.
+          if [ "$GITHUB_REF" != refs/heads/main ]; then
+            echo "::error::Releases run from main, and this run is on $GITHUB_REF_NAME."
+            exit 1
+          fi
+
+          # Prints the body on 200 and nothing on 404. Anything else stops the run, so an outage
+          # can't look like a new version.
+          get() {
+            body=$(mktemp)
+            code=$(curl --silent --retry 3 --max-time 30 --output "$body" --write-out '%{http_code}' "$@")
+            case "$code" in
+              200) cat "$body" ;;
+              404) ;;
+              *)
+                echo "::error::$1 answered $code, so this run can't tell what's missing." >&2
+                return 1
+                ;;
+            esac
+          }
+
+          name=$(node -p "require('./package.json').name")
+          version=$(node -p "require('./package.json').version")
+          tag=v$version
+          api=https://api.github.com/repos/$GITHUB_REPOSITORY
+          auth="Authorization: Bearer $GH_TOKEN"
+
+          on_npm=$(get "https://registry.npmjs.org/$name/$version")
+          publish=true
+          if [ -n "$on_npm" ]; then publish=false; fi
+
+          # A release counts only once both files are on it. The release is created before they're
+          # uploaded, so a failed upload leaves one without them, and running again finishes it.
+          release=true
+          release_json=$(get "$api/releases/tags/$tag" --header "$auth")
+          if [ -n "$release_json" ]; then
+            release=false
+            file=${name#@}
+            file=${file//\//-}-$version
+            for f in "$file.tgz" "$file.zip"; do
+              if ! jq -e --arg f "$f" 'any(.assets[]; .name == $f and .state == "uploaded")' <<< "$release_json" > /dev/null; then
+                echo "The release $tag is there without $f, so this run uploads its files again."
+                release=true
+              fi
+            done
+          fi
+
+          # A version already on npm gets its tag on the commit npm names, not on whatever main is now.
+          commit=$GITHUB_SHA
+          if [ "$publish" = false ] && [ "$release" = true ]; then
+            commit=$(npm view "$name@$version" gitHead)
+            if [ -z "$commit" ]; then
+              echo "::error::npm doesn't say which commit $name@$version came from, so its tag and release have to be made by hand."
+              exit 1
+            fi
+          fi
+
+          # GitHub refuses this run's token a tag, or a release that names a commit, when the
+          # commit's workflow files differ from main's. A release on a tag that's already there
+          # works, so then the release names no commit. A tag pushed by hand is how a version
+          # gets its release after a change to the workflows.
+          target=$commit
+          tag_json=$(get "$api/git/ref/tags/$tag" --header "$auth")
+          if [ -n "$tag_json" ] && { [ "$publish" = true ] || [ "$release" = true ]; }; then
+            tag_commit=$(jq -r .object.sha <<< "$tag_json")
+            if [ "$(jq -r .object.type <<< "$tag_json")" = tag ]; then
+              tag_commit=$(get "$api/git/tags/$tag_commit" --header "$auth" | jq -r .object.sha)
+            fi
+            if [ "$tag_commit" != "$commit" ] && [ "$publish" = true ]; then
+              echo "::error::$tag is already there, on $tag_commit, and $name@$version isn't on npm. This run would publish it from $commit. Change the version. Or, if nothing was released from that tag, delete its release, if it has one, and then the tag."
+              exit 1
+            elif [ "$tag_commit" != "$commit" ]; then
+              echo "::error::$tag is on $tag_commit, but npm says $name@$version came from $commit. Move the tag to $commit, and run this workflow again."
+              exit 1
+            fi
+            target=
+          elif [ "$release" = true ] && [ "$commit" != "$GITHUB_SHA" ]; then
+            if ! git cat-file -e "$commit^{commit}" 2> /dev/null; then
+              echo "::error::npm says $name@$version came from $commit, which this repository doesn't have. Its tag and release have to be made by hand."
+              exit 1
+            fi
+            if ! git diff --quiet "$commit" "$GITHUB_SHA" -- .github/workflows; then
+              echo "::error::$name@$version came from $commit, whose workflows differ from main's, so GitHub won't let this run tag it. Push the tag yourself with: git push origin $commit:refs/tags/$tag. Then run this workflow again."
+              exit 1
+            fi
+          fi
+
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+          echo "target=$target" >> "$GITHUB_OUTPUT"
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
+          echo "release=$release" >> "$GITHUB_OUTPUT"
+
+          if [ "$publish" = false ] && [ "$release" = false ]; then
+            echo "::notice file=package.json,line=1::$name@$version is already on npm and has a release, so there's nothing to do. Change the version in package.json to release a new one."
+          else
+            echo "$name@$version: publish to npm: $publish, create or finish the release: $release"
+          fi
+
+  # Runs the project's code with a token that can't write. Nothing below runs unless this passes.
+  test:
+    needs: check
+    if: needs.check.outputs.publish == 'true' || needs.check.outputs.release == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-      - name: Check if version already exists
-        id: version-check
-        run: |
-          package_version=$(node -p "require('./package.json').version" || exit 1)
-          exists=$(gh api repos/${{ github.repository }}/releases/tags/v$package_version >/dev/null 2>&1 && echo "true" || echo "")
-
-          if [ -n "$exists" ];
-          then
-            echo "Version v$package_version already exists"
-            echo "::warning file=package.json,line=1::Version v$package_version already exists - no release will be created. If you want to create a new release, please update the version in package.json and push again."
-            echo "skipped=true" >> $GITHUB_OUTPUT
-          else
-            echo "Version v$package_version does not exist. Creating release..."
-            echo "skipped=false" >> $GITHUB_OUTPUT
-            echo "tag=v$package_version" >> $GITHUB_OUTPUT
-          fi
-        env:
-          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
-      - name: Setup git
-        if: ${{ steps.version-check.outputs.skipped == 'false' }}
-        run: |
-          git config --global user.email ${{ secrets.GH_EMAIL }}
-          git config --global user.name ${{ secrets.GH_USERNAME }}
-      - name: Create Github Release
-        uses: ncipollo/release-action@v1.16.0
-        if: ${{ steps.version-check.outputs.skipped == 'false' }}
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          name: Release ${{ steps.version-check.outputs.tag }}
-          tag: ${{ steps.version-check.outputs.tag }}
-          commit: ${{ github.sha }}
-          token: ${{ secrets.GH_PAT }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+          package-manager-cache: false
+      - run: npm ci
+      - run: npm run build
+      - run: npm test
+
+  # npm trusted publishing: the registry takes this job's OIDC token, so no npm token is stored.
+  # On npmjs.com, the package's trusted publisher names this file and the npm environment, and
+  # allows npm publish. On GitHub, the npm environment accepts main only. So a branch with its own
+  # copy of this file can't publish: npm refuses a token from outside the environment, and GitHub
+  # won't start a job in it from another branch.
+  # Needs npm 11.5.1 or later, which is why this job is on Node 24.
+  # --ignore-scripts keeps dependencies' install scripts away from that token. --loglevel=verbose
+  # is there because npm only says why a token exchange was refused at that level.
+  publish:
+    needs: [check, test]
+    if: needs.check.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # No cache in any job of this workflow: a poisoned cache would run beside the publish token.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+          package-manager-cache: false
+      - run: npm ci --ignore-scripts
+      - run: npm run build
+      - run: npm publish --loglevel=verbose
+
+  # After publish, so that a tag and a release only ever name a version that's on npm. Apart from
+  # publish, so that its actions never run beside the token that can publish.
+  github-release:
+    needs: [check, test, publish]
+    # publish is skipped when the version is already on npm, and that shouldn't stop this job.
+    if: >-
+      !cancelled() &&
+      needs.check.outputs.release == 'true' &&
+      needs.test.result == 'success' &&
+      (needs.publish.result == 'success' || needs.publish.result == 'skipped')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.check.outputs.commit }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - run: npm ci
+      - run: npm run build
+
+      # Pack as .tgz tarball for distribution
+      - name: Generate .tgz package
+        run: npm pack --pack-destination ./dist
+
+      # Extract and zip npm package
+      - name: Extract and zip npm package
+        run: |
+          tarball=$(ls ./dist/*.tgz)
+          filename=$(basename "$tarball" .tgz)
+          mkdir -p ./dist/unpacked
+          tar -xzf "$tarball" -C ./dist/unpacked
+
+          cd ./dist/unpacked/package
+          zip -r ../../$filename.zip .
+
+      # A failed upload turns the run red, and check then sends the next run back here. The two
+      # update settings let that run finish the release that's there, and keep its notes. commit is
+      # empty when the tag is already there, and the action then names no commit.
+      - name: Create the tag and the release
+        uses: ncipollo/release-action@339a81892b84b4eeb0f6e744e4574d79d0d9b8dd # v1.21.0
+        with:
+          tag: ${{ needs.check.outputs.tag }}
+          name: Release ${{ needs.check.outputs.tag }}
+          commit: ${{ needs.check.outputs.target }}
           generateReleaseNotes: true
-          skipIfReleaseExists: true
+          artifactErrorsFailBuild: true
+          allowUpdates: true
+          omitBodyDuringUpdate: true
+          artifacts: |
+            ./dist/*.tgz
+            ./dist/*.zip

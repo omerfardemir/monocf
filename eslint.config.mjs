@@ -8,7 +8,7 @@ const gitignorePath = path.resolve(path.dirname(fileURLToPath(import.meta.url)),
 
 export default [
   {
-    ignores: ["**/dist", "**/build", "**/docs", "**/*.md", "**/templates", "**/examples"]
+    ignores: ["**/dist", "**/build", "**/docs", "**/*.md", "**/examples"]
   },
   includeIgnoreFile(gitignorePath), 
   ...oclif, 
@@ -17,6 +17,8 @@ export default [
     rules: {
       '@typescript-eslint/camelcase': 'off',
       'camelcase': 'off',
+      'mocha/max-top-level-suites': 'off',
+      'mocha/no-top-level-hooks': 'off',
       'no-await-in-loop': 'off',
       'perfectionist/sort-array-includes': 'off',
       'perfectionist/sort-classes': 'off',

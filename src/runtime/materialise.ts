@@ -1,0 +1,68 @@
+import {copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync} from 'node:fs'
+import {join} from 'node:path'
+
+import {effectiveField} from '../config/resolve.js'
+import type {ResolvedWorker} from '../config/types.js'
+import {rebaseConfig} from './path-fields.js'
+import type {RunDir} from './run-dir.js'
+import {serializeDevVars, type EnvValues} from './secrets.js'
+import {envFileNames} from './worker-env.js'
+
+const CONFIG_NAME = 'wrangler.json'
+const SECRET_MODE = 0o600
+
+function writeSecretFile(path: string, content: string): void {
+  writeFileSync(path, content, {mode: SECRET_MODE})
+}
+
+function copyTree(source: string, target: string): void {
+  if (!statSync(source).isDirectory()) {
+    copyFileSync(source, target)
+    return
+  }
+
+  mkdirSync(target, {recursive: true})
+  for (const name of readdirSync(source)) copyTree(join(source, name), join(target, name))
+}
+
+/**
+ * Wrangler looks for these next to the config, whatever the entry's directory is, and no config field can say otherwise.
+ * Without python_modules a Python worker uploads with exit 0, and then fails on import. Wrangler's own test for a Python
+ * worker is an entry ending in .py.
+ */
+function copyPythonFiles(worker: ResolvedWorker, dir: string): void {
+  const main = effectiveField(worker.config, worker.env, 'main')
+  if (typeof main !== 'string' || !main.endsWith('.py')) return
+  for (const name of ['python_modules', 'cf-requirements.txt']) {
+    const source = join(worker.path, name)
+    if (existsSync(source)) copyTree(source, join(dir, name))
+  }
+}
+
+/** Writes a worker's resolved config with its paths rebased, and returns its path. The only config wrangler reads. */
+export function materialiseConfig(worker: ResolvedWorker, runDir: RunDir): string {
+  const dir = runDir.workerDir(worker.dir)
+  const path = join(dir, CONFIG_NAME)
+  copyPythonFiles(worker, dir)
+  writeFileSync(path, `${JSON.stringify(rebaseConfig(worker.config, {from: worker.path, to: dir}), null, 2)}\n`)
+  return path
+}
+
+/** Wrangler looks for `.dev.vars` next to the config, so `dev` needs nothing in the source tree. */
+export function writeDevVars(worker: string, values: EnvValues, runDir: RunDir): void {
+  writeSecretFile(join(runDir.workerDir(worker), '.dev.vars'), serializeDevVars(values))
+}
+
+export function copyEnvFiles({dir, path}: Pick<ResolvedWorker, 'dir' | 'path'>, env: string | undefined, runDir: RunDir): void {
+  for (const name of envFileNames(env)) {
+    const source = join(path, name)
+    if (existsSync(source)) writeSecretFile(join(runDir.workerDir(dir), name), readFileSync(source, 'utf8'))
+  }
+}
+
+/** JSON rather than dotenv, so no value depends on how it's quoted. */
+export function writeSecretsFile(worker: string, values: EnvValues, runDir: RunDir): string {
+  const path = join(runDir.workerDir(worker), 'secrets.json')
+  writeSecretFile(path, JSON.stringify(values))
+  return path
+}

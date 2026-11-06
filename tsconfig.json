@@ -11,9 +11,6 @@
     "resolveJsonModule": true,
     "skipLibCheck": true
   },
-  "exclude": ["templates", "node_modules", "examples"],
-  "include": ["./src/**/*"],
-  "ts-node": {
-    "esm": true
-  }
+  "exclude": ["node_modules", "examples"],
+  "include": ["./src/**/*"]
 }

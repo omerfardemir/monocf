@@ -1,0 +1,6 @@
+{
+  "workersDirName": "workers",
+  "variables": {
+    "greeting": "hello"
+  }
+}

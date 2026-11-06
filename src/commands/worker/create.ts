@@ -1,48 +1,22 @@
 import {Args, Flags} from '@oclif/core'
 
-import {VerifiedFields, CreateWorkerArgs, CreateWorkerFlags} from '../../flags/index.js'
-import {CommandBase} from '../../types/oclif-types.js'
-import {CommandRegistry} from '../../core/commands/registry.js'
+import {BaseCommand} from '../../app/base-command.js'
+import {createWorker} from '../../app/create.js'
 
-/**
- * Worker create command args & flags
- */
-const args = {
-  workerName: Args.string({
-    description: 'Worker name',
-    required: true,
-  }),
-}
-
-const flags = {
-  rootDir: Flags.string({
-    char: 'r',
-    description: 'Root directory of the project',
-    required: false,
-  }),
-  workersDirName: Flags.string({
-    char: 'w',
-    description: 'Workers directory name in monorepo',
-    required: false,
-  }),
-}
-
-/**
- * Command to create a new worker
- */
-export default class WorkerCreate extends CommandBase {
+export default class WorkerCreate extends BaseCommand {
+  static args = {
+    workerName: Args.string({description: 'Worker name', required: true}),
+  }
   static description = 'Create a new worker in the workers directory'
   static examples = ['<%= config.bin %> worker create my-worker']
-  static args: VerifiedFields<CreateWorkerArgs, typeof args> = args
-  static flags: VerifiedFields<CreateWorkerFlags, typeof flags> = flags
+  static flags = {
+    // The camelCase spellings were the only ones before 0.3.0, so they still work.
+    'root-dir': Flags.string({aliases: ['rootDir'], char: 'r', description: 'Root directory of the project'}),
+    'workers-dir-name': Flags.string({aliases: ['workersDirName'], char: 'w', description: 'Workers directory name in monorepo'}),
+  }
 
-  /**
-   * Run the worker create command
-   */
   async run(): Promise<void> {
-    // Parse command line arguments
     const {args, flags} = await this.parse(WorkerCreate)
-    this.command = await CommandRegistry.createCommand('worker:create', this)
-    this.command.execute(args, flags)
+    createWorker(args.workerName, {rootDir: flags['root-dir'], workersDirName: flags['workers-dir-name']})
   }
 }

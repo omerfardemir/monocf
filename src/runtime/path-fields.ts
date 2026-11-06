@@ -1,0 +1,158 @@
+import {existsSync} from 'node:fs'
+import {createRequire, isBuiltin} from 'node:module'
+import {isAbsolute, join, relative, resolve} from 'node:path'
+
+import {isPlainObject, type RawConfig} from '../config/types.js'
+
+/**
+ * The fields that hold a path relative to the wrangler config or to the working directory. Wrangler runs with both in
+ * the worker's run directory. A segment `[]` walks a list, and `*` walks the values of a map. A schema test checks that
+ * each path-like field of wrangler has been classified, and test/real/rebase.test.ts that wrangler finds the files.
+ */
+export const REBASED_FIELDS = [
+  'alias.*',
+  'assets.directory',
+  'base_dir',
+  'build.cwd',
+  'build.watch_dir',
+  'containers[].image',
+  'containers[].image_build_context',
+  'containers[].images.*.build_context',
+  'containers[].images.*.dockerfile',
+  'd1_databases[].migrations_dir',
+  'd1_databases[].migrations_pattern',
+  'data_blobs.*',
+  'main',
+  'pages_build_output_dir',
+  'site.bucket',
+  'site.entry-point',
+  'text_blobs.*',
+  'tsconfig',
+  'unsafe.capnp.base_path',
+  'unsafe.capnp.compiled_schema',
+  'wasm_modules.*',
+] as const
+
+/**
+ * Path-like fields that stay as written, with the reason.
+ */
+export const NOT_REBASED_FIELDS: Record<string, string> = {
+  'assets.base_path': 'A public URL prefix.',
+  'cloudchamber.image': 'An image in a registry.',
+  'containers[].images.*.image': 'An image in a registry.',
+  'dev.container_engine.localDocker.containerEgressInterceptorImage': 'A local Docker image.',
+  'dev.container_engine.localDocker.socketPath': 'A Docker socket, unrelated to the config location.',
+  'python_modules.exclude[]': 'Globs relative to the python_modules directory.',
+  'rules[].globs[]': 'Globs relative to base_dir.',
+  'site.exclude[]': 'Patterns relative to site.bucket.',
+  'site.include[]': 'Patterns relative to site.bucket.',
+  'unsafe.capnp.source_schemas[]': 'Relative to unsafe.capnp.base_path.',
+}
+
+export interface RebaseContext {
+  exists?: (path: string) => boolean
+  /** The directory the paths were written against. */
+  from: string
+  /** The directory the config moves to. */
+  to: string
+}
+
+type Rewrite = (value: unknown, field: string) => unknown
+
+function walk(node: unknown, segments: string[], field: string, rewrite: Rewrite): unknown {
+  if (segments.length === 0) return rewrite(node, field)
+
+  const [segment, ...rest] = segments
+  if (segment === '*') {
+    if (!isPlainObject(node)) return node
+    return Object.fromEntries(Object.entries(node).map(([key, value]) => [key, walk(value, rest, field, rewrite)]))
+  }
+
+  if (!isPlainObject(node) || !Object.hasOwn(node, segment.replace('[]', ''))) return node
+
+  const key = segment.replace('[]', '')
+  const value = node[key]
+  const rewritten =
+    segment.endsWith('[]') && Array.isArray(value)
+      ? value.map((element) => walk(element, rest, field, rewrite))
+      : walk(value, rest, field, rewrite)
+  return {...node, [key]: rewritten}
+}
+
+/** A container's `image` is either a Dockerfile, relative to the worker, or an image in a registry. */
+export function isPathLikeImage(value: string, from: string, exists: (path: string) => boolean = existsSync): boolean {
+  return value.startsWith('.') || exists(join(from, value))
+}
+
+function relativeFromConfig(path: string, {to}: RebaseContext): string {
+  return relative(to, path).replaceAll('\\', '/')
+}
+
+function rebasePath(value: string, context: RebaseContext): string {
+  if (isAbsolute(value)) return value
+  return relativeFromConfig(resolve(context.from, value), context)
+}
+
+/**
+ * Wrangler resolves a package alias from the config's directory, where it would miss the worker's own node_modules and
+ * could find another copy of the package. So the package is found here, the way the worker finds it, and the alias
+ * becomes a path. What can't be resolved stays as written, for wrangler to report.
+ */
+function rebasePackageAlias(value: string, context: RebaseContext): string {
+  if (isBuiltin(value)) return value
+  try {
+    return relativeFromConfig(createRequire(join(context.from, 'package.json')).resolve(value), context)
+  } catch {
+    return value
+  }
+}
+
+function rewriter(context: RebaseContext): Rewrite {
+  const rebase: Rewrite = (value, field) => {
+    if (Array.isArray(value)) return value.map((element) => rebase(element, field))
+    if (typeof value !== 'string') return value
+    if (field === 'alias.*' && !value.startsWith('.')) return rebasePackageAlias(value, context)
+    if (field === 'containers[].image' && !isPathLikeImage(value, context.from, context.exists)) return value
+    return rebasePath(value, context)
+  }
+
+  return rebase
+}
+
+function rebaseSection(section: RawConfig, context: RebaseContext): RawConfig {
+  const rewrite = rewriter(context)
+  let result: RawConfig = section
+  for (const field of REBASED_FIELDS) {
+    result = walk(result, field.split('.'), field, rewrite) as RawConfig
+  }
+
+  // Wrangler's defaults are relative to its directories, and they matter only with a build command.
+  if (isPlainObject(result.build) && result.build.command !== undefined) {
+    const defaults = {cwd: rebasePath('.', context), watch_dir: rebasePath('./src', context)}
+    result = {...result, build: {...defaults, ...result.build}}
+  }
+
+  return isPlainObject(result.previews) ? {...result, previews: rebaseSection(result.previews, context)} : result
+}
+
+/** A site with no main uses this default, relative to the config. Wrangler refuses it next to a main. */
+function withSiteEntryPoint(config: RawConfig, context: RebaseContext): RawConfig {
+  const {env, main, site} = config
+  if (!isPlainObject(site) || main !== undefined || site['entry-point'] !== undefined) return config
+  const sections = isPlainObject(env) ? Object.values(env) : []
+  if (sections.some((section) => isPlainObject(section) && section.main !== undefined)) return config
+  return {...config, site: {...site, 'entry-point': rebasePath('workers-site', context)}}
+}
+
+/** Returns the config with every relative path rewritten for its new location. Rebased values stay relative. */
+export function rebaseConfig(config: RawConfig, context: RebaseContext): RawConfig {
+  const result = withSiteEntryPoint(rebaseSection(config, context), context)
+  if (!isPlainObject(result.env)) return result
+  const env = Object.fromEntries(
+    Object.entries(result.env).map(([name, section]) => [
+      name,
+      isPlainObject(section) ? rebaseSection(section, context) : section,
+    ]),
+  )
+  return {...result, env}
+}

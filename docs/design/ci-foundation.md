@@ -1,0 +1,375 @@
+# CI foundation design
+
+Status: implemented in 0.3.0. This document records how monocf works as a base for continuous deployment of a Cloudflare Workers monorepo, and why. The README is the guide for users. Nothing here is specific to one consumer. Examples use made-up names.
+
+## Goals
+
+A CI job on an environment branch should be able to answer three questions, in this order:
+
+1. **What needs deploying?** Compare what the current commit would upload with what is deployed. This is state-based, so a failed or skipped run heals itself on the next one.
+2. **In what order?** Derive a dependency graph from the wrangler configs and deploy callees before callers.
+3. **Did it work, and can we go back?** Report per-worker results in a machine-readable form, keep running independent branches after a failure, and offer a rollback.
+
+Non-goals: a generic monorepo task runner, a plugin system, a Docker runtime, in-process bundling.
+
+## Architecture
+
+```
+flags + monocf.config + wrangler.jsonc files
+        │
+        ▼
+   resolveProject()     pure: no writes, no process spawns
+        │
+        ▼
+   buildGraph() → createPlan()     pure: serializable
+        │
+        ▼
+   materialise()        writes only under one private run directory
+        │
+        ▼
+   execute()            pool + events + signals; spawns wrangler with no shell
+        │
+        ▼
+   reporter             human text on stderr, NDJSON on stdout with --json
+```
+
+Rules that follow from this:
+
+- **The source tree is never written to** by build, deploy, preview or dev. No temp configs and no `.dev.vars` edits next to the source.
+- **One run directory per process:** `<root>/.monocf/runs/<random-id>/<worker>/`. It is created with mode `0700`, and secret files with `0600`. It is removed on every exit path. A crash can leave secret files until the next run, which removes a run if its owner PID is dead or if it is older than a day. So a run writes `.monocf/.gitignore` containing `*`, and `git add -A` can't take them. MonoCF doesn't touch a consumer's own `.gitignore` except in `worker create`.
+- **No shell, no wrapper.** Wrangler is spawned as `process.execPath <wrangler package>/wrangler-dist/cli.js ...argv`, with `shell: false`, resolved from the project root. With `shell: true`, or through `bin/wrangler.js`, a killed wrangler can keep deploying. The `bin/wrangler.js` wrapper also turns a signal death of its child into exit 0, which looks like success. The wrapper's version check is replaced by monocf's own floor check.
+- **stdout carries results only.** Diagnostics and wrangler output go to stderr.
+- **Everything before `materialise` is pure,** so it can be tested without a disk or a process.
+
+### Modules
+
+```
+src/
+  commands/      oclif classes: parse flags, call one app function
+  app/           run orchestration, exit codes
+  project/       monocf.config loading, option precedence, worker discovery, .monocfignore
+  config/        merge, placeholder substitution, resolve, validate
+  check/         the rules of monocf check, which plan runs too
+  graph/         nodes and edges, levels, cycle detection, callers
+  plan/          plan creation and types
+  runtime/       run directory, materialise, secrets files, pool, signals
+  wrangler/      locate bin, build argv (pure), spawn and capture
+  state/         StateStore interface, R2 and file adapters, manifest types
+  fingerprint/   canonical config, bundle hashing
+  report/        events, human sink, NDJSON sink
+```
+
+### Exit codes
+
+| Code | Meaning |
+|---|---|
+| 0 | Everything requested succeeded |
+| 1 | One or more workers failed |
+| 2 | Usage or config error; nothing was attempted |
+| 3 | Environment error: wrangler missing, wrong version, no auth |
+| 129 / 130 / 143 | Interrupted by SIGHUP, SIGINT or SIGTERM; partial results reported |
+| 128 + n | A wrangler process was killed by signal n, without monocf being interrupted |
+
+A `wrangler` that fails gives exit 1, and its own exit code appears in the message.
+
+### Option precedence
+
+`flags > monocf.config.json > defaults`. Booleans support `--no-x`. Unsupported flag combinations are errors, never ignored.
+
+## Config resolution
+
+- Base and worker configs are parsed with `jsonc-parser`, not with wrangler's `experimental_*` APIs.
+- **Merge semantics stay compatible by default.** Arrays are concatenated, objects merge recursively, and scalars from the worker win. Any change needs an opt-in and a diff tool.
+- Placeholders are replaced on parsed strings. An unknown placeholder is an error. A string that needs literal braces maps the variable to itself: `"id": "{id}"`.
+- Injected vars: `NAME`, `ENVIRONMENT`, `VERSION`. A value set in the worker's own config is kept. A value from the base config is overwritten, as before.
+- Every command receives the same resolved config: a service binding given by directory name becomes the target's deployed name for the env. `build` and `dev` used to leave out the env suffix. For `dev` that form fails with an env: real `wrangler dev` answers 503 "Worker not found", in one session and across `dev --all`, because the target runs under its name for the env. A test against real wrangler covers both.
+- A worker that can't be resolved stops only a run that reaches it, so one broken config doesn't block unrelated deploys. A selection fails when any transitive callee failed to resolve, through any edge in the graph table except a queue. That includes a hardcoded deployed name of a failed worker, when its name can still be computed from the parts of its config that were readable.
+- `RELEASE` is **not** part of the resolved config. It is passed with `--var RELEASE:<sha>` to `deploy`, `versions upload` and `dev`, and not to a dry-run build, so a new commit with an unchanged bundle has an unchanged fingerprint. A `RELEASE` in a wrangler config is overridden. The SHA is resolved once per run, from `GITHUB_SHA` (cut to 7 characters) when set, else `git rev-parse --short HEAD`, else `unknown` with a notice. `apply` takes it from the plan's commit instead, which is what's really checked out.
+- An unknown `--env` is an error, so a typo can't create an orphan worker.
+- Moving a config into the run directory means relative path fields must be rebased. The list of these fields lives in one file. A test reads wrangler's `config-schema.json` and fails when a new path-like field appears. That test only shows that each field was classified, so real-wrangler tests in `test/real/rebase.test.ts` check that wrangler finds and uses the files.
+- **Wrangler runs with its working directory in the worker's run directory, next to its config.** Wrangler resolves some things from the config's directory and others from the working directory, and it assumes the two are one directory: it makes `tsconfig` relative to the working directory and esbuild then reads it from the config's. Paths monocf passes on the command line are absolute. What follows from this:
+  - `build.cwd` and `unsafe.capnp` are read from the working directory, so they are rebased like the rest. A `build.command` with no `build.cwd` gets the worker's source directory written in, so the command still runs there.
+  - Service-binding siblings in one `dev` session have one working directory, the first worker's. Their run directories are at the same depth, so a rebased relative path means the same from any of them.
+  - Wrangler's own `.wrangler` directory lands in the run directory. Only `--persist-to` keeps local data in the source tree.
+  - Python: wrangler looks for `python_modules` and `cf-requirements.txt` next to the config, so monocf copies them into the run directory for a worker whose entry ends in `.py`. Wrangler refuses a `python_modules` inside the module root unless that root is the config's directory, which it never is here, so a Python entry at the top of the worker's directory fails with wrangler's message. Move the entry into a subdirectory.
+  - Its account cache goes to the nearest `node_modules/.cache/wrangler` above the run directory, which is the one at the project root rather than the worker's.
+  - At startup, wrangler loads `.env`, `.env.local`, `.env.<env>` and `.env.<env>.local` from its working directory into its own environment, later files first in precedence, with `$VAR` expansion, and the real environment winning. That reaches `build.command` and everything wrangler reads from its environment, including `CLOUDFLARE_ACCOUNT_ID`. The working directory is now the run directory, so monocf reads those files from the worker's source directory, with the same rules, and adds the result to the spawn's environment. Reads of a worker get the same values as its writes, so both go to one account. It doesn't pass `--env-file`, which makes wrangler skip `.dev.vars`. Values are never printed. `monocf whoami` belongs to no worker, so it sees only the real environment.
+  - `dev` reads local values from `.dev.vars` next to the config, or from `.env` files there when there is none. Monocf writes the `.dev.vars` it merged, or else copies the worker's `.env` files into the run directory, with the same permissions and clean-up.
+
+### Deliberate differences from monocf 0.2
+
+The old flow edited config text and read it back through wrangler's patch function. These inputs now behave differently, on purpose:
+
+| Input | Old | New |
+|---|---|---|
+| A variable value with JSON escapes, such as a backslash and `n` in the parsed value | Decoded a second time: a real newline | Used as the parsed string, so an old double-escaped workaround now keeps its backslashes. Remove the extra escaping |
+| A duplicate key in a config | Edits went to the first copy and reads came from the last, so edits could get lost | The parser reads the last value, and merges apply to it |
+| An unquoted placeholder, as in `"cpu_ms": {cpu}` | Worked with no base config | A parse error. Quote it and read the value as a string |
+| `null` in a worker config, under a base config | Depends on the wrangler version: a crash, or `null` written out | An error that names the key |
+| `{1abc}`, `{şehir}`, `{ v }` | Deployed as literal text | Unknown placeholder errors. `{3}` and `{3,5}` are quantifiers and pass |
+
+## Graph
+
+Edges come from:
+
+| Source | Target |
+|---|---|
+| `services[].service` | Worker |
+| `workflows[].script_name` | Worker |
+| `durable_objects.bindings[].script_name` | Worker |
+| `tail_consumers[].service` | Worker |
+| `streaming_tail_consumers[].service` | Worker |
+| `dispatch_namespaces[].outbound.service` | Worker |
+| Queue producers and consumers | Logical edge: consumer of a queue the worker produces to |
+| Queue `consumers[].dead_letter_queue` | Logical edge: consumer of the dead letter queue |
+
+Binding names that match no local worker pass through as external, with a notice. They are not part of the graph.
+
+A queue edge needs no order at deploy time, so one that closes a cycle is left out of ordering, and the service bindings in that cycle keep theirs. When `a` binds to `b` and `b` sends to a queue that `a` consumes, `b` deploys first, and a failed `b` skips `a`. `check` still reports such a cycle, as a warning.
+
+Deploys go by level, callees first. **Callers are used for PR warnings and smoke-test scope, not for the deploy list:** a caller whose bundle didn't change gains nothing from a redeploy, because a binding resolves to the callee's active version at runtime.
+
+## Fingerprint
+
+```
+bundleHash   = sha256( sorted (path, bytes) of the output directory, pnpm store directories normalised )
+configHash   = sha256( canonical JSON of the resolved config, this env only, minus RELEASE )
+externalHash = sha256( sorted (label, relative path, bytes) of what wrangler uploads from outside the output directory )
+fingerprint  = sha256( bundleHash + "\n" + configHash + "\n" + externalHash )
+```
+
+`externalHash` exists because wrangler writes only code to `--outdir`. These reach Cloudflare from the source, and `configHash` holds only their paths:
+
+- `assets.directory`, also for an assets-only worker, whose output is a fixed file.
+- `site.bucket`, `wasm_modules`, `text_blobs`, `data_blobs`, and the `unsafe.capnp` schema files.
+- For each `containers[]` entry with a local `image`, or named `images` with a `dockerfile`: the Dockerfile and its build context.
+
+Rules for it:
+
+- It uses the values for the env, and it runs after the dry run, since `build.command` can generate these inputs.
+- Each input has a label, so a file moving from one input to another changes the hash, and paths are relative to the input, so a checkout path doesn't.
+- **When in doubt, a file counts.** A false "changed" costs one redeploy, while a false "unchanged" never ships the change. So everything under a site bucket or a build context counts, and `include`, `exclude` and `.dockerignore` aren't read. There, `.git`, `.wrangler` and `.monocf` never count, as they change with no change to the worker. Under assets, what wrangler uploads is hashed whatever its name, including a directory called `.monocf`. The project's own `<root>/.monocf` and the bundle's output directory never count anywhere.
+- Assets follow wrangler's `createAssetsIgnoreFunction`: a file `.assetsignore` names isn't uploaded, so it doesn't count. `_headers`, `_redirects` and `.assetsignore` always do. Wrangler leaves them out of the asset manifest, but it sends the first two as configuration, and the third decides what the rest is.
+- A configured input that's missing gets its absence hashed. Whether that's an error is wrangler's call, and the dry run has already made it.
+
+**What `versions upload` can't carry.** It takes assets and blobs the way `deploy` does. It refuses a `site` with exit 1. For a container with an `image`, it builds nothing and rolls nothing out, with exit 0 (`containers.standard.builtImages` stays empty on that path), so the image change would never ship. So a worker with `site` or `containers` reaches Cloudflare only by `deploy`: the manifest lists these under `needsDeploy`, and an `upload` for that worker becomes a `full-deploy` with the reason `needs-deploy`.
+
+- The bundle is produced by `wrangler deploy --dry-run --outdir <dir>` **without** `--minify`, and with `minify` removed from the config it reads. Minifier output changes across workers when an unrelated, tree-shaken export changes, which would cause false redeploys. In a real monorepo, one unused export changed most minified bundles and no unminified one.
+- Deploy artifacts are still minified when configured. The fingerprint is a comparison key, not a description of the upload.
+- `VERSION` stays in the config, so a version bump causes a deploy.
+- Only the selected env's section is hashed, so a change to another env's values doesn't redeploy this one. The top level stays in, since an env can inherit from it. A top-level field the env overrides can therefore cause a redeploy with no effect, which is the safe direction.
+- `README.md` at the top of the output directory holds a timestamp, and a source map changes with line endings. Both are excluded, a `.map` only when the file it maps sits beside it, since with `find_additional_modules` any name can be a real module. Wrangler writes no config of its own to `--outdir`, so a `wrangler.json` there is a module and counts. A module called `README.md` is overwritten in the output by wrangler's own, so with additional modules on, `<base_dir>/README.md` counts as an external input whichever rules match it. That can give a false "changed", never a false "unchanged".
+- pnpm cuts long `.pnpm/<dir>` names at a limit that differs per platform, and esbuild writes module paths into comments and `__commonJS` keys. Bundles can therefore differ between Windows and Linux in those paths alone. So `bundleHash` reads every `node_modules/.pnpm/<dir>/node_modules/` in a script as one spelling. A package whose code changes still changes the hash.
+- Module path comments in the bundle run from the config's directory in the run directory. The random run ID is one path segment, so the `../` count doesn't depend on it and it never appears. `--out` doesn't matter either.
+- Text and data modules are hashed as bytes, like external inputs. A Windows checkout with `core.autocrlf=true` therefore gives a text module another `bundleHash` than CI does; esbuild hides this only for JavaScript. CI isn't affected and the error is in the safe direction, so line endings aren't normalised.
+- The bundle differs between wrangler versions, so wrangler must be pinned. Upgrading it can redeploy a worker, wherever its bytes change. The version isn't part of the fingerprint.
+- Each upload is tagged `monocf:<fingerprint>`, 64 hex characters. A tag allows up to 100 characters; a longer one fails the upload.
+- `triggersHash` covers what a new version doesn't carry, so that `versions deploy` alone can't change it: the effective `triggers.crons`, `routes` or `route`, `workers_dev` and `preview_urls`, which inherit from the top level, and `queues.consumers`, the Workflows the worker defines (no `script_name`, or its own deployed name), `tail_consumers` and `streaming_tail_consumers`, which don't, so an env reads its own section only. `crons` and the two tail consumer lists are `null` when the config doesn't set them, because wrangler then leaves the deployed ones alone, unlike an explicit `[]`. `workersDev` follows wrangler's default: true when there are no routes.
+- `doHash` covers the effective `migrations` and `exports`. A binding alone isn't a class lifecycle change.
+
+`monocf bundle` writes these to `<out>/manifest.json` only when every worker built. A run that fails leaves no manifest, so an old one can't be taken for this run's. Two runs at once must use different output directories, which the default `.monocf/bundle/<env>` does for different envs. `worker -c build` shares the worker's `dist`, and running it for two envs at once failed 8 times in 40 with "Unexpected end of JSON input", against 0 in 40 for `bundle`. The shared directory is the likely cause, but the exact read that fails has not been isolated.
+
+## State
+
+A `StateStore` holds a per-environment manifest:
+
+```jsonc
+{
+  "schemaVersion": 1,
+  "env": "staging",
+  "updatedAt": "2026-01-01T00:00:00.000Z",
+  "workers": {
+    "orders": {
+      "deployedName": "orders-v1-staging",
+      "bundleHash": "…",
+      "configHash": "…",
+      "externalHash": "…",
+      "fingerprint": "…",
+      "triggers": {"consumers": [], "crons": null, "previewUrls": null, "routes": [], "streamingTailConsumers": null, "tailConsumers": null, "workersDev": true, "workflows": []},
+      "triggersHash": "…",
+      "doHash": "…",
+      "versionId": "…",
+      "version": "1.4.0",
+      "commit": "…",
+      "deployedAt": "…"
+    }
+  }
+}
+```
+
+Hashes are plain hex, as in the bundle manifest. `bundleHash`, `configHash` and `externalHash` are required too, because they tell `bundle-changed`, `config-changed` and `external-changed` apart. A manifest with a newer `schemaVersion`, for another env, or that can't be read stops the run with exit 3: treating it as empty would plan a redeploy of everything.
+
+Adapters: `file:<dir>` for tests and local use, written through a rename, and `r2://<bucket>/<prefix>` through `wrangler r2 object get|put --remote`, so CI needs no credentials beyond its Cloudflare token. Keys are `<env>/manifest.json` and `<env>/runs/<run-id>.json`, which rollback reads. Any other scheme is a usage error.
+
+Both adapters refuse a location that isn't there, with exit 3. The R2 adapter checks the bucket first with `r2 bucket info`, because `r2 object get` gives the same error for a missing key and a missing bucket. A missing key in a bucket that exists is a first run. Wrangler has no conditional writes, so the store can't act as a lock: CI must allow one pipeline per environment, with `concurrency:` in GitHub Actions.
+
+The active version comes from `wrangler deployments status --name <deployed-name> --json`. Only exit 1 with `code: 10007` means the worker doesn't exist, and any other failure stops the plan. `versions list`, `secret list` and the settings endpoint follow the latest upload, not the active version. The tag takes one more request, `versions view`, so it is read only when the version ID alone doesn't settle things. A read by name has no config for wrangler to find an `account_id` in, so a worker's own `account_id` is passed as `CLOUDFLARE_ACCOUNT_ID` for its reads. The state bucket uses the account of the environment.
+
+**Drift** means the active version on Cloudflare isn't the one in the manifest, for example after a manual deploy. The fingerprint tag tells these apart: if the active version carries the expected tag, an earlier run deployed it and crashed before writing state, so it isn't drift. The caller chooses the policy: `--on-drift warn` overwrites and warns; `--on-drift fail` stops that worker. A split rollout counts as drift.
+
+## Plan
+
+`monocf plan` runs the `check` rules, where any error stops with exit 2, reuses `--bundle-dir` if its manifest matches this env, commit, wrangler and selection and otherwise bundles, then reads state and the active versions, and calls a pure function. It deploys nothing.
+
+| Situation | Action | Reasons |
+|---|---|---|
+| Worker doesn't exist on Cloudflare | `create` | `new` |
+| Exists, no manifest entry, a different tag, and migrations in the config | `full-deploy`, since `versions upload` refuses pending migrations and nothing says which are applied | `baseline` |
+| Exists, no manifest entry, active tag is `monocf:<fingerprint>` | `adopt`: no deploy, `apply` runs `triggers deploy` and records it in state, as a crash may have stopped short of its triggers, `workers_dev` included | `state-missing` |
+| Exists, no manifest entry, another tag or none | `upload` with `--on-drift warn`, `blocked` with `fail` | `baseline`, or `drift` and `baseline` when blocked |
+| Manifest version is active, same fingerprint, other triggers. Only after a crash: `configHash` covers the triggers, so a cron-only commit changes the fingerprint and takes `upload` with `triggersChanged` | `skip` | `unchanged` |
+| Manifest version is active, same fingerprint, other triggers | `triggers` | `triggers-changed` |
+| Manifest version is active, another bundle, config or external hash, same DO hash | `upload`, with `triggersChanged` when they differ too | `bundle-changed`, `config-changed`, `external-changed` |
+| Another bundle, config or external hash, other DO hash | `full-deploy` | `do-changed` |
+| Another version is active, tag is `monocf:<manifest fingerprint>` | As if in sync, with the note `state-behind`, and `triggers` where that says `skip`: nothing says the crashed run reached them, so they're applied whatever the manifest says | As above, or `state-behind` |
+| Another version is active, tag is `monocf:<this bundle's fingerprint>` | `triggers`, with the note `state-behind`: a crashed run already deployed this, and may have stopped short of them | `state-behind`, `triggers-changed` |
+| Another version is active, any other tag | Drift | |
+| Split rollout | Drift, also with no manifest entry | Adds `split` |
+
+Drift with `--on-drift warn` takes the action the table gives, with `drift` first in its reasons and a warning. A worker that is otherwise the same still gets an `upload`, because something else is live. `triggersChanged` is true, because a manual `wrangler deploy` applies its own triggers, so what is live is unknown. With `--on-drift fail`, the worker is `blocked`, the plan is still written with `applicable: false`, and the exit code is 1. A worker with no manifest entry and another tag counts here, so `fail` blocks a first run over workers that already exist. Run that one with `warn`.
+
+- **A new deployed name** counts as a worker with no manifest entry, with the note `renamed`. The old name stays deployed.
+- **Recreated provider:** when a worker that the manifest knows has to be created, each caller through a binding that would get no new version (`skip`, `adopt` or `triggers`) becomes an `upload`, reason `provider-recreated`. A caller already taking an `upload` or `full-deploy` keeps its action and gets that reason too, as a rollback needs it to know what it's going back across. A queue edge holds no binding, so it doesn't count. A caller left out by `--workers` gets the note `caller-not-selected`.
+- **Routes removed:** wrangler only publishes a list with something in it, so removing the last route leaves it attached. Monocf has no zone to check this against, so a note `routes-removed` tells a person to remove it by hand.
+- **A recreated provider's callers:** they stay broken until they get a new version, so the need is durable. Before running a `create` for a worker the manifest knows, `apply` writes its direct callers to the manifest's `needsNewVersion`, before the provider exists. A caller leaves that list when it next gets a new version through a successful `upload` or `deploy`. `plan` turns a marked caller into `upload` / `provider-recreated` unless its action already makes a new version or it's blocked, keeps a `caller-not-selected` note and the marker for one that isn't selected, and names one in `.monocfignore` in a note and doesn't touch it. A caller that's ignored when its provider is recreated gets a marker too, as it still needs a new version once it's selected. Which workers count as ignored is passed in, and it's the set for the plan's env. `apply` drops a marker for a name gone from the repository. **Someone who deletes and recreates a provider by hand must also redeploy its callers:** nothing can see that.
+- **Recorded without a deploy:** `adopt` and `state-behind` steps carry `recordState: true` and `triggersChanged: true`. `apply` runs `triggers deploy`, since the attempt can't prove it got that far, and only then records them at `previousVersionId`, so that a change after a recovered crash doesn't read as drift. A marked caller that needed `adopt` keeps those triggers when it becomes an `upload`.
+- **Crons removed:** when the manifest's crons aren't empty and the new effective crons are, the step has `explicitEmptyCrons: true`, and `apply` writes `"crons": []`, since an absent key changes nothing.
+- **Orphans:** a manifest entry whose directory is gone gets the note `orphan`, and is never read or deleted. A worker `.monocfignore` leaves out of this env gets no read and no step. If a scope is what leaves it out and the manifest has an entry for it, it gets the note `ignored-but-deployed`, as adding that line for a live worker would otherwise look as if it removed the worker. The two notes can't both fire, as an ignored worker has a directory. A line with no scope gives no note, as a line with no scope behaves as it always has.
+
+`dependsOn` holds the nearest callees that do something. It looks through a `skip` or `adopt`, so an order that runs through one still holds. Members of a cycle only a queue closes don't wait for each other. `callers` and `transitiveCallers` come from the whole graph, whatever `--workers` selects, and give the smoke-test scope.
+
+**A wrong account mustn't look like a first run.** A real account with no such worker answers 10007, so `plan` refuses, with exit 3 and `applicable: false`, in three cases, naming the flag that accepts each:
+
+1. The manifest knows two or more selected workers, and more than half of those read as missing: `--allow-recreate`. One recreated worker in a larger set stays a normal `create`.
+2. A worker's account hash in the manifest differs from the account it would use now: `--allow-recreate`. `apply` stores a SHA-256 of the account on each entry when the account is known. The ID never reaches state, plans or the run record. In logs, what monocf forwards from wrangler through a pipe has it taken out, on stdout and stderr, in every mode that pipes the child (`{prefix}`, `capture`, and `stderr` when stderr isn't a terminal or `CI` is set, as a CI can allocate a pty). Two things are taken out: an account in a `/accounts/<id>` URL, whichever it is, and as bare text the ID in `CLOUDFLARE_ACCOUNT_ID` or `CF_ACCOUNT_ID`, including what a worker's `account_id` or `.env` puts there. Anything else that happens to be 32 hex characters stays, so a worker's `account_id` printed bare by a command that isn't given it (`deploy` and `versions` through `monocf worker`) isn't covered, though wrangler's API errors, the case seen on real Cloudflare, are all URLs. Three things aren't scrubbed at all: `dev` and `whoami`, which inherit the terminal and may show the ID, `stderr` mode on a person's terminal with no `CI` set, kept for wrangler's colours and prompts, and wrangler's own log file.
+3. There's no manifest and every selected worker reads as missing: `--first-run`. An existing environment doesn't hit this, since its workers read as `adopt` or `baseline`.
+
+The human summary and the markdown print the account's mask, `abcd…wxyz`, or "chosen by wrangler" when it isn't known.
+
+**Secret rotation isn't drift.** `secret put` and `secret bulk` make a new active version with no tag, and on real Cloudflare its `workers/triggered_by` annotation is `secret`. A secret version copies the latest upload, so its annotation says who made it and nothing about the code it runs: a rotation on top of a manual deploy keeps that manual code live. So `plan` also reads `versions list --name` and takes the tag of the last version before the active one that no secret command made, which is the upload it copied. When that tag is the fingerprint in the state manifest, the plan gives `upload` with the reason `secret-changed`, at note level, and `--on-drift fail` doesn't block it. The upload tags known code and inherits the secret.
+
+Anything else is drift, and `--on-drift` decides: another tag, no tag, a version the list doesn't hold, or an upload that was never promoted, whose code a secret version would put live. Wrangler lists only the 10 latest versions, so after 10 rotations with no upload in between the upload is out of reach. That fails safe, as drift with a note of its own saying so, and one upload under `warn` clears it. The active version's own tag can't settle this, as the review of this rule first proposed, because a secret version has none: on real Cloudflare its annotations are `{"workers/triggered_by":"secret"}` alone. A worker with no state entry stays a baseline, since its lineage is unknown.
+
+Reads and the state store's wrangler calls run from a new empty directory under the OS temp directory, so wrangler finds no config, no cached account and no `.env` there. A `wrangler.jsonc` at the project root would otherwise beat the account monocf passes. The account is worked out as a write's is: the worker's `account_id`, then the environment, then the worker's `.env` files, since a variable in the real environment beats the same one in a `.env`. `WRANGLER_LOG` is dropped for these calls, since debug output reaches stdout. A write passes `--config`, which rules out a root config too.
+
+A read that fails with `fetch failed`, a 429 or a 5xx is tried up to three times, with the backoff of a write.
+
+`--bundle-dir` reuses a bundle only if it describes this run. The env, commit and wrangler version have to match, `configHash`, `doHash`, `triggersHash` and `externalHash` are recomputed per selected worker from the resolved config and the files on disk (git can't see a gitignored asset directory, so a tree that looks clean proves nothing about it), and the bundle manifest's `head` (the real `git rev-parse HEAD`, not `GITHUB_SHA`) has to be what's checked out. A bundle built on a dirty tree is refused, and so is reuse on one. `apply` and `--expect-branch-tip` use the real `HEAD` too.
+
+The older plan and markdown at the output paths are removed right after flag parsing, so no failed run can leave one for `apply` or a PR comment. The markdown is written before the plan, so a plan appears only when everything has succeeded. A path that can't be written is exit 3. A `--markdown` path inside something a selected worker uploads, such as its assets directory, is exit 2, as wrangler would ship it while the external hash and the dirty check leave it out.
+
+## Deploy
+
+Before anything else, `apply` runs `wrangler queues consumer remove` for each queue in a step's `removedConsumers` that `queues consumer worker list --json` still shows that worker consuming, for every step, whatever its action. A queue that's gone has no consumer to detach: wrangler's `Queue "<name>" does not exist.` reads as an empty list, and any other failure of the read fails the worker. Cloudflare takes one worker consumer per queue and refuses a second with 11004, so a consumer that one commit moves from A to B has to leave A before B's `triggers deploy` or `deploy` attaches it. Before the remove, the worker's entry gets a `triggersHash` that matches nothing, so if the rest of its step never happens, the next plan applies its triggers again, also for a commit that brings the consumer back. Once the consumer is gone, the entry stops listing it, so it says what's attached: a later run that records the entry as `previous` would otherwise have its rollback attach the consumer again. A failed detach fails the worker, and skips its callers, before any of its code changes.
+
+Then two phases, so a bad build can't leave half the chain updated:
+
+1. **Upload,** in parallel: `wrangler versions upload --tag … --message … --var RELEASE:<sha>`. Nothing receives traffic yet.
+2. **Promote,** callees first: `wrangler versions deploy <id>@100% --yes -c <config>`, then `wrangler triggers deploy` when the triggers hash changed.
+
+Exceptions that need a plain `wrangler deploy`:
+
+- A worker that doesn't exist yet, because `versions upload` can't create one. These run before the upload phase, callees first, because an upload fails when a service binding's target is missing.
+- A change to Durable Object classes or migrations.
+
+The scheduler is a ready queue over the graph. On failure it skips the transitive callers of the failed worker and continues with independent branches. Each worker has one writer at a time, because parallel writes to one worker all exit 0 with a silent winner. It retries `fetch failed`, 429 and 5xx with backoff. State is written as workers finish, so an interrupted run loses nothing.
+
+A retry may follow an attempt that took effect, as a kill right after `Uploaded` shows. So a retried `versions deploy` reads the active version first, and a step whose triggers failed finds itself promoted and goes on to them. A retried `deploy` reads the active version and its tag, and takes that version when the tag is this fingerprint and it isn't the version read before the first attempt. A tag alone can't prove it: a marked caller's code hasn't changed, so its old version has that tag too. Wrangler applies triggers after `Uploaded`, so a `deploy` taken this way always goes on to `triggers deploy` before anything is recorded.
+
+`apply` refuses a stale plan with exit 2 before anything happens: an unknown schema, `applicable` false, a checkout whose real `HEAD` isn't the plan's commit, another wrangler version, a `--expect-branch-tip` elsewhere, or a worker this checkout doesn't deploy under that name. It passes each worker's account explicitly on every read and write.
+
+A plan's `commit` is the real `HEAD`. `GITHUB_SHA` can name another commit, as on a re-run or a merge ref, and a plan made from it could never be applied, or would ship one commit's code under another's fingerprint. `plan` says so in a notice when they differ. A bundle manifest still records `GITHUB_SHA`, as it describes the build.
+
+**A plan has to describe what's on disk.** What gets deployed is materialised from the checkout at apply time, so anything that differs would ship under the planned fingerprint, and state would say it hadn't happened. So before any write, `apply` refuses with exit 2:
+
+- **A dirty tree.** Whole repository, since a worker can import from outside the root, with untracked files counted. It names up to five paths. The plan file, what the plan itself wrote or reused (its `outputs`: `--markdown` and `--bundle-dir`), the summary file, `.monocf/`, and the manifest and run records in a `file:` state directory (`<dir>/<env>/manifest.json`, the `<dir>/<env>/manifest.json.<hex>.tmp` a write killed before its rename leaves, and `<dir>/<env>/runs/`, for any env a config defines) don't count. Anything else in that directory does. Both sides of a staged rename count, so a move into an exempt directory can't hide the deletion. A state or bundle directory that contains the root or a worker would exempt what gets deployed, so `plan` and `apply` refuse it with exit 2. A file a workflow writes into the checkout before `apply` starts, such as a shell redirect to `events.ndjson`, does count: send it to `$RUNNER_TEMP` or gitignore it.
+- **A hash that differs for any step.** `configHash`, `doHash`, `triggersHash` and `externalHash` are recomputed from the resolved config and the files on disk, which catches another `--base-config` and a gitignored input git can't see. The bundle hash isn't, since only a build can show it. The commit and the clean tree stand in for it as far as git can see. A gitignored input to the bundle, such as a module in `dist` or `node_modules`, is trusted to be reproducible: if one changes between plan and apply, it ships under the plan's fingerprint with exit 0 and no notice. Recomputing the bundle hash here was considered and left out.
+
+**The exception:** for a worker with `build.command`, a different `externalHash` gives a notice, not a refusal. Wrangler runs that command again at deploy and makes its inputs then, and a new CI job doesn't have them yet, so a refusal would mean a plan that can never be applied. What the build makes at deploy is therefore not proven to match the plan, so `apply` hashes those inputs again after wrangler has built, and the entry's `externalHash` is what was uploaded, with a notice if that isn't what the plan saw. The entry's `fingerprint` stays the plan's, as that's the tag the version carries. `plan` compares the bundle, config and external hashes rather than the fingerprint, so a file that goes back to what the plan saw gives `upload` / `external-changed`, not `skip`.
+
+A worker with no `build.command` whose gitignored assets a CI step builds gets the refusal for as long as the apply job lacks them or its build isn't reproducible, and planning again can't help. Such a worker needs a `build.command`, or the same artifact in the apply job. The message says so.
+
+**State and records.** The manifest is written step by step, one write at a time, with whatever finished meanwhile going in the next one. A failed write isn't a failed deploy, but it's reported and the exit code is 1, and the next plan recovers through the tag. `needsNewVersion` is the exception: a failure to write it stops the run before anything is created. When triggers fail after a promote, the entry holds the new version and a triggers hash that matches nothing, so the next plan gives `triggers`.
+
+Each run ends with `<env>/runs/<run-id>.json`, a run ID being `YYYYMMDDTHHMMSSZ-<6 hex>`. Per worker it holds the action, the result, whether anything on Cloudflare changed, the previous state entry, and the previous and new version IDs. An upload that was never promoted is named in the summary as well, because the next version inherits from it.
+
+**What a step that didn't finish did.** `changed` comes from what's live, not from how far the attempt got: a `deploy` with a bad cron exits 1 with the new version live, and a process killed after `Uploaded` leaves one too. Before a write that can change what's live, `apply` reads the active version, which also goes in the record as what this run replaced. When such a step fails or is cancelled, it reads again, including after a signal:
+
+- The same version: `changed: false`.
+- A version of this run's, by its upload or its tag: `changed: true`, with `newVersionId`. It also goes in the state, with triggers that match nothing unless the step was a promote with none to apply, so the next plan gives `triggers` rather than calling the run's own deployment drift.
+- Anything else, or a read that fails, or a failed `triggers` or `adopt` step, which can't be read back: `changed: "unknown"`. The summary names these workers.
+
+"Uploaded and not promoted" only names a worker whose `changed` was read as `false`.
+
+A `triggers` or `adopt` step writes no version, and its entry names the version the plan read. So it reads what's live first, and if that isn't the plan's version it fails with nothing written, `changed: false`, and "Plan again".
+
+On a signal, `apply` stops starting steps, waits for the running ones, writes state and the record, prints the summary and exits 130 or 143.
+
+**Exit 0 isn't proof.** A step succeeded when wrangler exited with code 0 and no signal, the output file holds a version ID (`deploy`, `versions upload`), and a read-back of `deployments status` shows the expected version at 100%. Cloudflare can still name the version the step replaced for a few seconds, as seen right after a rollback, so a read-back that names it is made again after 2, 4, 8 and 16 s, 30 s in all. A read-back that names any other version fails at once.
+
+Behaviour this design has to work with:
+
+| Change | How it reaches a running worker |
+|---|---|
+| Code, vars, bindings, compatibility date | `versions upload` + `versions deploy` |
+| Observability | `versions deploy` with the config present, or `deploy` |
+| Crons, routes, `workers_dev` | `triggers deploy` or `deploy` |
+| Removing all crons | An explicit `"crons": []`; an absent key changes nothing |
+| Adding or changing a queue consumer | `triggers deploy` or `deploy`; `versions deploy` doesn't |
+| Removing a queue consumer | Only `queues consumer remove`; no deploy does it, and Cloudflare refuses to delete a worker that's still a consumer |
+| Adding a Workflow | `triggers deploy` or `deploy`; until then, a version that binds it fails at its first call |
+| Removing a Workflow | Nothing in wrangler; `workflows delete` also deletes its instances |
+| Tail consumers | `versions deploy` or `deploy` sets a list the config names; an absent list changes nothing, an explicit `[]` clears it |
+| Durable Object class change | `deploy` |
+
+A caller sees a new callee version without being redeployed, for both RPC and fetch. The exception is a callee that was deleted and recreated: its callers stay broken until they get a new version, so the planner uploads them too.
+
+**Non-versioned settings,** checked on real Cloudflare with wrangler 4.151.0: none of `versions deploy`, `triggers deploy` or `wrangler deploy` removes a queue consumer, a Workflow or a tail consumer that a config drops. So the plan step carries `removedConsumers`, the queues the state entry's triggers consume and this config doesn't, and `explicitEmptyTails`, the tail consumer lists the entry had and this config leaves unset, which `apply` writes as `[]`, as it does `explicitEmptyCrons`. A Workflow the config drops gets the plan note `workflow-removed`, and stays: deleting it deletes its instances, so that's a person's call. What monocf didn't set, by the state, it leaves alone. A `triggers` or `adopt` step gives the live version again with `versions deploy` when the tail consumers may be behind (the entry's differ from the plan's, or there's no entry and the config sets some), as `triggers deploy` doesn't set them and a crashed promote may have gone live before it did.
+
+**Rollback** runs callers first. Code, vars and secrets follow the version; crons don't, so they are restored separately, through a config holding only the name and the triggers. That config holds the earlier consumers and Workflows too. Before any worker's restore, the rollback detaches, from every worker it isn't refusing, a consumer the run attached that the earlier triggers don't hold, as `apply` does before anything attaches: otherwise rolling back a move reattaches the consumer to its old worker while the new one still holds it, and Cloudflare refuses with 11004. A worker the run created is otherwise left alone, but loses a consumer that a worker being rolled back takes again. Before that detach, its record takes what's live as `previousVersionId`, beside the entry as `previous`, so a `--to-run` of the rollback gives the consumer back with a `triggers deploy` alone. Each detach marks the entry as `apply`'s does, and a worker whose detach fails is left as it is, with the workers that wait for it. So is a worker whose earlier triggers consume a queue that a failed detach still holds, the one it failed on or one after it, with the workers that wait for it, as its `triggers deploy` would fail with 11004 after its earlier code went live. A worker that's refused still lets the other side of a move go, so the queue is left with no consumer until an `apply` or a forced rollback. Messages wait in it meanwhile. A consumer the run dropped together with the worker's `queue()` handler can't be attached again: Cloudflare checks the latest upload, which a rollback doesn't change, and answers 11001. Its `versions deploy` takes the earlier tail consumers rather than this checkout's, with `[]` for a list the run set and the earlier entry didn't. A Workflow the run registered stays, and the record says so. Rolling back across a Durable Object class addition is refused by Cloudflare, but rolling back across a class deletion exits 0 and leaves the class broken, so monocf refuses any rollback across a DO change unless forced. A refused or failed worker skips the workers it calls.
+
+`--to-run` restores what that run changed, using its record, and skips with a report a worker that run created. State goes back to the earlier entry, so the next plan compares against what's really live, and a fresh run record, which names the version that was live even if only triggers went back, lets a later `--to-run` undo the rollback. That entry only speaks for the version it names: when what the run replaced was something else, such as a manual hotfix or what a crash left, the restored version gets an entry whose hashes match nothing, with the earlier entry's Durable Object hash and triggers, so the next plan uploads over it.
+
+A failed or cancelled run is rolled back by what it may have done, and never answers "no workers" with exit 0. `unknown` counts as changed: the version and the triggers it meant to change go back. A worker with `changed: false` is only checked: if the version the run found is still live there's nothing to do, and if something else has replaced it the rollback fails rather than overwrite what this run didn't write. One that has left the checkout is skipped with a note, as this run changed nothing of it. A worker that may have changed with nothing to go back to, such as a failed `adopt` or a `create` that can't be confirmed, is named, and the exit code is 1.
+
+A rollback's own record follows the same rule. When its `versions deploy` fails or is cancelled it reads what's live: the version it found before gives `changed: false`, the version it was restoring gives `changed: true` with `newVersionId`, and anything else, a failed read or a failed triggers restore gives `unknown`, which a later rollback treats as changed. It doesn't write state in that case, so a restore that took effect and then failed reads as drift in the next plan.
+
+**Across a recreated provider.** A caller's earlier version can't reach a recreated provider, and stays broken with exit 0 and a next plan of `skip` if nothing notes it. So a step with the reason `provider-recreated` whose callee this run created is refused unless forced. Any restored step with that reason goes back on `needsNewVersion` before the version does, so the next plan gives it a new version. `--to` has no record to tell this from, so it can't do either.
+
+**Across an added route.** Restored triggers can't remove a worker's last route, so the route stays attached. The record says to remove it by hand, and the entry holds the route, so the next plan's `routes-removed` note names it if the config no longer has it. `<worker> --to <version-id>` has no record to vouch for the version, so it needs `--force`, and it leaves hashes in the entry that match nothing, so that the next plan uploads over it.
+
+**`secrets check`** compares names only. It expects the union of `secrets.required`, which wrangler doesn't inherit into an env, and the keys of a `.dev.vars.example` next to the worker's config. It asks `versions view` for the active version's `secret_text` bindings, because `secret list` follows the latest upload. A missing name is exit 1, and an unexpected one is a warning. A worker with no source of names is skipped with a note.
+
+Wrangler itself enforces `secrets.required`: `versions upload` and `deploy` refuse while a name is unset, and a worker that doesn't exist yet can only get one through `--secrets-file`, which `apply` doesn't pass. So `plan` can say `upload` or `create` and `apply` then fails that worker. Run `secrets check` before `apply`, set what's missing first, and don't add `secrets.required` to a worker until it exists.
+
+## Commands
+
+```
+monocf graph    [-e env] [--json | --mermaid] [--callers worker]
+monocf check    [-e env | --all-envs] [--strict] [--json]
+monocf bundle   [workers...] -e env [--out dir] [--concurrency n] [--json]
+monocf plan     -e env --state <url> [--bundle-dir dir] [--out plan.json] [--markdown file] [--on-drift warn|fail] [--workers a,b] [--first-run] [--allow-recreate] [--json]
+monocf apply    <plan.json> [--concurrency n] [--expect-branch-tip ref] [--summary-file path] [--json]
+monocf rollback -e env --state <url> (--to-run <id> [--dry-run] | <worker> --to <version-id>) [--force] [--json]
+monocf secrets check -e env [--json]
+monocf secrets deploy [worker] [-a] -e env [--create] [--json]
+monocf build | deploy | preview | dev [worker] [flags]
+```
+
+`monocf build`, `deploy`, `preview` and `dev` are thin commands over one function. `monocf worker -c <action>` stays as a deprecated form of them, with one line on stderr, and a test compares their wrangler calls. `build` takes `--concurrency`, with the CPU count up to 8 as its default, and a failed build holds no other back. `deploy` and `preview` take it too, with a default of 1, in graph order, and a failure skips the worker's transitive callers while independent workers carry on. A wrangler killed by a signal from outside stops new steps. Windows can't tell such a kill from exit 1.
+
+On Windows, stopping a process tree first runs `taskkill` without `/F`, and forces it after the 10 second grace period or on a second signal. That request only reaches a process with a window. Wrangler has none, so `taskkill` refuses and a stop that monocf starts itself, such as `dev -a` ending the others after one fails, waits out the grace period and then forces. Only a real Ctrl+C, which the console delivers to every process, lets wrangler exit by itself and remove its dev registry entry.
+
+`graph`, `check` and `bundle` need no credentials, and the first two need no wrangler. `check` exits 2 on any error, and on any warning with `--strict`. A cycle that only a queue edge closes is a warning, as queues need no order at deploy time. `missing-main` stays quiet when a `build.command` is set, since it may generate the entry, and it takes `site` as an entry. A failure to resolve that isn't an unknown placeholder is reported under the rule `resolve-failed`. `bundle` also reports `unknown-entrypoint`, an error that exits 1, since Cloudflare never rejects a wrong entrypoint and it can fall through to the default handler. A provider with `no_bundle` keeps its author's text, which the last export statement needn't describe, so its exports count as unknown, with a warning.
+
+A plan records the commit and wrangler version it was made for, and the hashes of what it saw. `apply` refuses to run on any other, or on a checkout with changes. `--expect-branch-tip` stops a re-run of an old pipeline from deploying an old commit over a newer one.
+
+`.monocfignore` is resolved per env. A line may end in `in <envs>` or `except <envs>`, and `findIgnoredWorkers` takes the env from the options: it keeps the lines that apply, in order, removes the scopes and gives the result to the `ignore` package, so `!` and last-match-wins hold. With no env, an `in` line doesn't apply and an `except` line does. A line with no scope reaches the matcher exactly as written, unless it's malformed. A line is malformed when it can't reach the worker it was written for. That's whitespace, `\s` with tabs and no-break spaces, that no backslash escapes, inside the pattern once a valid scope is removed, or at the start of the line, which the `ignore` package keeps as part of the pattern. Trailing whitespace and a CR are stripped by gitignore and left alone, and so is a comment, indented or not. The check runs on the line as read, so nothing trimmed first can hide a leading space. It's also a scoped line whose pattern matches no entry of the workers directory, as in `workers/nightlly except production`: a scope says someone meant the line for a worker. A line with no scope that matches nothing stays an `ignored-stale` warning, as a removed worker leaves one behind, and `ignored-stale` and the selection share one matcher, so they can't disagree about what a line reaches. These rules are a deliberate exception to "a file with no scoped lines behaves byte for byte": `workers/x excpet production`, `workers/x IN dev` and an indented line used to stay literal patterns that matched nothing and left the worker selected everywhere. A UTF-8 byte order mark at the start of the file is dropped, as git does. A malformed line never becomes a pattern or an env: `check` reports it as `ignored-malformed`, and every other command that selects workers stops with exit 2. `ignored-unknown-env` takes its names from the same place as `--all-envs`, the `env` keys of the base config and of every worker, and every command that selects workers stops on it too. For that, selection reads the configs, but only when a line has a scope, so a file without one costs nothing new. `local` has no special meaning here, or anywhere: it counts if a config defines it, and `-e local` needs that anyway. `check --all-envs` gives each env its own selection and carries on past an env that leaves nothing in, and only stops with `No workers found` if every env does. Fingerprints don't read the file, and no binding target is rewritten, as an ignored worker stays discoverable. `apply` refuses a plan with a step for a worker that's now ignored in the plan's env, which only a gitignored `.monocfignore` can reach past the clean checkout. `rollback --to-run` skips such a worker with a note, and still counts a provider it recreated when it decides whether a caller can go back.
+
+CI should authenticate with an API token. Wrangler has no lock around OAuth refresh, and token auth stays off that path.
+
+## Testing
+
+Black-box tests run the built CLI against generated fixtures with a fake wrangler installed at `node_modules/wrangler`. The fake records argv, cwd and the config it receives. These tests describe behaviour rather than structure, so they survive the refactor. Pure modules get unit tests. Fixtures are synthetic.
+
+Some facts only real wrangler can show: bundling through rebased paths, env values surviving the trip through its own `.dev.vars` reader, service bindings in `dev`, and a kill of the process doing the work. Those tests link the wrangler from this repository's dev dependencies into the fixture, with a dummy token, a closed port as the API base, `CLOUDFLARE_CF_FETCH_ENABLED=false` and metrics off, so nothing reaches Cloudflare.

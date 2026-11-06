@@ -1,46 +1,42 @@
 {
   "name": "monocf",
-  "description": "MonoCF for manage Cloudflare Workers in monorepo",
-  "version": "0.2.1",
-  "author": "Omer Demir",
+  "description": "Plan, deploy and roll back a monorepo of Cloudflare Workers from CI, in dependency order",
+  "version": "0.3.0",
+  "author": "omerfardemir",
   "bin": {
-    "monocf": "./bin/run.js"
+    "monocf": "bin/run.js"
   },
   "bugs": "https://github.com/omerfardemir/monocf/issues",
   "dependencies": {
-    "@bluwy/giget-core": "^0.1.2",
-    "@cloudflare/workers-types": "^4.20250507.0",
     "@oclif/core": "^4.5.3",
     "dotenv": "^16.5.0",
     "ignore": "^7.0.5",
-    "jsonc-parser": "^3.3.1",
-    "nanospinner": "^1.2.2",
-    "wrangler": "^4.27.0"
+    "jsonc-parser": "^3.3.1"
   },
   "devDependencies": {
     "@eslint/compat": "^1",
     "@oclif/prettier-config": "^0.2.1",
-    "@oclif/test": "^4",
-    "@types/chai": "^4",
-    "@types/mocha": "^10",
-    "@types/node": "^18",
-    "chai": "^4",
+    "@types/node": "^22.20.5",
+    "@vitest/coverage-v8": "5.1.0",
     "eslint": "^9",
     "eslint-config-oclif": "^6",
     "eslint-config-prettier": "^10",
-    "mocha": "^10",
     "oclif": "^4.22.22",
+    "prettier": "^3.9.10",
     "shx": "^0.3.3",
-    "ts-node": "^10",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^5.1.0",
+    "wrangler": "4.151.0"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=22.0.0"
   },
   "files": [
     "./bin",
     "./dist",
-    "./oclif.manifest.json"
+    "!dist/**/*.d.ts",
+    "./oclif.manifest.json",
+    "./CHANGELOG.md"
   ],
   "homepage": "https://github.com/omerfardemir/monocf",
   "keywords": [
@@ -49,13 +45,20 @@
     "wrangler"
   ],
   "license": "MIT",
-  "main": "dist/index.js",
   "type": "module",
   "oclif": {
     "bin": "monocf",
     "commands": "./dist/commands",
     "dirname": "monocf",
-    "topicSeparator": " "
+    "topicSeparator": " ",
+    "topics": {
+      "secrets": {
+        "description": "Check and upload secrets"
+      },
+      "worker": {
+        "description": "Create a worker. The worker command itself is deprecated"
+      }
+    }
   },
   "repository": {
     "type": "git",
@@ -67,8 +70,11 @@
     "postpack": "shx rm -f oclif.manifest.json",
     "posttest": "npm run lint",
     "prepack": "oclif manifest",
-    "test": "mocha --forbid-only \"test/**/*.test.ts\"",
-    "format": "prettier --write \"(src|test)/**/*.{ts,tsx,js,jsx}\""
+    "test": "vitest run",
+    "format": "prettier --write \"(src|test)/**/*.{ts,tsx,js,jsx}\"",
+    "readme": "oclif readme --no-aliases"
   },
-  "types": "dist/index.d.ts"
+  "peerDependencies": {
+    "wrangler": ">=4.151.0"
+  }
 }

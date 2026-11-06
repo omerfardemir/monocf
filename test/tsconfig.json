@@ -1,8 +1,12 @@
 {
   "extends": "../tsconfig",
   "compilerOptions": {
-    "noEmit": true
+    "composite": false,
+    "declaration": false,
+    "noEmit": true,
+    "rootDir": ".."
   },
+  "include": ["./**/*", "../vitest.config.ts"],
   "references": [
     {"path": ".."}
   ]

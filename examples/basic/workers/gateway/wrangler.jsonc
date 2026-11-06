@@ -1,0 +1,12 @@
+{
+  // Name the other worker by its directory. monocf turns it into the name it deploys under.
+  "services": [{"binding": "ORDERS", "service": "orders"}],
+  "env": {
+    "staging": {
+      "services": [{"binding": "ORDERS", "service": "orders"}]
+    },
+    "production": {
+      "services": [{"binding": "ORDERS", "service": "orders"}]
+    }
+  }
+}
