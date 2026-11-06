@@ -1,6 +1,6 @@
 import {randomBytes} from 'node:crypto'
 
-import type {ResolvedWorker} from '../config/types.js'
+import {isPlainObject, type ResolvedWorker} from '../config/types.js'
 import {EXIT_FAILED, MonocfError} from '../errors.js'
 import {runPool, type RetryPolicy, type StepResult} from '../runtime/pool.js'
 import {accountHash, manifestKey, parseStateManifest, runKey, STATE_SCHEMA_VERSION, type StateManifest, type StateWorker} from '../state/manifest.js'
@@ -11,6 +11,19 @@ import {isTransient, MAX_ATTEMPTS, pause, retryDelayMs, withReadRetries} from '.
 import {accountOf, callWrangler, WranglerFailure, type RunContext} from './run.js'
 
 export const DEFAULT_CONCURRENCY = 6
+
+/** Matches no real hash, so the next plan applies the triggers again. */
+export const TRIGGERS_NOT_APPLIED = 'not-applied'
+
+/**
+ * The entry while a consumer may be going, so that if the rest of the step never happens the next plan applies the triggers
+ * again, also for a commit that brings the consumer back. Once `detached` is gone, the entry stops listing it, so it says what's
+ * attached.
+ */
+export function triggersNotApplied(entry: StateWorker, detached?: string): StateWorker {
+  const consumers = entry.triggers.consumers.filter((consumer) => !isPlainObject(consumer) || consumer.queue !== detached)
+  return {...entry, triggers: {...entry.triggers, consumers}, triggersHash: TRIGGERS_NOT_APPLIED}
+}
 
 /** Sorts by time, and fits in a state key, a version message and a workflow input. */
 export function newRunId(now: Date = new Date()): string {

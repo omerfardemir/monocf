@@ -28,6 +28,8 @@ import {
   runDeploySteps,
   stateCall,
   StateWriter,
+  TRIGGERS_NOT_APPLIED,
+  triggersNotApplied,
   verifyActive,
   workerCall,
   writeRunRecord,
@@ -47,8 +49,6 @@ export interface ApplyFlags extends OptionFlags {
 const SHORT_SHA_LENGTH = 7
 const MAX_MESSAGE_LENGTH = 999
 const NO_TRIGGERS: Triggers = {consumers: [], crons: null, previewUrls: null, routes: [], streamingTailConsumers: null, tailConsumers: null, workersDev: false, workflows: []}
-/** Matches no real hash, so the next plan applies the triggers again. */
-const TRIGGERS_NOT_APPLIED = 'not-applied'
 
 function readPlanFile(path: string): Plan {
   let text: string
@@ -462,11 +462,12 @@ class Applier {
     }
   }
 
-  /**
-   * No deploy removes a consumer. Only one still attached is removed, so a retry or the next run can finish the job. Before it
-   * goes, the entry stops matching any triggers, so if the rest of the step never happens, the next plan applies them again,
-   * also for a commit that brings the consumer back.
-   */
+  private markTriggers(target: Target, detached?: string): void {
+    const entry = this.writer.manifest.workers[target.worker.dir]
+    if (entry !== undefined) this.writer.update(target.worker.dir, triggersNotApplied(entry, detached))
+  }
+
+  /** No deploy removes a consumer. Only one still attached is removed, so a retry or the next run can finish the job. */
   private detachStep(target: Target): DeployStep {
     const {deployedName, removedConsumers = []} = target.step
     return {
@@ -476,12 +477,12 @@ class Applier {
         for (const queue of removedConsumers) {
           const consumers = await readQueueConsumers(this.call(target), queue, target.accountId)
           if (consumers.includes(deployedName)) {
-            const entry = this.writer.manifest.workers[target.worker.dir]
-            if (entry !== undefined) this.writer.update(target.worker.dir, {...entry, triggersHash: TRIGGERS_NOT_APPLIED})
+            this.markTriggers(target)
             target.record.changed = 'unknown'
             await this.wrangler(target, {action: 'queue-consumer-remove', queue, script: deployedName}, {})
             target.detached = true
             target.record.changed = true
+            this.markTriggers(target, queue)
           }
         }
       },

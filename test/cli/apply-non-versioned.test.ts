@@ -8,6 +8,7 @@ import {
   deployFixture,
   firstRun,
   lastRunRecord,
+  manifestOf,
   planFor,
   stepOf,
   writesOf,
@@ -190,6 +191,23 @@ describe('apply, moving a queue consumer to another worker in one commit', () =>
 
     expect(reverted.exitCode, reverted.stderr).toBe(0)
     expect(Object.keys(reverted.cloudflare!.consumers!.jobs)).toEqual([names.billing])
+  })
+
+  it('rolls back the run that finishes the move, when an earlier run detached the consumer and then failed', async () => {
+    const {cloudflare, fixture, names} = await moved()
+    const failed = await applyPlan(fixture, cloudflare, {rules: [{command: 'versions upload', exitCode: 1, stderr: 'boom\n', worker: 'billing'}]})
+    expect(failed.exitCode).toBe(1)
+    // The entry says what's attached.
+    expect(manifestOf(fixture).workers.billing.triggers.consumers).toEqual([])
+    await planFor(fixture, failed.cloudflare!)
+    const finished = await applyPlan(fixture, failed.cloudflare!)
+    expect(finished.exitCode, finished.stderr).toBe(0)
+    const {runId} = lastRunRecord(fixture)
+
+    const result = await runCli(fixture, ['rollback', '-e', 'staging', '--state', 'file:state', '--to-run', runId], {cloudflare: finished.cloudflare})
+
+    expect(result.exitCode, result.stderr).toBe(0)
+    expect(Object.keys(result.cloudflare!.consumers!.jobs)).toEqual([names.reports])
   })
 })
 
