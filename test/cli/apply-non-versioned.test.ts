@@ -429,6 +429,23 @@ describe('rollback, when a worker that took a consumer fails to let it go', () =
     expect(Object.keys(again.cloudflare!.consumers!.jobs)).toEqual([names.billing])
   })
 
+  it('leaves a consumer on a worker the run created when what is live there cannot be read, as nothing could undo its detach', async () => {
+    const {cloudflare, fixture, names} = await movedToNewWorker()
+    const applied = await applyPlan(fixture, cloudflare)
+    expect(applied.exitCode, applied.stderr).toBe(0)
+    const {runId} = lastRunRecord(fixture)
+
+    const result = await runCli(fixture, rollbackArgs(runId), {cloudflare: applied.cloudflare, rules: [{command: 'deployments status', exitCode: 1, stderr: 'boom\n', worker: names.ledger}]})
+
+    expect(result.exitCode).toBe(1)
+    expect(writesOf(result.calls)).toEqual([])
+    expect(lastRunRecord(fixture).workers).toMatchObject({billing: {reason: 'ledger', result: 'skipped'}, ledger: {result: 'failed'}})
+    expect(Object.keys(result.cloudflare!.consumers!.jobs)).toEqual([names.ledger])
+    const again = await runCli(fixture, rollbackArgs(runId), {cloudflare: result.cloudflare})
+    expect(again.exitCode, again.stderr).toBe(0)
+    expect(Object.keys(again.cloudflare!.consumers!.jobs)).toEqual([names.billing])
+  })
+
   it('restores the worker that takes back a queue it let go of before it failed on another', async () => {
     const fixture = deployFixture()
     const live = {...(await firstRun(fixture)), queues: ['jobs', 'mail']}
