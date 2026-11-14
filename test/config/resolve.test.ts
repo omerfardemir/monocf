@@ -77,9 +77,44 @@ describe('names', () => {
     expect(orders.env).toBeUndefined()
   })
 
-  it('overwrites an explicit env name, as before', () => {
+  it('uses an env own name with no suffix, as wrangler does', () => {
     const files = {...base, ...worker('orders', {env: {staging: {name: 'my-name'}}})}
-    expect(resolved(files, 'orders', 'staging').deployedName).toBe('orders-v1-staging')
+    const orders = resolved(files, 'orders', 'staging')
+    expect(orders.deployedName).toBe('my-name')
+    expect(orders.config).toMatchObject({env: {staging: {name: 'my-name'}}, name: 'orders-v1'})
+    expect(resolved(files, 'orders', 'production').deployedName).toBe('orders-v1-production')
+  })
+
+  it('lets an env keep the top-level name', () => {
+    const files = {...base, ...worker('search', {env: {production: {name: 'search-v1'}}})}
+    expect(resolved(files, 'search', 'production').deployedName).toBe('search-v1')
+  })
+
+  it('expands {workerName} in an env name from the base config', () => {
+    const files = {
+      'base.wrangler.jsonc': {...base['base.wrangler.jsonc'], env: {production: {name: '{workerName}'}, staging: {}}},
+      ...worker('orders'),
+    }
+    expect(resolved(files, 'orders', 'production').deployedName).toBe('orders')
+  })
+
+  it('keeps NAME the top-level name when an env sets its own', () => {
+    const files = {...base, ...worker('orders', {env: {staging: {name: 'my-name'}}})}
+    expect(varsOf(resolved(files, 'orders', 'staging').config, 'staging')).toMatchObject({NAME: 'orders-v1'})
+  })
+
+  it('reports an env name that deploys as something else, without the dash rule', () => {
+    const files = {...base, ...worker('orders', {env: {staging: {name: 'My-name-'}}})}
+    const {project} = resolveFiles(files, 'staging')
+    expect(project.workers[0].deployedName).toBe('-y-name-')
+    expect(noticesOf(project.notices, 'worker-name').map(({message}) => message)).toEqual([
+      'The env.staging.name "My-name-" deploys as -y-name-, as a worker name holds only lowercase letters, digits and dashes. Rename it.',
+    ])
+  })
+
+  it('reports an env name that is not a string as a failure of that worker', () => {
+    const {project} = resolveFiles({...base, ...worker('orders', {env: {staging: {name: 3}}})}, 'staging')
+    expect(project.failures[0].error.message).toContain('"env.staging.name" must be a non-empty string')
   })
 
   it('replaces characters a name cannot hold, without lowercasing', () => {
@@ -271,6 +306,24 @@ describe('binding targets', () => {
       }),
     ])
     expect(noticesOf(project.notices, 'external-binding')).toEqual([])
+  })
+
+  it('rewrites a directory name to the env own name of the target', () => {
+    const files = {...base, ...worker('orders', binding('billing')), ...worker('billing', {env: {staging: {name: 'billing'}}})}
+    const orders = resolved(files, 'orders', 'staging')
+    expect(orders.bindings[0].target).toEqual({dir: 'billing', kind: 'local'})
+    expect(envSection(orders.config, 'staging').services).toEqual([{binding: 'B', service: 'billing'}])
+  })
+
+  it('knows the env own name of another env, and reports it as hardcoded', () => {
+    const files = {
+      ...base,
+      ...worker('orders', binding('legacy-billing')),
+      ...worker('billing', {env: {production: {name: 'legacy-billing'}}}),
+    }
+    const {project} = resolveFiles(files, 'staging')
+    expect(project.workers.find(({dir}) => dir === 'orders')!.bindings[0].target).toEqual({kind: 'external', name: 'legacy-billing'})
+    expect(noticesOf(project.notices, 'hardcoded-name')[0]).toMatchObject({targetDir: 'billing', targetEnv: 'production'})
   })
 
   it('treats the deployed name of another env as external, and reports it as hardcoded', () => {

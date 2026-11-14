@@ -226,6 +226,13 @@ describe('duplicate-name', () => {
     ])
   })
 
+  it('is an error when two envs own names are the same', () => {
+    const files = {...base, ...worker('a', {env: {staging: {name: 'shared'}}}), ...worker('b', {env: {staging: {name: 'shared'}}})}
+    expect(rule(files, 'duplicate-name', 'staging')).toEqual([
+      expect.objectContaining({level: 'error', message: 'a and b all deploy as shared, so each deploy overwrites the other.'}),
+    ])
+  })
+
   it('stays quiet when only ignored workers collide', () => {
     const files = {...base, '.monocfignore': 'a_b\na.b\n', ...worker('a_b'), ...worker('a.b'), ...worker('c')}
     expect(rule(files, 'duplicate-name')).toEqual([])
