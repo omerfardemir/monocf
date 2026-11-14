@@ -4,6 +4,10 @@
 
 monocf is easier to drive from a coding agent or a script: every failure has a stable code, the commands describe themselves, and a skill ships in the package.
 
+### Breaking changes
+
+- **An env's own `name` is used, as wrangler does.** With `"env": {"production": {"name": "search-api"}}`, the worker deploys as `search-api` in production, not `<name>-production`. 0.3.0 overwrote that name, so `plan` read and `apply` recorded a worker that plain wrangler never deploys, and service bindings pointed at it. A config that sets an env `name` it didn't mean now deploys under that name: remove it to keep `<name>-<env>`. An env `name` in the base config applies to every worker, which `check` reports as `duplicate-name` unless it holds a placeholder such as `{workerName}`. `check` also reports two envs that deploy under one name, from either env. A `null` env name counts as unset, as in wrangler. Fixes #12.
+
 ### Added
 
 - **Every failure under `--json` is an `error` event on stdout,** also a flag error, such as an unknown or missing flag, and an unknown command. Before, those printed nothing on stdout. The message still goes to stderr, and the exit code is as before. Only a topic with no command, such as `monocf secrets --json`, changes: it fails with `command-needed` and exit 2, where it printed its help.

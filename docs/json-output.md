@@ -339,7 +339,7 @@ Generated from the registry `monocf explain` reads, by `npm run docs`.
 | `cross-env-binding` | error | A binding targets another env's deployed name of a worker. | Use the directory name of the target, which monocf rewrites for each env. |
 | `cycle` | error or note | Workers bind to each other in a cycle, so nothing can deploy first. A cycle only a queue closes is a note. | Break the cycle, for example with a queue. |
 | `duplicate-binding-name` | error | A worker has more than one binding with the same name, which wrangler rejects. | Rename one of them. |
-| `duplicate-name` | error | Two workers deploy under the same name, so each deploy overwrites the other. | Give one of them another name. |
+| `duplicate-name` | error | Two workers, or one worker in two envs, deploy under the same name, so each deploy overwrites the other. | Give one of them another name. |
 | `duplicate-route` | error | Two workers claim the same route. | Remove the route from one of them. |
 | `external-binding` | warning | A binding targets a name that matches no local worker, so it passes through as external, and monocf neither orders nor checks it. | Nothing, if that is meant. Otherwise fix the name. |
 | `hardcoded-binding` | error | A service binding hardcodes a deployed name, such as orders-dev, which monocf would not rewrite for another env. | Use the directory name of the target. |

@@ -41,7 +41,16 @@ export interface ProjectInputs {
   workers: RawWorker[]
 }
 
+/** The name one worker deploys under in one env. */
+export interface EnvDeployedName {
+  deployedName: string
+  dir: string
+  env: string
+}
+
 export interface ResolvedProject {
+  /** For every env, not only the selected one, so that a name two envs share can be found from either. */
+  envDeployedNames: EnvDeployedName[]
   failures: WorkerFailure[]
   notices: Notice[]
   workers: ResolvedWorker[]
@@ -202,9 +211,36 @@ function injectVars(config: RawConfig, raw: RawWorker, name: string, env: string
 
 interface PreparedWorker {
   config: RawConfig
+  deployedName: string
   name: string
   notices: Notice[]
   raw: RawWorker
+}
+
+/** An env's own `name`. Wrangler reads it with `??`, so null counts as unset. */
+function ownEnvName(config: RawConfig, env: string, file?: string): string | undefined {
+  const {name} = envSection(config, env)
+  if (name === undefined || name === null) return undefined
+  if (typeof name !== 'string' || name === '') {
+    throw new ConfigError(`"env.${env}.name" must be a non-empty string. Remove it to deploy as the name with -${env} added.`, {code: 'config-invalid', file})
+  }
+
+  return name
+}
+
+/** Wrangler deploys an env under its own name, with no suffix, and otherwise under the name with the env added. */
+function envDeployedName(name: string, env: string, own: string | undefined): string {
+  return own === undefined ? `${name}-${env}` : sanitizeWorkerName(own)
+}
+
+/** The index has to go on past a worker whose env name can't be read, as resolveProject reports that worker anyway. */
+function tryEnvDeployedName({config, name}: NamedWorker, env: string): string | undefined {
+  try {
+    return envDeployedName(name, env, ownEnvName(config, env))
+  } catch (error) {
+    if (error instanceof ConfigError) return undefined
+    throw error
+  }
 }
 
 function prepareWorker(raw: RawWorker, inputs: ProjectInputs, options: Options): PreparedWorker {
@@ -213,23 +249,35 @@ function prepareWorker(raw: RawWorker, inputs: ProjectInputs, options: Options):
   const written = validateName(config, raw.configPath)
   const name = sanitizeWorkerName(written)
   config.name = name
-  if (env !== undefined) applyPatch(config, {env: {[env]: {name: `${name}-${env}`}}}, raw.configPath)
-  const notices = [...nameNotices(written, name, raw), ...injectVars(config, raw, name, env)]
-  return {config, name, notices, raw}
+  const notices = nameNotices(written, name, raw)
+  let deployedName = name
+  if (env !== undefined) {
+    const own = ownEnvName(config, env, raw.configPath)
+    deployedName = envDeployedName(name, env, own)
+    if (own !== undefined) notices.push(...envNameNotices(own, deployedName, raw, env))
+    applyPatch(config, {env: {[env]: {name: deployedName}}}, raw.configPath)
+  }
+
+  notices.push(...injectVars(config, raw, name, env))
+  return {config, deployedName, name, notices, raw}
 }
+
+const RENAMED = 'as a worker name holds only lowercase letters, digits and dashes'
 
 /** A name that deploys as something other than what's written, or with a dash at either end, which the env suffix doubles. */
 function nameNotices(written: string, name: string, raw: RawWorker): Notice[] {
   const problems = [
-    ...(written === name ? [] : [`deploys as ${name}, as a worker name holds only lowercase letters, digits and dashes`]),
+    ...(written === name ? [] : [`deploys as ${name}, ${RENAMED}`]),
     ...(/^-|-$/.test(written) ? ['starts or ends with a dash, and an env name follows a dash'] : []),
   ]
   if (problems.length === 0) return []
   return [{file: raw.configPath, message: `The name "${written}" ${problems.join(', and ')}. Rename it.`, type: 'worker-name', worker: raw.dir}]
 }
 
-function deployedNameOf(name: string, env?: string): string {
-  return env === undefined ? name : `${name}-${env}`
+/** An env's own name gets no suffix, so only a character it can't hold matters. */
+function envNameNotices(written: string, deployedName: string, raw: RawWorker, env: string): Notice[] {
+  if (written === deployedName) return []
+  return [{file: raw.configPath, message: `The env.${env}.name "${written}" deploys as ${deployedName}, ${RENAMED}. Rename it.`, type: 'worker-name', worker: raw.dir}]
 }
 
 type NameOwner = {dir: string; env?: string}
@@ -254,21 +302,32 @@ function nameOfFailed(dir: string, inputs: ProjectInputs, options: Options): Nam
   }
 }
 
+/** The envs a worker deploys to: those its config defines, and the selected one, which a failed config may lack. */
+function envsOf({config}: NamedWorker, env?: string): string[] {
+  const defined = Object.keys(isPlainObject(config.env) ? config.env : {})
+  return env === undefined || defined.includes(env) ? defined : [env, ...defined]
+}
+
+/** The name each local worker deploys under in each env. */
+function envDeployedNames(workers: NamedWorker[], env?: string): EnvDeployedName[] {
+  return workers.flatMap((worker) =>
+    envsOf(worker, env).flatMap((other) => {
+      const deployedName = tryEnvDeployedName(worker, other)
+      return deployedName === undefined ? [] : [{deployedName, dir: worker.dir, env: other}]
+    }),
+  )
+}
+
 /** Indexes the names local workers deploy under. The selected env comes first, so it wins over any other. */
-function indexDeployedNames(workers: NamedWorker[], env?: string): Map<string, NameOwner> {
+function indexDeployedNames(workers: NamedWorker[], names: EnvDeployedName[], env?: string): Map<string, NameOwner> {
   const owners = new Map<string, NameOwner>()
   const add = (name: string, owner: NameOwner) => {
     if (!owners.has(name)) owners.set(name, owner)
   }
 
-  for (const {dir, name} of workers) add(deployedNameOf(name, env), {dir, env})
-  for (const {config, dir, name} of workers) {
-    add(name, {dir})
-    for (const other of Object.keys(isPlainObject(config.env) ? config.env : {})) {
-      add(`${name}-${other}`, {dir, env: other})
-    }
-  }
-
+  for (const {deployedName, dir} of names.filter((entry) => entry.env === env)) add(deployedName, {dir, env})
+  for (const {dir, name} of workers) add(name, {dir})
+  for (const {deployedName, dir, env: other} of names) add(deployedName, {dir, env: other})
   return owners
 }
 
@@ -293,10 +352,10 @@ function resolveTarget(
   const local = prepared.get(name)
   if (local) {
     // Only service bindings get rewritten, so elsewhere a directory name would reach wrangler as it is.
-    if (source !== 'services' && deployedNameOf(local.name, env) !== name) {
+    if (source !== 'services' && local.deployedName !== name) {
       notices.push({
         binding,
-        message: `${worker}: ${binding} names the directory ${name} in ${source}, which reaches wrangler as written. Use the deployed name ${deployedNameOf(local.name, env)}.`,
+        message: `${worker}: ${binding} names the directory ${name} in ${source}, which reaches wrangler as written. Use the deployed name ${local.deployedName}.`,
         name,
         source,
         type: 'directory-name',
@@ -350,7 +409,7 @@ function resolveServices(
   context: TargetContext,
   notices: Notice[],
 ): ResolvedBinding[] {
-  const {env, prepared} = context
+  const {prepared} = context
   return validateList(section, 'services', file).flatMap((entry) => {
     const name = validateTargetName(entry, 'service', file)
     if (name === undefined) return []
@@ -358,8 +417,9 @@ function resolveServices(
     const binding = typeof entry.binding === 'string' ? entry.binding : name
     const target = resolveTarget({binding, name, source: 'services'}, context, notices)
     const owner = prepared.get(name)
-    // A local target given by directory name becomes the name it deploys under. Anything else stays as written.
-    if (owner) entry.service = sanitizeWorkerName(deployedNameOf(owner.name, env))
+    // A local target given by directory name becomes the name it deploys under. Anything else stays as written. An env
+    // key can hold characters a name can't, and the suffix keeps them, so the name is cleaned up here.
+    if (owner) entry.service = sanitizeWorkerName(owner.deployedName)
     return [
       {
         binding,
@@ -401,7 +461,7 @@ function resolveReferences(
 }
 
 function finishWorker(worker: PreparedWorker, context: TargetContext): {notices: Notice[]; resolved: ResolvedWorker} {
-  const {name, raw} = worker
+  const {deployedName, raw} = worker
   const {env} = context
   // A later round may finish this worker again, and finishing rewrites service names in place.
   const config = structuredClone(worker.config)
@@ -417,7 +477,7 @@ function finishWorker(worker: PreparedWorker, context: TargetContext): {notices:
     resolved: {
       bindings,
       config,
-      deployedName: deployedNameOf(name, env),
+      deployedName,
       dir: raw.dir,
       ...(env !== undefined && {env}),
       path: raw.path,
@@ -470,14 +530,16 @@ export function resolveProject(options: Options, inputs: ProjectInputs): Resolve
     ...[...prepared.values()].map(({config, name, raw}) => ({config, dir: raw.dir, name})),
     ...failures.flatMap(({dir}) => nameOfFailed(dir, inputs, options) ?? []),
   ]
+  const names = envDeployedNames(named, env)
   const finished = finishAll({
     env,
     failed: new Set(failures.map(({dir}) => dir)),
-    owners: indexDeployedNames(named, env),
+    owners: indexDeployedNames(named, names, env),
     prepared,
   })
 
   return {
+    envDeployedNames: names,
     failures: [...failures, ...finished.failures].sort((a, b) => a.dir.localeCompare(b.dir)),
     notices: finished.notices,
     workers: finished.workers,

@@ -397,7 +397,7 @@ export const CHECK_RULES = {
   },
   'duplicate-name': {
     levels: ['error'],
-    meaning: 'Two workers deploy under the same name, so each deploy overwrites the other.',
+    meaning: 'Two workers, or one worker in two envs, deploy under the same name, so each deploy overwrites the other.',
     next: 'Give one of them another name.',
   },
   'duplicate-route': {
