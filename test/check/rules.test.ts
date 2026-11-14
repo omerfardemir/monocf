@@ -1,7 +1,7 @@
 import {join} from 'node:path'
 import {describe, expect, it} from 'vitest'
 
-import {runRules} from '../../src/check/rules.js'
+import {crossEnvRoutes, runRules, type CheckContext} from '../../src/check/rules.js'
 import {readProjectInputs, resolveProject} from '../../src/config/resolve.js'
 import type {RawConfig} from '../../src/config/types.js'
 import {resolveOptions} from '../../src/project/options.js'
@@ -27,13 +27,13 @@ const base = {
   },
 }
 
-function check(files: Files, env?: string) {
+function contextFor(files: Files, env?: string): CheckContext {
   const reader = memoryReader(files)
   const options = resolveOptions({cwd: projectRoot, file: {workersDirName: 'workers'}, flags: {env}, reader})
   const inputs = readProjectInputs(options, reader)
   const all = discoverWorkers(options, reader)
   const ignored = findIgnoredWorkers(options, all, reader)
-  return runRules({
+  return {
     directories: reader.readDir(join(projectRoot, 'workers')),
     env,
     ignored,
@@ -42,7 +42,15 @@ function check(files: Files, env?: string) {
     project: resolveProject(options, inputs),
     reader,
     selected: all.filter((dir) => !ignored.includes(dir)),
-  })
+  }
+}
+
+function check(files: Files, env?: string) {
+  return runRules(contextFor(files, env))
+}
+
+function acrossEnvs(files: Files, envs: string[]) {
+  return crossEnvRoutes(envs.map((env) => contextFor(files, env)))
 }
 
 function rule(files: Files, id: string, env?: string) {
@@ -257,6 +265,80 @@ describe('duplicate-route', () => {
       ...worker('b', {env: {production: {routes: [route]}}}),
     }
     expect(rule(files, 'duplicate-route', 'staging')).toEqual([])
+  })
+})
+
+describe('cross-env-route', () => {
+  const route = {custom_domain: true, pattern: 'search.example.com'}
+  const envs = ['dev', 'production', 'staging']
+  const threeEnvs = {'base.wrangler.jsonc': {...base['base.wrangler.jsonc'], env: {dev: {}, production: {}, staging: {}}}}
+
+  it('is an error for a top-level route every env inherits, naming the envs and the deployed names', () => {
+    const files = {...threeEnvs, ...worker('search', {route})}
+    expect(acrossEnvs(files, envs)).toEqual([
+      {
+        level: 'error',
+        message:
+          'search claims the route search.example.com in dev, production and staging (search-v1-dev, search-v1-production, search-v1-staging). Only one can hold it: move the route into the env that should serve it.',
+        rule: 'cross-env-route',
+        worker: 'search',
+      },
+    ])
+  })
+
+  it('is an error for two workers that claim one pattern in different envs', () => {
+    const files = {
+      ...base,
+      ...worker('a', {env: {staging: {routes: ['example.com/*']}}}),
+      ...worker('b', {env: {production: {routes: ['example.com/*']}}}),
+    }
+    expect(acrossEnvs(files, ['production', 'staging'])).toEqual([
+      expect.objectContaining({message: expect.stringMatching(/^b and a claim the route example.com\/\* in production and staging \(b-v1-production, a-v1-staging\)/)}),
+    ])
+  })
+
+  it('stays quiet when each env has its own route', () => {
+    const files = {
+      ...base,
+      ...worker('search', {env: {production: {route}, staging: {route: {...route, pattern: 'staging.search.example.com'}}}}),
+    }
+    expect(acrossEnvs(files, ['production', 'staging'])).toEqual([])
+  })
+
+  it('leaves out an env the worker is ignored in', () => {
+    const files = {...base, '.monocfignore': 'search in staging\n', ...worker('search', {route})}
+    expect(acrossEnvs(files, ['production', 'staging'])).toEqual([])
+  })
+
+  it('leaves one env to duplicate-route', () => {
+    const files = {...base, ...worker('a', {routes: ['example.com/*']}), ...worker('b', {routes: ['example.com/*']})}
+    expect(acrossEnvs(files, ['staging'])).toEqual([])
+  })
+})
+
+describe('inherited-route', () => {
+  const route = {custom_domain: true, pattern: 'search.example.com'}
+
+  it('warns when an env inherits a top-level route that other envs inherit too', () => {
+    expect(rule({...base, ...worker('search', {route})}, 'inherited-route', 'staging')).toEqual([
+      {
+        env: 'staging',
+        level: 'warning',
+        message:
+          'search: staging inherits the top-level route search.example.com, and so does every other env that sets none. Move the route into the env that should serve it.',
+        rule: 'inherited-route',
+        worker: 'search',
+      },
+    ])
+  })
+
+  it('stays quiet when the env sets its own route, with no env, or with a single env', () => {
+    const own = {...base, ...worker('search', {env: {staging: {routes: []}}, route})}
+    expect(rule({...base, ...worker('search', {env: {staging: {route}}, route})}, 'inherited-route', 'staging')).toEqual([])
+    expect(rule(own, 'inherited-route', 'production')).toHaveLength(1)
+    expect(rule({...base, ...worker('search', {route})}, 'inherited-route')).toEqual([])
+    const single = {'base.wrangler.jsonc': {...base['base.wrangler.jsonc'], env: {production: {}}}, ...worker('search', {route})}
+    expect(rule(single, 'inherited-route', 'production')).toEqual([])
   })
 })
 

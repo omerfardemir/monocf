@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **`check --all-envs` reports a route that more than one env claims,** as the error `cross-env-route`. A top-level route is inherited by every env without its own, so the first `apply` on `dev` could move a production custom domain to a dev worker, and 0.3.0 compared routes within one env only. `check -e <env>` warns about such a route as `inherited-route`. See [Routes that more than one env claims](README.md#routes-that-more-than-one-env-claims). Fixes #11.
+
 ## 0.3.0
 
 monocf can now run a Cloudflare Workers monorepo from CI: a dependency graph, a plan, an apply that deploys only what changed, and a rollback. The middle of the tool was rewritten, so runs no longer write temp files or edit `.dev.vars` next to your source. See the [migration notes](README.md#migrating-from-02).

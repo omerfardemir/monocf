@@ -252,6 +252,27 @@ const duplicateRoute: Rule = (context) => {
     }))
 }
 
+/** A route set at the top level, which every env without its own `route` or `routes` inherits. */
+function inheritsRoutes(config: RawConfig, env?: string): boolean {
+  if (env === undefined || routePatterns(config).length === 0) return false
+  const section = envSection(config, env)
+  return section.routes === undefined && section.route === undefined
+}
+
+/**
+ * One env can't see another, so this is a warning: a top-level route that more than one env inherits sends each of
+ * their workers to the same pattern, and the last apply takes it. `check --all-envs` reports the collision itself.
+ */
+const inheritedRoute: Rule = (context) =>
+  selectedWorkers(context)
+    .filter(({config, env}) => inheritsRoutes(config, env) && Object.keys(isPlainObject(config.env) ? config.env : {}).length > 1)
+    .map(({config, dir, env}) => ({
+      level: 'warning',
+      message: `${dir}: ${env} inherits the top-level route ${routePatterns(config).join(', ')}, and so does every other env that sets none. Move the route into the env that should serve it.`,
+      rule: 'inherited-route',
+      worker: dir,
+    }))
+
 const resolveFailures: Rule = ({project, selected}) =>
   project.failures
     .filter(({dir}) => selected.includes(dir))
@@ -384,6 +405,7 @@ const RULES: Rule[] = [
   tailServiceDirectory,
   duplicateName,
   duplicateRoute,
+  inheritedRoute,
   duplicateBindingName,
   resolveFailures,
   externalBinding,
@@ -406,4 +428,45 @@ export function runRules(context: CheckContext): Finding[] {
       ...(finding.worker !== undefined && context.env !== undefined && {env: context.env}),
     })),
   )
+}
+
+function listed(items: string[]): string {
+  return items.length < 3 ? items.join(' and ') : `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`
+}
+
+interface RouteClaim {
+  deployedName: string
+  dir: string
+  env?: string
+}
+
+/**
+ * A custom domain points at one worker, and a zone route matches one, so a pattern claimed under more than one deployed
+ * name across envs goes to whichever apply ran last. Two workers in one env are `duplicate-route`, so this needs two envs.
+ */
+export function crossEnvRoutes(contexts: CheckContext[]): Finding[] {
+  const claims = new Map<string, RouteClaim[]>()
+  for (const context of contexts) {
+    for (const {config, deployedName, dir, env} of selectedWorkers(context)) {
+      for (const pattern of new Set(routePatterns(config, env))) {
+        claims.set(pattern, [...(claims.get(pattern) ?? []), {deployedName, dir, env}])
+      }
+    }
+  }
+
+  return [...claims].flatMap(([pattern, list]) => {
+    const envs = [...new Set(list.map(({env}) => env ?? 'no env'))]
+    const names = [...new Set(list.map(({deployedName}) => deployedName))]
+    if (envs.length < 2 || names.length < 2) return []
+    const dirs = [...new Set(list.map(({dir}) => dir))]
+    const claimed = `${listed(dirs)} ${dirs.length > 1 ? 'claim' : 'claims'} the route ${pattern} in ${listed(envs)} (${names.join(', ')})`
+    return [
+      {
+        level: 'error' as const,
+        message: `${claimed}. Only one can hold it: move the route into the env that should serve it.`,
+        rule: 'cross-env-route',
+        worker: dirs[0],
+      },
+    ]
+  })
 }
