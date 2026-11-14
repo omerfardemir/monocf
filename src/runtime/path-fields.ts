@@ -7,7 +7,7 @@ import {isPlainObject, type RawConfig} from '../config/types.js'
 /**
  * The fields that hold a path relative to the wrangler config or to the working directory. Wrangler runs with both in
  * the worker's run directory. A segment `[]` walks a list, and `*` walks the values of a map. A schema test checks that
- * each path-like field of wrangler has been classified, and test/real/rebase.test.ts that wrangler finds the files.
+ * each path-like field of wrangler has been classified.
  */
 export const REBASED_FIELDS = [
   'alias.*',

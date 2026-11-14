@@ -7,7 +7,5 @@ export default defineConfig({
     include: ['test/**/*.test.ts'],
     // Unit tests call process.chdir, which worker threads don't support.
     pool: 'forks',
-    testTimeout: 60_000,
-    hookTimeout: 60_000,
   },
 })
