@@ -1041,6 +1041,15 @@ monocf handles this when it does the creating. Before `apply` creates a worker t
 
 **If you delete and recreate a provider by hand, redeploy its callers too.** Nothing can see that it happened.
 
+### Routes that more than one env claims
+
+Every env that sets no `route` or `routes` of its own inherits the top-level one, whether it's in the worker's config or the base config. So `"route": {"pattern": "search.example.com", "custom_domain": true}` at the top of `search`'s config sends `search-v1-dev`, `search-v1-staging` and `search-v1-production` all to that domain. A custom domain points at one worker and a zone route matches one, so the last `apply` takes it: a first `apply` on `dev` can move the production domain to a dev worker.
+
+- `check --all-envs` compares every env, and reports a pattern claimed under more than one deployed name as the error `cross-env-route`, naming the envs and the names.
+- `check -e <env>` can't see what the other envs deploy, so it warns, as `inherited-route`, when the env inherits a top-level route that another env the worker defines inherits too. `check --all-envs` doesn't give this warning, as it compares the routes instead.
+
+Put the route in the env that should serve it, as in `"env": {"production": {"route": ...}}`.
+
 ### Routes that are removed
 
 Wrangler only publishes a route list with something in it, so removing a worker's last route leaves it attached on Cloudflare. monocf has no zone to check against, so `plan` adds a `routes-removed` note. Remove the route by hand, in the dashboard or the API.
