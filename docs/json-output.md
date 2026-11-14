@@ -337,6 +337,7 @@ Generated from the registry `monocf explain` reads, by `npm run docs`.
 | Rule | Level | Meaning | What to do |
 |---|---|---|---|
 | `cross-env-binding` | error | A binding targets another env's deployed name of a worker. | Use the directory name of the target, which monocf rewrites for each env. |
+| `cross-env-route` | error | One route is claimed under more than one deployed name across envs, often a top-level route every env inherits, so whichever apply ran last holds it. | Move the route into the env that should serve it. |
 | `cycle` | error or note | Workers bind to each other in a cycle, so nothing can deploy first. A cycle only a queue closes is a note. | Break the cycle, for example with a queue. |
 | `duplicate-binding-name` | error | A worker has more than one binding with the same name, which wrangler rejects. | Rename one of them. |
 | `duplicate-name` | error | Two workers, or one worker in two envs, deploy under the same name, so each deploy overwrites the other. | Give one of them another name. |
@@ -348,6 +349,7 @@ Generated from the registry `monocf explain` reads, by `npm run docs`.
 | `ignored-negation-unused` | warning | A .monocfignore line starting with `!`, scoped or not, reaches only workers that no line before it ignores, so it does nothing. | Remove it. `!` undoes an earlier line; it does not mean "not". |
 | `ignored-stale` | warning | A .monocfignore line with no scope matches no directory. | Remove the line if its worker is gone. |
 | `ignored-unknown-env` | error | .monocfignore has a scope naming an env that neither the base config nor any worker defines, as in `except produciton`. Every command that selects workers stops on this too. | Fix the env name. |
+| `inherited-route` | warning | This env inherits a top-level route that another env inherits too, so their workers fight over it. `check --all-envs` reports it as `cross-env-route`. | Move the route into the env that should serve it. |
 | `missing-env` | error | A selected worker does not define the env. | Define it under "env", or ignore the worker in that env in .monocfignore. |
 | `missing-main` | error | A worker has no main file that exists, and no assets or site. | Fix main in its config. |
 | `name-length` | error | A deployed name is over 63 characters, or holds something other than lowercase letters, digits and inner dashes. | Shorten or change the name. |

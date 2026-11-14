@@ -385,6 +385,11 @@ export const CHECK_RULES = {
     meaning: "A binding targets another env's deployed name of a worker.",
     next: 'Use the directory name of the target, which monocf rewrites for each env.',
   },
+  'cross-env-route': {
+    levels: ['error'],
+    meaning: 'One route is claimed under more than one deployed name across envs, often a top-level route every env inherits, so whichever apply ran last holds it.',
+    next: 'Move the route into the env that should serve it.',
+  },
   cycle: {
     levels: ['error', 'note'],
     meaning: 'Workers bind to each other in a cycle, so nothing can deploy first. A cycle only a queue closes is a note.',
@@ -441,6 +446,11 @@ export const CHECK_RULES = {
     meaning:
       '.monocfignore has a scope naming an env that neither the base config nor any worker defines, as in `except produciton`. Every command that selects workers stops on this too.',
     next: 'Fix the env name.',
+  },
+  'inherited-route': {
+    levels: ['warning'],
+    meaning: 'This env inherits a top-level route that another env inherits too, so their workers fight over it. `check --all-envs` reports it as `cross-env-route`.',
+    next: 'Move the route into the env that should serve it.',
   },
   'missing-env': {
     levels: ['error'],

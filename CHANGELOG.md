@@ -18,6 +18,7 @@ monocf is easier to drive from a coding agent or a script: every failure has a s
 - **`run-started` carries a `runId`** for `apply` and `rollback`, the ID `rollback --to-run` takes.
 - **[docs/json-output.md](docs/json-output.md)** describes every event, document, the plan file and the bundle manifest. It ships in the package.
 - **A skill for coding agents,** at `skills/monocf/SKILL.md` in the package. See [Coding agents](README.md#coding-agents) for where to copy it.
+- **`check --all-envs` reports a route that more than one env claims,** as the error `cross-env-route`. A top-level route is inherited by every env without its own, so the first `apply` on `dev` could move a production custom domain to a dev worker, and 0.3.0 compared routes within one env only. `check -e <env>` warns about such a route as `inherited-route`, so `check -e <env> --strict` can now fail where it passed. See [Routes that more than one env claims](README.md#routes-that-more-than-one-env-claims). Fixes #11.
 
 ### Changed
 

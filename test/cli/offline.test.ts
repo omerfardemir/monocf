@@ -266,6 +266,21 @@ describe('monocf check', () => {
     expect(summary).not.toContainEqual(['missing-env', 'qa', 'billing'])
   })
 
+  it('--all-envs reports a route that more than one env claims, which one env alone only warns about', async () => {
+    const route = {custom_domain: true, pattern: 'search.example.com'}
+    const fixture = createFixture({environments, workers: [{config: {route}, name: 'search'}]})
+
+    const all = await offline(fixture, ['check', '--all-envs', '--json'])
+    expect(all.exitCode).toBe(2)
+    const rules = JSON.parse(all.stdout).findings.map(({rule}: {rule: string}) => rule)
+    expect(rules).toContain('cross-env-route')
+    expect(rules).not.toContain('inherited-route')
+
+    const dev = await offline(fixture, ['check', '-e', 'dev', '--json'])
+    expect(dev.exitCode).toBe(0)
+    expect(JSON.parse(dev.stdout).findings).toEqual([expect.objectContaining({level: 'warning', rule: 'inherited-route'})])
+  })
+
   it('--all-envs lists a finding about the project once', async () => {
     const fixture = createFixture({environments, ignore: ['gone'], workers: [{name: 'orders'}]})
     const {findings} = JSON.parse((await offline(fixture, ['check', '--all-envs', '--json'])).stdout)

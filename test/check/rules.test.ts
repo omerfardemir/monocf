@@ -1,7 +1,7 @@
 import {join} from 'node:path'
 import {describe, expect, it} from 'vitest'
 
-import {runRules} from '../../src/check/rules.js'
+import {runChecks, type CheckContext} from '../../src/check/rules.js'
 import {readProjectInputs, resolveProject} from '../../src/config/resolve.js'
 import type {RawConfig} from '../../src/config/types.js'
 import {resolveOptions} from '../../src/project/options.js'
@@ -27,13 +27,13 @@ const base = {
   },
 }
 
-function check(files: Files, env?: string) {
+function contextFor(files: Files, env?: string): CheckContext {
   const reader = memoryReader(files)
   const options = resolveOptions({cwd: projectRoot, file: {workersDirName: 'workers'}, flags: {env}, reader})
   const inputs = readProjectInputs(options, reader)
   const all = discoverWorkers(options, reader)
   const ignored = findIgnoredWorkers(options, all, reader)
-  return runRules({
+  return {
     directories: reader.readDir(join(projectRoot, 'workers')),
     env,
     ignored,
@@ -42,7 +42,15 @@ function check(files: Files, env?: string) {
     project: resolveProject(options, inputs),
     reader,
     selected: all.filter((dir) => !ignored.includes(dir)),
-  })
+  }
+}
+
+function check(files: Files, env?: string) {
+  return runChecks([contextFor(files, env)])
+}
+
+function acrossEnvs(files: Files, envs: string[], id = 'cross-env-route') {
+  return runChecks(envs.map((env) => contextFor(files, env))).filter((finding) => finding.rule === id)
 }
 
 function rule(files: Files, id: string, env?: string) {
@@ -286,6 +294,98 @@ describe('duplicate-route', () => {
       ...worker('b', {env: {production: {routes: [route]}}}),
     }
     expect(rule(files, 'duplicate-route', 'staging')).toEqual([])
+  })
+})
+
+describe('cross-env-route', () => {
+  const route = {custom_domain: true, pattern: 'search.example.com'}
+  const envs = ['dev', 'production', 'staging']
+  const threeEnvs = {'base.wrangler.jsonc': {...base['base.wrangler.jsonc'], env: {dev: {}, production: {}, staging: {}}}}
+
+  it('is an error for a top-level route every env inherits, pairing each env with its deployed name', () => {
+    const files = {...threeEnvs, ...worker('search', {route})}
+    expect(acrossEnvs(files, envs)).toEqual([
+      {
+        level: 'error',
+        message:
+          'search claims the route search.example.com in dev as search-v1-dev, production as search-v1-production and staging as search-v1-staging. Only one can hold it: move the route into the env that should serve it.',
+        rule: 'cross-env-route',
+        worker: 'search',
+      },
+    ])
+  })
+
+  it('is an error for two workers that claim one pattern in different envs', () => {
+    const files = {
+      ...base,
+      ...worker('a', {env: {staging: {routes: ['example.com/*']}}}),
+      ...worker('b', {env: {production: {routes: ['example.com/*']}}}),
+    }
+    expect(acrossEnvs(files, ['production', 'staging'])).toEqual([
+      expect.objectContaining({
+        message:
+          'b and a claim the route example.com/*: b in production as b-v1-production and a in staging as a-v1-staging. Only one can hold it: move the route into the env that should serve it.',
+      }),
+    ])
+  })
+
+  it('stays quiet when each env has its own route', () => {
+    const files = {
+      ...base,
+      ...worker('search', {env: {production: {route}, staging: {route: {...route, pattern: 'staging.search.example.com'}}}}),
+    }
+    expect(acrossEnvs(files, ['production', 'staging'])).toEqual([])
+  })
+
+  it('leaves out an env the worker is ignored in', () => {
+    const files = {...base, '.monocfignore': 'search in staging\n', ...worker('search', {route})}
+    expect(acrossEnvs(files, ['production', 'staging'])).toEqual([])
+  })
+
+  it('leaves one env to duplicate-route', () => {
+    const files = {...base, ...worker('a', {routes: ['example.com/*']}), ...worker('b', {routes: ['example.com/*']})}
+    expect(acrossEnvs(files, ['staging'])).toEqual([])
+  })
+})
+
+describe('inherited-route', () => {
+  const route = {custom_domain: true, pattern: 'search.example.com'}
+
+  it('warns when an env inherits a top-level route that another env inherits too, naming it', () => {
+    expect(rule({...base, ...worker('search', {route})}, 'inherited-route', 'staging')).toEqual([
+      {
+        env: 'staging',
+        level: 'warning',
+        message:
+          'search: staging inherits the top-level route search.example.com, and so does production. Move the route into the env that should serve it.',
+        rule: 'inherited-route',
+        worker: 'search',
+      },
+    ])
+  })
+
+  it('stays quiet in an env that sets its own route', () => {
+    expect(rule({...base, ...worker('search', {env: {staging: {route}}, route})}, 'inherited-route', 'staging')).toEqual([])
+  })
+
+  it('stays quiet when no other env inherits the route', () => {
+    const files = {...base, ...worker('search', {env: {staging: {routes: ['staging.search.example.com']}}, route})}
+    expect(rule(files, 'inherited-route', 'production')).toEqual([])
+  })
+
+  it('stays quiet with no env, with a single env, or in an env the worker does not define', () => {
+    expect(rule({...base, ...worker('search', {route})}, 'inherited-route')).toEqual([])
+    const single = {'base.wrangler.jsonc': {...base['base.wrangler.jsonc'], env: {production: {}}}, ...worker('search', {route})}
+    expect(rule(single, 'inherited-route', 'production')).toEqual([])
+    const ownEnvs = {'base.wrangler.jsonc': {...base['base.wrangler.jsonc'], env: undefined}, ...worker('search', {env: {dev: {}, production: {}}, route})}
+    expect(rule(ownEnvs, 'inherited-route', 'staging')).toEqual([])
+    expect(rule(ownEnvs, 'inherited-route', 'dev')).toHaveLength(1)
+  })
+
+  it('never runs with several envs, which cross-env-route compares instead', () => {
+    const ignoredElsewhere = {...base, '.monocfignore': 'search in staging\n', ...worker('search', {route})}
+    expect(acrossEnvs(ignoredElsewhere, ['production', 'staging'], 'inherited-route')).toEqual([])
+    expect(acrossEnvs({...base, ...worker('search', {route})}, ['production', 'staging'], 'inherited-route')).toEqual([])
   })
 })
 
