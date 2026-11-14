@@ -6,7 +6,7 @@ monocf is easier to drive from a coding agent or a script: every failure has a s
 
 ### Added
 
-- **Every failure under `--json` is an `error` event on stdout,** also a flag error, such as an unknown or missing flag, and an unknown command. Before, those printed nothing on stdout. The message still goes to stderr, and the exit code is as before.
+- **Every failure under `--json` is an `error` event on stdout,** also a flag error, such as an unknown or missing flag, and an unknown command. Before, those printed nothing on stdout. The message still goes to stderr, and the exit code is as before. Only a topic with no command, such as `monocf secrets --json`, changes: it fails with `command-needed` and exit 2, where it printed its help.
 - **Error events carry a stable `code`,** such as `state-scheme-unsupported` or `plan-stale`, and a `hint` saying what to do next.
 - **`monocf explain <code>`** says what an error code, a `check` rule or a plan reason means, and what to do. `--json` gives one document, and no code lists them all.
 - **`monocf commands`** lists every command, and whether it's `offline`, `reads-cloudflare` or `writes-cloudflare`. `--json` adds each command's flags, required flags, exit codes and examples.

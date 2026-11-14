@@ -7,7 +7,7 @@ To use monocf in a project, read [skills/monocf/SKILL.md](skills/monocf/SKILL.md
 - `npm run build` compiles to `dist`. The CLI tests run `bin/run.js`, which runs `dist`, and the test setup rebuilds it first.
 - `npm test` runs vitest, then lint. Tests under `test/real` run the real wrangler with no network.
 - `npm run readme` regenerates the command reference in README.md. Run it after changing a command's flags, args, description or examples.
-- `npm run docs` regenerates the tables of codes in docs/json-output.md from the registry. Run it after `npm run build` when a code changes.
+- `npm run docs` regenerates the tables of codes in docs/json-output.md, and the tables of plan reasons and `.monocfignore` rules in README.md, from the registry. Run it after `npm run build` when a code changes.
 
 ## Layout
 

@@ -164,13 +164,15 @@ workers/nightly-report except production
 
 `check` looks after this file:
 
-| Rule | Level | What it means |
-|---|---|---|
-| `ignored-dependency` | error | A selected worker binds to one that's ignored in that env |
-| `ignored-malformed` | error | A scope with no names, an empty name or something that isn't a name, as in `workers/x except a,,b` or `workers/x except production # note`; a pattern with unescaped whitespace inside or at the start, as in `workers/x excpet production`; or a scoped line whose pattern matches no directory. Every command that selects workers stops on this too, as nothing says what the line was meant to leave out |
-| `ignored-unknown-env` | error | A scope names an env that neither the base config nor any worker defines, as in `except produciton`. Every command that selects workers stops on this too |
-| `ignored-stale` | warning | A line with no scope matches no directory |
-| `ignored-negation-unused` | warning | A line starting with `!`, scoped or not, reaches only workers that no line before it ignores, so it does nothing. `!` undoes an earlier line; it doesn't mean "not" |
+<!-- ignore-rules -->
+| Rule | Level | Meaning | What to do |
+|---|---|---|---|
+| `ignored-dependency` | error | A selected worker binds to one that's ignored in that env. | Stop ignoring the target in that env, or remove the binding. |
+| `ignored-malformed` | error | A .monocfignore line nothing can read: a scope with no names, an empty name or something that isn't a name, as in `workers/x except a,,b` or `workers/x except production # note`; a pattern with unescaped whitespace inside or at the start, as in `workers/x excpet production`; or a scoped line whose pattern matches no directory. Every command that selects workers stops on this too, as nothing says what the line was meant to leave out. | Fix the line. Write a space in a directory name as "\ ". |
+| `ignored-negation-unused` | warning | A .monocfignore line starting with `!`, scoped or not, reaches only workers that no line before it ignores, so it does nothing. | Remove it. `!` undoes an earlier line; it does not mean "not". |
+| `ignored-stale` | warning | A .monocfignore line with no scope matches no directory. | Remove the line if its worker is gone. |
+| `ignored-unknown-env` | error | .monocfignore has a scope naming an env that neither the base config nor any worker defines, as in `except produciton`. Every command that selects workers stops on this too. | Fix the env name. |
+<!-- ignore-rulesstop -->
 
 `check` and `check --all-envs` give each env its own ignored set. A worker ignored in an env gets no `missing-env` there, so a production-only worker needs no `dev` section.
 
@@ -1147,14 +1149,14 @@ These are a stable contract.
 |---|---|
 | 0 | Everything requested succeeded |
 | 1 | One or more workers failed. `plan`: drift blocks a worker. `bundle`: a service binding names an entrypoint that doesn't exist |
-| 2 | Usage or config error, or a stale plan. Nothing was attempted |
-| 3 | Environment error: wrangler missing or too old, a state store or manifest that can't be used, an output path that can't be written, or a `plan` refused by a guard |
+| 2 | Usage or config error, or a stale plan. `apply` also exits 2 for a plan that is blocked, or that a guard refused, with `plan-blocked` or `plan-refused`. Nothing was attempted |
+| 3 | Environment error: wrangler missing or too old, a state store or manifest that can't be used, an output path that can't be written, or a `plan` refused by a guard. That `plan` still writes the plan, with `refused` set, and prints no `error` event |
 | 129, 130, 143 | Interrupted by SIGHUP, SIGINT or SIGTERM. Partial results are reported |
 | 128 + n | A wrangler process was killed by signal n from outside |
 
 A wrangler that fails gives exit 1, and its own exit code appears in the message. On Windows a kill from outside can't be told apart from exit 1.
 
-`stdout` carries results only. Progress and wrangler's output go to `stderr`, except that `dev` without `--json` and `whoami` hand wrangler the terminal.
+`stdout` carries results only. Progress and wrangler's output go to `stderr`, except that `dev` and `whoami` without `--json` hand wrangler the terminal. `whoami --json` captures wrangler's output and prints one `whoami` event.
 
 With `--json`, commands print one JSON object per line. Each has a `schemaVersion` and a `type`. [docs/json-output.md](docs/json-output.md) describes every field, and the plan file and bundle manifest too:
 
@@ -1235,6 +1237,28 @@ When in doubt, a file counts: a false "changed" costs one redeploy, and a false 
 
 `upload` can also carry `drift`, `split`, `baseline`, `secret-changed` or `provider-recreated`, as the sections above describe.
 
+What each reason means, as `monocf explain <reason>` gives it:
+
+<!-- plan-reasons -->
+| Reason | Meaning | What to do |
+|---|---|---|
+| `baseline` | The worker exists with no state entry, and its tag differs from this bundle: monocf has never deployed it, or lost track of it. | Check that it is the worker you mean. Under --on-drift fail it is blocked until a person agrees to plan with --on-drift warn. |
+| `bundle-changed` | The built code differs from what is deployed. |  |
+| `config-changed` | The resolved config for this env differs from what is deployed. |  |
+| `do-changed` | Durable Object classes or migrations changed, so the worker goes out by wrangler deploy. |  |
+| `drift` | The active version on Cloudflare isn't the one in the state, for example after someone ran wrangler deploy by hand. | Find out who deployed what. Under --on-drift fail the worker is blocked until a person agrees to deploy over it. |
+| `external-changed` | What wrangler uploads from outside the output directory changed: assets, a site bucket, modules, or a container build context. |  |
+| `needs-deploy` | The worker has a site or a container, which versions upload can't carry, so it goes out by wrangler deploy. |  |
+| `new` | The worker doesn't exist on Cloudflare, so apply creates it. |  |
+| `provider-recreated` | A worker this one binds to was created again, so this one needs a new version to reach it. |  |
+| `secret-changed` | A secret command made the active version over known code. The upload tags it, and the secret carries over. Not drift. |  |
+| `split` | A split rollout is live, across more than one version. | Finish or undo the rollout, or let a person decide to deploy over it. |
+| `state-behind` | The live version carries monocf's tag, but the state names another: a run likely stopped before writing state. apply records it and applies the triggers. |  |
+| `state-missing` | The worker is live with the tag of this bundle, but the state has no entry. apply adopts it with no new version. |  |
+| `triggers-changed` | The code is live, and only its triggers, such as crons or routes, are behind. |  |
+| `unchanged` | Nothing changed. |  |
+<!-- plan-reasonsstop -->
+
 **A worker gone from the repository** gets an `orphan` note while the state knows it. monocf never deletes a worker, so the note stays while the worker is live, and the worker keeps its queue consumers. Delete it yourself with `wrangler delete <deployed name>`. The next `plan` reads it, finds it gone, and notes `orphan-gone`, and that plan's `apply` drops its entry from the state, which clears the note. The read uses `CLOUDFLARE_ACCOUNT_ID`, and only when that's the account the entry recorded, as another account would say any worker is gone. So an orphan that deployed to another account through its own `account_id` never clears by itself: once it's deleted, remove its entry from the state manifest by hand.
 
 Removing every cron is handled too: `apply` writes an explicit `"crons": []`, since wrangler leaves deployed crons alone when the key is absent.
@@ -1294,7 +1318,7 @@ These now fail with exit 2 where they used to be ignored or misread:
 Other changes:
 
 - A `.monocfignore` line ending in `/`, such as `workers/orders/`, now ignores that worker. 0.2 matched nothing with such a line, so the worker was still deployed. Take the line out if the worker should still deploy.
-- Progress lines and wrangler's output go to `stderr`. `dev` without `--json` and `whoami` still hand wrangler the terminal, and `dev --json` sends wrangler's output to `stderr`. `build -a` no longer prints the list of generated configs. A script that read wrangler's output from monocf's `stdout` reads `stderr` now.
+- Progress lines and wrangler's output go to `stderr`. `dev` and `whoami` without `--json` still hand wrangler the terminal. `dev --json` sends wrangler's output to `stderr`, and `whoami --json` captures it. `build -a` no longer prints the list of generated configs. A script that read wrangler's output from monocf's `stdout` reads `stderr` now.
 - `monocf worker -c <action>` still works and prints a deprecation line. Use `monocf <action>`.
 - `-e dev` now reads `.dev.vars.dev`, like any other env.
 - Exit codes follow the table above. A failed wrangler gives 1, not its own code.

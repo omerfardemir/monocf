@@ -1,3 +1,4 @@
+import type {FindingLevel} from '../check/rules.js'
 import type {PlanReason} from '../plan/plan.js'
 
 /**
@@ -10,8 +11,15 @@ export interface Explanation {
   next?: string
 }
 
-/** `signal` is 128 + the signal's number, such as 130 for SIGINT. */
-export type ExitCodeOf = 'signal' | 1 | 2 | 3
+/** A signal has no one exit code: it's 128 + the signal's number, such as 130 for SIGINT. `monocf commands` uses this key too. */
+export const SIGNAL_EXIT = '128+n'
+
+export type ExitCodeOf = 1 | 2 | 3 | typeof SIGNAL_EXIT
+
+/** How an exit code reads in a table or a line of text, where `128+n` would look like a typo. */
+export function exitCodeText(exitCode: ExitCodeOf): string {
+  return exitCode === SIGNAL_EXIT ? '128 + n' : String(exitCode)
+}
 
 export interface ErrorExplanation extends Explanation {
   exitCode: ExitCodeOf
@@ -60,6 +68,11 @@ export const ERROR_CODES = {
     meaning: "git can't say whether the checkout has changes, so nothing says that the plan describes it.",
     next: 'Run apply in a git checkout with git on the PATH.',
   },
+  'command-needed': {
+    exitCode: 2,
+    meaning: "The command line names a topic, such as secrets, and none of its commands. Without --json, monocf prints the topic's help instead.",
+    next: "Run monocf commands --json, and name one of the topic's commands.",
+  },
   'config-invalid': {
     exitCode: 2,
     meaning: "A config file can't be read or used: monocf.config.json, a wrangler config, the base config or a package.json. Bad JSON, an unknown key, a field of the wrong type, a null under a base config, or a worker with no name.",
@@ -96,7 +109,7 @@ export const ERROR_CODES = {
     next: 'Run again with DEBUG=1 for a stack trace, and report it at https://github.com/omerfardemir/monocf/issues.',
   },
   interrupted: {
-    exitCode: 'signal',
+    exitCode: SIGNAL_EXIT,
     meaning: 'monocf was interrupted by SIGHUP, SIGINT or SIGTERM. Partial results were reported.',
     next: 'For apply or rollback, plan again or run the rollback again, which picks up where it stopped.',
   },
@@ -172,7 +185,7 @@ export const ERROR_CODES = {
   },
   'plan-refused': {
     exitCode: 2,
-    meaning: 'The plan was refused by a guard, as it looked like the wrong account or state, and plan exited 3.',
+    meaning: 'apply was given a plan that a guard refused when it was made, as it looked like the wrong account or state. That plan run exited 3, and apply exits 2.',
     next: "Read the plan's refused field. Check account_id and CLOUDFLARE_ACCOUNT_ID, then plan again, with --first-run or --allow-recreate only if a person confirms it.",
   },
   'plan-schema-unsupported': {
@@ -331,7 +344,7 @@ export const ERROR_CODES = {
     next: "Read wrangler's message, and its output on stderr.",
   },
   'wrangler-killed': {
-    exitCode: 'signal',
+    exitCode: SIGNAL_EXIT,
     meaning: 'A wrangler process was killed by a signal from outside.',
     next: 'Find what killed it, such as a CI timeout or a lack of memory, and run again.',
   },
@@ -357,101 +370,134 @@ export type ErrorCode = keyof typeof ERROR_CODES
 /** The codes a ConfigError can carry: nothing was attempted. */
 export type UsageErrorCode = {[K in ErrorCode]: (typeof ERROR_CODES)[K]['exitCode'] extends 2 ? K : never}[ErrorCode]
 
+/** The codes of a problem with the machine, not the project, such as a missing wrangler. */
+export type EnvironmentErrorCode = {[K in ErrorCode]: (typeof ERROR_CODES)[K]['exitCode'] extends 3 ? K : never}[ErrorCode]
+
+/** A rule reports at one level, or at a second in some cases, as a cycle only a queue closes is a note. */
+export interface CheckRuleExplanation extends Explanation {
+  levels: readonly FindingLevel[]
+}
+
 /** A new rule needs an entry here before it can report anything. */
 export const CHECK_RULES = {
   'cross-env-binding': {
+    levels: ['error'],
     meaning: "A binding targets another env's deployed name of a worker.",
     next: 'Use the directory name of the target, which monocf rewrites for each env.',
   },
   cycle: {
+    levels: ['error', 'note'],
     meaning: 'Workers bind to each other in a cycle, so nothing can deploy first. A cycle only a queue closes is a note.',
     next: 'Break the cycle, for example with a queue.',
   },
   'duplicate-binding-name': {
+    levels: ['error'],
     meaning: 'A worker has more than one binding with the same name, which wrangler rejects.',
     next: 'Rename one of them.',
   },
   'duplicate-name': {
+    levels: ['error'],
     meaning: 'Two workers deploy under the same name, so each deploy overwrites the other.',
     next: 'Give one of them another name.',
   },
   'duplicate-route': {
+    levels: ['error'],
     meaning: 'Two workers claim the same route.',
     next: 'Remove the route from one of them.',
   },
   'external-binding': {
+    levels: ['warning'],
     meaning: 'A binding targets a name that matches no local worker, so it passes through as external, and monocf neither orders nor checks it.',
     next: 'Nothing, if that is meant. Otherwise fix the name.',
   },
   'hardcoded-binding': {
+    levels: ['error'],
     meaning: 'A service binding hardcodes a deployed name, such as orders-dev, which monocf would not rewrite for another env.',
     next: 'Use the directory name of the target.',
   },
   'ignored-dependency': {
+    levels: ['error'],
     meaning: "A selected worker binds to one that's ignored in that env.",
     next: 'Stop ignoring the target in that env, or remove the binding.',
   },
   'ignored-malformed': {
-    meaning: '.monocfignore has a line nothing can read: a bad scope, unescaped whitespace, or a scoped pattern that matches no directory.',
+    levels: ['error'],
+    meaning:
+      "A .monocfignore line nothing can read: a scope with no names, an empty name or something that isn't a name, as in `workers/x except a,,b` or `workers/x except production # note`; a pattern with unescaped whitespace inside or at the start, as in `workers/x excpet production`; or a scoped line whose pattern matches no directory. Every command that selects workers stops on this too, as nothing says what the line was meant to leave out.",
     next: String.raw`Fix the line. Write a space in a directory name as "\ ".`,
   },
   'ignored-negation-unused': {
-    meaning: 'A .monocfignore line starting with ! reaches only workers that no line before it ignores, so it does nothing.',
-    next: 'Remove it. ! undoes an earlier line; it does not mean "not".',
+    levels: ['warning'],
+    meaning: 'A .monocfignore line starting with `!`, scoped or not, reaches only workers that no line before it ignores, so it does nothing.',
+    next: 'Remove it. `!` undoes an earlier line; it does not mean "not".',
   },
   'ignored-stale': {
+    levels: ['warning'],
     meaning: 'A .monocfignore line with no scope matches no directory.',
     next: 'Remove the line if its worker is gone.',
   },
   'ignored-unknown-env': {
-    meaning: '.monocfignore has a scope naming an env that neither the base config nor any worker defines.',
+    levels: ['error'],
+    meaning:
+      '.monocfignore has a scope naming an env that neither the base config nor any worker defines, as in `except produciton`. Every command that selects workers stops on this too.',
     next: 'Fix the env name.',
   },
   'missing-env': {
+    levels: ['error'],
     meaning: 'A selected worker does not define the env.',
     next: 'Define it under "env", or ignore the worker in that env in .monocfignore.',
   },
   'missing-main': {
+    levels: ['error'],
     meaning: 'A worker has no main file that exists, and no assets or site.',
     next: 'Fix main in its config.',
   },
   'name-length': {
+    levels: ['error'],
     meaning: 'A deployed name is over 63 characters, or holds something other than lowercase letters, digits and inner dashes.',
     next: 'Shorten or change the name.',
   },
   'no-compat-date': {
+    levels: ['warning'],
     meaning: 'A worker has no compatibility_date.',
     next: 'Set one, in the base config or the worker config.',
   },
   'resolve-failed': {
+    levels: ['error'],
     meaning: "A worker's config failed to resolve.",
     next: 'Read the message, and fix the file it names.',
   },
   'script-name-directory': {
+    levels: ['error'],
     meaning: 'A Durable Object or Workflow binding names a directory, which reaches wrangler as written, not as a deployed name.',
     next: 'Use the deployed name the message gives.',
   },
   'self-binding': {
+    levels: ['warning'],
     meaning: 'A worker binds to itself. It adds no order, and a first deploy of such a worker fails on Cloudflare.',
     next: 'Remove the binding, or deploy the worker once without it.',
   },
   'tail-service-directory': {
+    levels: ['error'],
     meaning: 'A tail consumer or a dispatch namespace outbound names a directory, which reaches wrangler as written, not as a deployed name.',
     next: 'Use the deployed name the message gives.',
   },
   'unknown-entrypoint': {
+    levels: ['error', 'warning'],
     meaning: "bundle: a service binding names an entrypoint the target doesn't export. A warning when the target's exports can't be read.",
     next: 'Fix the entrypoint, or export it.',
   },
   'unknown-placeholder': {
+    levels: ['error'],
     meaning: 'A config uses a placeholder that monocf.config.json does not define, or one outside a string.',
     next: 'Define it under "variables" in monocf.config.json.',
   },
   'worker-name': {
+    levels: ['warning'],
     meaning: 'A worker name deploys as something other than what is written, or starts or ends with a dash.',
     next: 'Rename it to lowercase letters, digits and inner dashes.',
   },
-} as const satisfies Record<string, Explanation>
+} as const satisfies Record<string, CheckRuleExplanation>
 
 export type CheckRule = keyof typeof CHECK_RULES
 
@@ -496,11 +542,14 @@ export type ExplainKind = 'check-rule' | 'error' | 'plan-reason'
 
 export interface ExplainEntry extends Explanation {
   code: string
+  /** An error code's only. */
   exitCode?: ExitCodeOf
   kind: ExplainKind
+  /** A check rule's only. */
+  levels?: readonly FindingLevel[]
 }
 
-function entries(kind: ExplainKind, table: Record<string, Explanation>): ExplainEntry[] {
+function entries(kind: ExplainKind, table: Record<string, CheckRuleExplanation | ErrorExplanation | Explanation>): ExplainEntry[] {
   return Object.entries(table).map(([code, explanation]) => ({code, kind, ...explanation}))
 }
 

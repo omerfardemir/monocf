@@ -1,6 +1,6 @@
 import {Args, Flags} from '@oclif/core'
 
-import {BaseCommand, EXIT_MEANINGS} from '../../app/base-command.js'
+import {BaseCommand, WRANGLER_EXIT_CODES} from '../../app/base-command.js'
 import {runSecretsDeploy} from '../../app/secrets.js'
 
 export default class SecretsDeploy extends BaseCommand {
@@ -18,7 +18,7 @@ export default class SecretsDeploy extends BaseCommand {
     'root-dir': Flags.string({char: 'r', description: 'Root directory of the project'}),
     'workers-dir-name': Flags.string({char: 'w', description: 'Workers directory name in monorepo'}),
   }
-  static exitCodes = {0: EXIT_MEANINGS.ok, 1: EXIT_MEANINGS.workerFailed, 2: EXIT_MEANINGS.usage, 3: EXIT_MEANINGS.environment, '128+n': EXIT_MEANINGS.signal}
+  static exitCodes = WRANGLER_EXIT_CODES
   static safety = 'writes-cloudflare' as const
 
   async run(): Promise<void> {

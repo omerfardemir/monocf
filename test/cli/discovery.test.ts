@@ -2,7 +2,7 @@ import {readdirSync, readFileSync} from 'node:fs'
 import {join} from 'node:path'
 import {beforeAll, describe, expect, it} from 'vitest'
 
-import {formatCodesMarkdown} from '../../src/explain/markdown.js'
+import {formatCodesMarkdown, formatReadmeTables, replaceMarked} from '../../src/explain/markdown.js'
 import {CHECK_RULES, ERROR_CODES, PLAN_REASONS} from '../../src/explain/registry.js'
 import {loadCommands, repoRoot, type CommandClass} from '../helpers/commands.js'
 import {createFixture, runCli} from '../helpers/harness.js'
@@ -49,6 +49,8 @@ describe('monocf commands', () => {
     expect(plan.flags.find(({name}: {name: string}) => name === 'on-drift')).toMatchObject({default: 'warn', options: ['warn', 'fail'], type: 'option'})
     expect(plan.examples[0]).toMatch(/^monocf plan /)
     expect(listed.find(({id}: {id: string}) => id === 'secrets deploy')).toMatchObject({safety: 'writes-cloudflare'})
+    // wrangler dev runs without --local, so a remote binding reaches Cloudflare.
+    expect(listed.find(({id}: {id: string}) => id === 'dev')).toMatchObject({safety: 'reads-cloudflare'})
     expect(listed.find(({id}: {id: string}) => id === 'worker')).toMatchObject({deprecated: true})
   })
 
@@ -87,7 +89,7 @@ describe('monocf explain', () => {
 
     expect(result.exitCode).toBe(0)
     expect(result.stdout).toContain('unknown-placeholder (error code, exit 2)')
-    expect(result.stdout).toContain('unknown-placeholder (check rule)')
+    expect(result.stdout).toContain('unknown-placeholder (check rule, error)')
   })
 
   it('lists every code with none given', async () => {
@@ -111,10 +113,12 @@ describe('monocf explain', () => {
 })
 
 describe('the registry', () => {
-  it('is what docs/json-output.md lists. Run npm run docs after npm run build if not', () => {
-    const doc = readFileSync(join(repoRoot, 'docs', 'json-output.md'), 'utf8').replaceAll('\r\n', '\n')
-    const listed = /<!-- codes -->\n([\s\S]*)<!-- codesstop -->/.exec(doc)?.[1]
-    expect(listed).toBe(formatCodesMarkdown())
+  it.each([
+    ['docs/json-output.md', () => ({codes: formatCodesMarkdown()})],
+    ['README.md', formatReadmeTables],
+  ])('is what %s lists. Run npm run docs after npm run build if not', (file, tables) => {
+    const text = readFileSync(join(repoRoot, file), 'utf8').replaceAll('\r\n', '\n')
+    expect(replaceMarked(text, tables())).toBe(text)
   })
 
   it('has no error code that nothing raises', () => {

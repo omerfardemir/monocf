@@ -85,7 +85,13 @@ export function describeCommands(commands: Loadable[], bin: string): {commands: 
   return {commands: visible.map((command) => commandInfo(command, bin)), schemaVersion: SCHEMA_VERSION}
 }
 
-export function formatCommands({commands}: {commands: CommandInfo[]}): string {
+function formatCommands({commands}: {commands: CommandInfo[]}): string {
   const width = Math.max(...commands.map(({id}) => id.length))
   return commands.map(({id, safety, summary}) => `${id.padEnd(width)}  ${safety.padEnd(17)}  ${summary ?? ''}\n`).join('')
+}
+
+/** `monocf commands`: one line per command, or with --json everything an agent needs to call one. */
+export function runCommands(commands: Loadable[], bin: string, {json = false}: {json?: boolean} = {}): void {
+  const described = describeCommands(commands, bin)
+  process.stdout.write(json ? `${JSON.stringify(described, null, 2)}\n` : formatCommands(described))
 }

@@ -1,4 +1,4 @@
-import {ERROR_CODES, type ErrorCode} from './explain/registry.js'
+import {ERROR_CODES, SIGNAL_EXIT, type ErrorCode} from './explain/registry.js'
 
 export const EXIT_OK = 0
 export const EXIT_FAILED = 1
@@ -25,7 +25,7 @@ export class MonocfError extends Error {
     this.name = 'MonocfError'
     this.code = code
     this.hint = hint
-    const own = ERROR_CODES[code].exitCode
-    this.exitCode = exitCode ?? (typeof own === 'number' ? own : EXIT_FAILED)
+    const codeExit = ERROR_CODES[code].exitCode
+    this.exitCode = exitCode ?? (codeExit === SIGNAL_EXIT ? EXIT_FAILED : codeExit)
   }
 }

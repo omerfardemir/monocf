@@ -164,7 +164,7 @@ Each command has `id`, such as `secrets check`, `summary`, `description`, `safet
 
 | Field | Type | Meaning |
 |---|---|---|
-| `entries` | object[] | Each as `{"code", "kind", "meaning", "next", "exitCode"}`. `kind` is `error`, `check-rule` or `plan-reason`. `exitCode` is for an error code only, and is `signal` for 128 + n. `next` is left out when there's nothing to do |
+| `entries` | object[] | Each as `{"code", "kind", "meaning", "next", "exitCode", "levels"}`. `kind` is `error`, `check-rule` or `plan-reason`. `exitCode` is for an error code only, and is `128+n` for a signal, as in `commands --json`. `levels` is for a check rule only: the levels it reports at, `error`, `warning` or `note`. `next` is left out when there's nothing to do |
 
 ## Plan file
 
@@ -272,6 +272,7 @@ Generated from the registry `monocf explain` reads, by `npm run docs`.
 | `check-failed` | 2 | `plan` found check errors, so it wrote no plan. | Run monocf check -e <env> --json, fix the errors, and plan again. |
 | `checkout-dirty` | 2 | The checkout has changes the plan doesn't include. | Commit them and plan again, or remove them. |
 | `checkout-unknown` | 2 | git can't say whether the checkout has changes, so nothing says that the plan describes it. | Run apply in a git checkout with git on the PATH. |
+| `command-needed` | 2 | The command line names a topic, such as secrets, and none of its commands. Without --json, monocf prints the topic's help instead. | Run monocf commands --json, and name one of the topic's commands. |
 | `config-invalid` | 2 | A config file can't be read or used: monocf.config.json, a wrangler config, the base config or a package.json. Bad JSON, an unknown key, a field of the wrong type, a null under a base config, or a worker with no name. | Fix the file the message names, then run monocf check. |
 | `entrypoint-missing` | 1 | A service binding names an entrypoint that the worker it targets doesn't export. | Fix the entrypoint in the binding, or export it from the target worker. |
 | `flag-conflict` | 2 | Flags that can't be used together, a flag that needs another one, or a worker name with --all. | Run monocf <command> --help, and drop one of the flags. |
@@ -294,7 +295,7 @@ Generated from the registry `monocf explain` reads, by `npm run docs`.
 | `plan-blocked` | 2 | The plan is marked as not applicable: a step is blocked, usually by drift under --on-drift fail. | Look at the blocked steps and their notes. Plan again with --on-drift warn only if a person agrees to deploy over what is live. |
 | `plan-invalid` | 2 | The plan file can't be read, isn't JSON, or isn't a plan. | Plan again, and pass the path plan printed. |
 | `plan-missing` | 2 | There is no plan at that path. A plan that fails writes none, and removes an earlier one there. | Check that plan succeeded, and pass the path it printed. |
-| `plan-refused` | 2 | The plan was refused by a guard, as it looked like the wrong account or state, and plan exited 3. | Read the plan's refused field. Check account_id and CLOUDFLARE_ACCOUNT_ID, then plan again, with --first-run or --allow-recreate only if a person confirms it. |
+| `plan-refused` | 2 | apply was given a plan that a guard refused when it was made, as it looked like the wrong account or state. That plan run exited 3, and apply exits 2. | Read the plan's refused field. Check account_id and CLOUDFLARE_ACCOUNT_ID, then plan again, with --first-run or --allow-recreate only if a person confirms it. |
 | `plan-schema-unsupported` | 2 | The plan was written by a monocf with another plan schema version. | Plan again with this monocf. |
 | `plan-stale` | 2 | The plan doesn't describe this checkout: another commit, other configs, or a worker now ignored. | Plan again on this commit, and apply the new plan. |
 | `plan-wrangler-mismatch` | 2 | The plan was made with another wrangler version, which changes bundles. | Install the wrangler the plan names, or plan again. |
@@ -333,31 +334,31 @@ Generated from the registry `monocf explain` reads, by `npm run docs`.
 
 ### Check rules
 
-| Rule | Meaning | What to do |
-|---|---|---|
-| `cross-env-binding` | A binding targets another env's deployed name of a worker. | Use the directory name of the target, which monocf rewrites for each env. |
-| `cycle` | Workers bind to each other in a cycle, so nothing can deploy first. A cycle only a queue closes is a note. | Break the cycle, for example with a queue. |
-| `duplicate-binding-name` | A worker has more than one binding with the same name, which wrangler rejects. | Rename one of them. |
-| `duplicate-name` | Two workers deploy under the same name, so each deploy overwrites the other. | Give one of them another name. |
-| `duplicate-route` | Two workers claim the same route. | Remove the route from one of them. |
-| `external-binding` | A binding targets a name that matches no local worker, so it passes through as external, and monocf neither orders nor checks it. | Nothing, if that is meant. Otherwise fix the name. |
-| `hardcoded-binding` | A service binding hardcodes a deployed name, such as orders-dev, which monocf would not rewrite for another env. | Use the directory name of the target. |
-| `ignored-dependency` | A selected worker binds to one that's ignored in that env. | Stop ignoring the target in that env, or remove the binding. |
-| `ignored-malformed` | .monocfignore has a line nothing can read: a bad scope, unescaped whitespace, or a scoped pattern that matches no directory. | Fix the line. Write a space in a directory name as "\ ". |
-| `ignored-negation-unused` | A .monocfignore line starting with ! reaches only workers that no line before it ignores, so it does nothing. | Remove it. ! undoes an earlier line; it does not mean "not". |
-| `ignored-stale` | A .monocfignore line with no scope matches no directory. | Remove the line if its worker is gone. |
-| `ignored-unknown-env` | .monocfignore has a scope naming an env that neither the base config nor any worker defines. | Fix the env name. |
-| `missing-env` | A selected worker does not define the env. | Define it under "env", or ignore the worker in that env in .monocfignore. |
-| `missing-main` | A worker has no main file that exists, and no assets or site. | Fix main in its config. |
-| `name-length` | A deployed name is over 63 characters, or holds something other than lowercase letters, digits and inner dashes. | Shorten or change the name. |
-| `no-compat-date` | A worker has no compatibility_date. | Set one, in the base config or the worker config. |
-| `resolve-failed` | A worker's config failed to resolve. | Read the message, and fix the file it names. |
-| `script-name-directory` | A Durable Object or Workflow binding names a directory, which reaches wrangler as written, not as a deployed name. | Use the deployed name the message gives. |
-| `self-binding` | A worker binds to itself. It adds no order, and a first deploy of such a worker fails on Cloudflare. | Remove the binding, or deploy the worker once without it. |
-| `tail-service-directory` | A tail consumer or a dispatch namespace outbound names a directory, which reaches wrangler as written, not as a deployed name. | Use the deployed name the message gives. |
-| `unknown-entrypoint` | bundle: a service binding names an entrypoint the target doesn't export. A warning when the target's exports can't be read. | Fix the entrypoint, or export it. |
-| `unknown-placeholder` | A config uses a placeholder that monocf.config.json does not define, or one outside a string. | Define it under "variables" in monocf.config.json. |
-| `worker-name` | A worker name deploys as something other than what is written, or starts or ends with a dash. | Rename it to lowercase letters, digits and inner dashes. |
+| Rule | Level | Meaning | What to do |
+|---|---|---|---|
+| `cross-env-binding` | error | A binding targets another env's deployed name of a worker. | Use the directory name of the target, which monocf rewrites for each env. |
+| `cycle` | error or note | Workers bind to each other in a cycle, so nothing can deploy first. A cycle only a queue closes is a note. | Break the cycle, for example with a queue. |
+| `duplicate-binding-name` | error | A worker has more than one binding with the same name, which wrangler rejects. | Rename one of them. |
+| `duplicate-name` | error | Two workers deploy under the same name, so each deploy overwrites the other. | Give one of them another name. |
+| `duplicate-route` | error | Two workers claim the same route. | Remove the route from one of them. |
+| `external-binding` | warning | A binding targets a name that matches no local worker, so it passes through as external, and monocf neither orders nor checks it. | Nothing, if that is meant. Otherwise fix the name. |
+| `hardcoded-binding` | error | A service binding hardcodes a deployed name, such as orders-dev, which monocf would not rewrite for another env. | Use the directory name of the target. |
+| `ignored-dependency` | error | A selected worker binds to one that's ignored in that env. | Stop ignoring the target in that env, or remove the binding. |
+| `ignored-malformed` | error | A .monocfignore line nothing can read: a scope with no names, an empty name or something that isn't a name, as in `workers/x except a,,b` or `workers/x except production # note`; a pattern with unescaped whitespace inside or at the start, as in `workers/x excpet production`; or a scoped line whose pattern matches no directory. Every command that selects workers stops on this too, as nothing says what the line was meant to leave out. | Fix the line. Write a space in a directory name as "\ ". |
+| `ignored-negation-unused` | warning | A .monocfignore line starting with `!`, scoped or not, reaches only workers that no line before it ignores, so it does nothing. | Remove it. `!` undoes an earlier line; it does not mean "not". |
+| `ignored-stale` | warning | A .monocfignore line with no scope matches no directory. | Remove the line if its worker is gone. |
+| `ignored-unknown-env` | error | .monocfignore has a scope naming an env that neither the base config nor any worker defines, as in `except produciton`. Every command that selects workers stops on this too. | Fix the env name. |
+| `missing-env` | error | A selected worker does not define the env. | Define it under "env", or ignore the worker in that env in .monocfignore. |
+| `missing-main` | error | A worker has no main file that exists, and no assets or site. | Fix main in its config. |
+| `name-length` | error | A deployed name is over 63 characters, or holds something other than lowercase letters, digits and inner dashes. | Shorten or change the name. |
+| `no-compat-date` | warning | A worker has no compatibility_date. | Set one, in the base config or the worker config. |
+| `resolve-failed` | error | A worker's config failed to resolve. | Read the message, and fix the file it names. |
+| `script-name-directory` | error | A Durable Object or Workflow binding names a directory, which reaches wrangler as written, not as a deployed name. | Use the deployed name the message gives. |
+| `self-binding` | warning | A worker binds to itself. It adds no order, and a first deploy of such a worker fails on Cloudflare. | Remove the binding, or deploy the worker once without it. |
+| `tail-service-directory` | error | A tail consumer or a dispatch namespace outbound names a directory, which reaches wrangler as written, not as a deployed name. | Use the deployed name the message gives. |
+| `unknown-entrypoint` | error or warning | bundle: a service binding names an entrypoint the target doesn't export. A warning when the target's exports can't be read. | Fix the entrypoint, or export it. |
+| `unknown-placeholder` | error | A config uses a placeholder that monocf.config.json does not define, or one outside a string. | Define it under "variables" in monocf.config.json. |
+| `worker-name` | warning | A worker name deploys as something other than what is written, or starts or ends with a dash. | Rename it to lowercase letters, digits and inner dashes. |
 
 ### Plan reasons
 

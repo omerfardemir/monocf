@@ -1,9 +1,9 @@
-import {readFileSync} from 'node:fs'
+import {readFileSync, rmSync} from 'node:fs'
 import {join} from 'node:path'
 import {describe, expect, it} from 'vitest'
 
 import {repoRoot} from '../helpers/commands.js'
-import {deployFixture, eventsOf, readPlan} from '../helpers/deploy-fixtures.js'
+import {changeConfig, deployFixture, eventsOf, readPlan} from '../helpers/deploy-fixtures.js'
 import {createFixture, runCli, type CliResult} from '../helpers/harness.js'
 
 const read = (path: string) => readFileSync(join(repoRoot, path), 'utf8').replaceAll('\r\n', '\n')
@@ -115,14 +115,19 @@ describe('docs/json-output.md', () => {
     const runId = eventsOf(applied)[0].runId as string
     // A first run created everything, so there's nothing to put back and nothing to ask Cloudflare.
     await run(['rollback', ...state, '--to-run', runId, '--dry-run', '--json'], {cloudflare: applied.cloudflare, noCalls: true})
+    // A worker with no package.json gives a notice.
+    rmSync(join(fixture.worker('billing'), 'package.json'))
     await run(['bundle', '-e', 'staging', '--json'])
     await run(['whoami', '--json'])
     await run(['worker', 'create', 'extra', '--json'], {noCalls: true})
     await run(['plan', '-e', 'staging', '--json'], {noCalls: true})
+    // check's findings are a document, but plan reports the ones it stops on as events.
+    changeConfig(fixture, 'reports', {main: 'src/missing.ts'})
+    await run(['plan', ...state, '--json'], {noCalls: true})
 
     const printed = runs.flatMap((result) => eventsOf(result))
     const types = new Set(printed.map(({type}) => type as string))
-    for (const type of ['run-started', 'step-started', 'step-finished', 'run-finished', 'plan', 'bundle-written', 'whoami', 'worker-created', 'error']) {
+    for (const type of ['run-started', 'step-started', 'step-finished', 'run-finished', 'notice', 'finding', 'plan', 'bundle-written', 'whoami', 'worker-created', 'error']) {
       expect(types, type).toContain(type)
     }
 

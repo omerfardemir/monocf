@@ -1,16 +1,16 @@
 import {MonocfError} from '../errors.js'
-import {allEntries, explain, type ExplainEntry} from '../explain/registry.js'
+import {allEntries, explain, exitCodeText, type ExplainEntry} from '../explain/registry.js'
 import {SCHEMA_VERSION} from '../report/events.js'
 
 const KIND_NAMES = {'check-rule': 'check rule', error: 'error code', 'plan-reason': 'plan reason'} as const
 
-function exitOf({exitCode}: ExplainEntry): string {
-  if (exitCode === undefined) return ''
-  return exitCode === 'signal' ? ', exit 128 + the signal' : `, exit ${exitCode}`
+function detailOf({exitCode, levels}: ExplainEntry): string {
+  if (exitCode !== undefined) return `, exit ${exitCodeText(exitCode)}`
+  return levels === undefined ? '' : `, ${levels.join(' or ')}`
 }
 
 function formatEntry(entry: ExplainEntry): string {
-  return `${entry.code} (${KIND_NAMES[entry.kind]}${exitOf(entry)})\n  ${entry.meaning}\n${entry.next ? `  Next: ${entry.next}\n` : ''}`
+  return `${entry.code} (${KIND_NAMES[entry.kind]}${detailOf(entry)})\n  ${entry.meaning}\n${entry.next ? `  Next: ${entry.next}\n` : ''}`
 }
 
 /** `monocf explain`: with no code, every code there is. A code can be more than one kind, as `drift` is. */

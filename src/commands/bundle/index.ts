@@ -1,6 +1,6 @@
 import {Flags} from '@oclif/core'
 
-import {BaseCommand, EXIT_MEANINGS} from '../../app/base-command.js'
+import {BaseCommand, WRANGLER_EXIT_CODES} from '../../app/base-command.js'
 import {runBundle} from '../../app/bundle.js'
 import {projectFlags} from '../../app/flags.js'
 
@@ -20,7 +20,7 @@ export default class Bundle extends BaseCommand {
     out: Flags.string({description: 'Output directory. default: .monocf/bundle/<env>'}),
   }
   static strict = false
-  static exitCodes = {0: EXIT_MEANINGS.ok, 1: 'A worker failed to build, or a service binding names an entrypoint that does not exist', 2: EXIT_MEANINGS.usage, 3: EXIT_MEANINGS.environment, '128+n': EXIT_MEANINGS.signal}
+  static exitCodes = {...WRANGLER_EXIT_CODES, 1: 'A worker failed to build, or a service binding names an entrypoint that does not exist'}
   static safety = 'offline' as const
 
   async run(): Promise<void> {

@@ -3,6 +3,7 @@ import {createRequire} from 'node:module'
 import {dirname, join} from 'node:path'
 
 import {MonocfError} from '../errors.js'
+import type {EnvironmentErrorCode} from '../explain/registry.js'
 
 const WRANGLER_FLOOR = '4.151.0'
 
@@ -12,7 +13,7 @@ export interface Wrangler {
   version: string
 }
 
-function environmentError(message: string, code: 'node-too-old' | 'wrangler-too-old' | 'wrangler-unusable' = 'wrangler-unusable'): MonocfError {
+function environmentError(message: string, code: EnvironmentErrorCode = 'wrangler-unusable'): MonocfError {
   return new MonocfError(message, {code})
 }
 

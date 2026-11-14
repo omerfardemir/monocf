@@ -69,12 +69,19 @@ export function readFailure(label: string, result: WranglerResult): MonocfError 
   return new MonocfError(message, {code: NO_CREDENTIALS.test(result.stderr) ? 'not-authenticated' : 'wrangler-failed'})
 }
 
-function parseJson(label: string, stdout: string): unknown {
+/** Undefined for anything that isn't JSON, for a caller that has something to say before that's an error. */
+export function tryParseJson(stdout: string): unknown {
   try {
     return JSON.parse(stdout)
   } catch {
-    throw new MonocfError(`${label}: wrangler printed something that isn't JSON.`, {code: 'wrangler-output-invalid'})
+    return undefined
   }
+}
+
+function parseJson(label: string, stdout: string): unknown {
+  const parsed = tryParseJson(stdout)
+  if (parsed === undefined) throw new MonocfError(`${label}: wrangler printed something that isn't JSON.`, {code: 'wrangler-output-invalid'})
+  return parsed
 }
 
 function compareShares(a: ActiveShare, b: ActiveShare): number {

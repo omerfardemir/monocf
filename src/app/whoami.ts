@@ -9,21 +9,14 @@ import {Interrupts} from '../runtime/signals.js'
 import {buildArgv} from '../wrangler/argv.js'
 import {locateWrangler} from '../wrangler/locate.js'
 import {spawnWrangler, type WranglerResult} from '../wrangler/process.js'
-import {maskAccount} from '../wrangler/read.js'
+import {maskAccount, tryParseJson} from '../wrangler/read.js'
 import {failureOf, isSuccess} from './run.js'
-
-function parseAnswer(stdout: string): Record<string, unknown> | undefined {
-  try {
-    const parsed: unknown = JSON.parse(stdout)
-    return isPlainObject(parsed) ? parsed : undefined
-  } catch {
-    return undefined
-  }
-}
 
 /** wrangler's own answer, with account IDs masked as everywhere else in monocf's output, and without the token's permissions. */
 function whoamiEvent(result: WranglerResult): ReportEvent {
-  const answer = parseAnswer(result.stdout)
+  // Read before the exit code, as a wrangler that isn't logged in can say so and fail.
+  const parsed = tryParseJson(result.stdout)
+  const answer = isPlainObject(parsed) ? parsed : undefined
   if (answer?.loggedIn === false) {
     throw new MonocfError('wrangler is not logged in to Cloudflare.', {code: 'not-authenticated'})
   }

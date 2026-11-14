@@ -11,8 +11,8 @@ monocf wraps wrangler for a monorepo of Workers. It works out which worker binds
 
 Before running a command, know what it does to Cloudflare. `monocf commands --json` gives each command's `safety`:
 
-- `offline`: `check`, `graph`, `bundle`, `build`, `dev`, `explain`, `commands`, `worker create`. Safe to run.
-- `reads-cloudflare`: `plan`, `secrets check`, `whoami`. They change nothing on Cloudflare. `plan` writes a plan file locally.
+- `offline`: `check`, `graph`, `bundle`, `build`, `explain`, `commands`, `worker create`. Safe to run.
+- `reads-cloudflare`: `plan`, `secrets check`, `whoami`, `dev`. They change nothing on Cloudflare. `plan` writes a plan file locally. `dev` runs `wrangler dev`, which reaches Cloudflare for remote bindings and can ask to log in.
 - `writes-cloudflare`: `apply`, `deploy`, `preview`, `rollback`, `secrets deploy`, and the deprecated `worker`.
 
 Rules:
@@ -35,7 +35,7 @@ Rules:
 
 Pass `--json`. stdout then carries only JSON. Progress goes to stderr, which you can read but shouldn't parse.
 
-- **Exit codes:** 0 ok; 1 a worker failed, or `plan` found drift that blocks a worker; 2 a usage or config error, or a stale plan, and nothing was attempted; 3 an environment problem, such as no wrangler, no credentials, an unusable state store, or a `plan` refused by a guard; 128 + n a signal.
+- **Exit codes:** 0 ok; 1 a worker failed, or `plan` found drift that blocks a worker; 2 a usage or config error, or a stale plan, and nothing was attempted; 3 an environment problem, such as no wrangler, no credentials or an unusable state store; 128 + n a signal. `plan` also exits 3 when a guard refuses the plan: it still prints the `plan` event, with `refused` set, and no `error` event. `apply` of that plan fails with `plan-refused`, exit 2.
 - **Every failure ends in one `error` event:** `{"type":"error","code":"...","exitCode":2,"message":"...","hint":"..."}`. Act on `code` and `hint`, not on the message. `monocf explain <code>` says what a code means and what to do next.
 - **A plan** is in the `plan` event's `plan` field and in the file at `path`. Look at:
   - `applicable`: false means `apply` will refuse it.

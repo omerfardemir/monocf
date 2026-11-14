@@ -4,6 +4,7 @@ import {stripVTControlCharacters} from 'node:util'
 import {MonocfError} from '../errors.js'
 import {ERROR_CODES, type ErrorCode, type Explanation} from '../explain/registry.js'
 import type {ErrorEvent} from './events.js'
+import {formatNdjson} from './ndjson.js'
 
 /** oclif doesn't export its parser's error classes, so they're told apart by name. */
 const PARSER_CODES: Record<string, ErrorCode> = {
@@ -46,18 +47,26 @@ function hintFor(code: ErrorCode, command: string | undefined): string | undefin
 
 /** What `--json` prints for a failure, whatever it came from. `command` names the command in the hint, when it's known. */
 export function toErrorEvent(error: unknown, command?: string): ErrorEvent {
-  const event = (code: ErrorCode, exitCode: number, message: string, hint?: string): ErrorEvent => {
+  const errorEvent = (code: ErrorCode, exitCode: number, message: string, hint?: string): ErrorEvent => {
     const advice = hint ?? hintFor(code, command)
     return {code, exitCode, ...(advice !== undefined && {hint: advice}), message, type: 'error'}
   }
 
-  if (error instanceof MonocfError) return event(error.code, error.exitCode, error.message, error.hint)
+  if (error instanceof MonocfError) return errorEvent(error.code, error.exitCode, error.message, error.hint)
   if (error instanceof Errors.CLIError) {
     const message = error.constructor.name === 'FailedFlagValidationError' ? validationReasons(error.message).join('\n') : cleanMessage(error.message)
-    return event(cliCode(error), error.oclif.exit ?? 2, message)
+    return errorEvent(cliCode(error), error.oclif.exit ?? 2, message)
   }
 
-  return event('internal-error', 1, error instanceof Error ? error.message : String(error))
+  return errorEvent('internal-error', 1, error instanceof Error ? error.message : String(error))
+}
+
+/** Waits for the write, as oclif exits as soon as it has printed a parser error, which can cut off a write to a pipe. */
+export async function writeErrorEvent(error: unknown, command?: string): Promise<void> {
+  const line = formatNdjson(toErrorEvent(error, command))
+  await new Promise<void>((resolve) => {
+    process.stdout.write(line, () => resolve())
+  })
 }
 
 const reported = new WeakSet<object>()

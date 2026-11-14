@@ -1,27 +1,68 @@
-import {describe, expect, it} from 'vitest'
+import {readFileSync} from 'node:fs'
+import {join} from 'node:path'
+import {afterAll, beforeAll, describe, expect, it} from 'vitest'
 
 import {changeConfig, deployFixture, eventsOf, firstRun, stepOf} from '../helpers/deploy-fixtures.js'
 import {runCli, type Fixture, type RunOptions} from '../helpers/harness.js'
+import {packPackage, type Packed} from '../helpers/packed.js'
 
 /**
- * What an agent with only the CLI and the skill does: read the JSON, look up each code with explain, act on its advice. Nothing
- * here matches English text, apart from what explain advises.
+ * What an agent with only the installed package and its skill does: read the JSON, look up each code with explain, act on its
+ * advice. It runs what `npm pack` publishes, not this checkout. Nothing here matches English text, apart from what explain advises.
  */
 const STATE = ['-e', 'staging', '--state', 'file:state', '--out', 'plan.json']
 
+let packed: Packed
+
+beforeAll(() => {
+  packed = packPackage()
+}, 120_000)
+
+afterAll(() => {
+  packed?.remove()
+})
+
+function cli(fixture: Fixture, args: string[], options: RunOptions = {}) {
+  return runCli(fixture, args, {...options, bin: packed.bin})
+}
+
 async function json(fixture: Fixture, args: string[], options: RunOptions = {}) {
-  const result = await runCli(fixture, [...args, '--json'], options)
+  const result = await cli(fixture, [...args, '--json'], options)
   return {events: eventsOf(result), exitCode: result.exitCode}
 }
 
 async function explain(fixture: Fixture, code: string) {
-  const result = await runCli(fixture, ['explain', code, '--json'], {noCalls: true})
+  const result = await cli(fixture, ['explain', code, '--json'], {noCalls: true})
   return JSON.parse(result.stdout).entries as {kind: string; next?: string}[]
 }
 
+describe('the package', () => {
+  it('ships the CLI, every command, the docs and the skill, and no source', () => {
+    for (const file of ['bin/run.js', 'dist/app/main.js', 'dist/commands/plan/index.js', 'dist/commands/explain/index.js', 'dist/commands/secrets/check.js', 'docs/json-output.md', 'skills/monocf/SKILL.md']) {
+      expect(packed.files, file).toContain(file)
+    }
+
+    expect(packed.files.filter((file) => file.endsWith('.d.ts') || /^(src|test)\//.test(file))).toEqual([])
+  })
+
+  it('ships the manifest prepack writes, with what monocf commands reads from it', () => {
+    const {files, scripts} = JSON.parse(readFileSync(join(packed.dir, 'package.json'), 'utf8'))
+    expect(files).toContain('./oclif.manifest.json')
+    expect(scripts.prepack).toBe('oclif manifest')
+    const {commands} = JSON.parse(readFileSync(join(packed.dir, 'oclif.manifest.json'), 'utf8')) as {commands: Record<string, {exitCodes?: object; safety?: string}>}
+    expect(Object.keys(commands).length).toBeGreaterThan(15)
+    expect(Object.entries(commands).filter(([, {exitCodes, safety}]) => exitCodes === undefined || safety === undefined)).toEqual([])
+  })
+})
+
 describe('an agent', () => {
-  it('finds why there is no plan, fixes the config, and plans again', async () => {
+  it('finds the command, why there is no plan, fixes the config, and plans again', async () => {
+    const skill = readFileSync(join(packed.dir, 'skills', 'monocf', 'SKILL.md'), 'utf8')
+    for (const command of ['monocf commands --json', 'monocf check -e <env> --json', 'monocf explain <code>']) expect(skill).toContain(command)
+
     const fixture = deployFixture()
+    const listed = JSON.parse((await cli(fixture, ['commands', '--json'], {noCalls: true})).stdout)
+    expect(listed.commands.find(({id}: {id: string}) => id === 'plan')).toMatchObject({requiredFlags: ['env', 'state'], safety: 'reads-cloudflare'})
     changeConfig(fixture, 'billing', {main: 'src/missing.ts'})
 
     const refused = await json(fixture, ['plan', ...STATE, '--first-run'], {cloudflare: {}, noCalls: true})
@@ -30,7 +71,7 @@ describe('an agent', () => {
     expect(error).toMatchObject({code: 'check-failed', type: 'error'})
     expect(error.hint).toContain('monocf check')
 
-    const check = JSON.parse((await runCli(fixture, ['check', '-e', 'staging', '--json'], {noCalls: true})).stdout)
+    const check = JSON.parse((await cli(fixture, ['check', '-e', 'staging', '--json'], {noCalls: true})).stdout)
     const finding = check.findings.find(({level}: {level: string}) => level === 'error')
     expect(finding).toMatchObject({rule: 'missing-main', worker: 'billing'})
     expect((await explain(fixture, finding.rule))[0]).toMatchObject({kind: 'check-rule', next: expect.stringContaining('main')})

@@ -1,7 +1,7 @@
 import {Flags} from '@oclif/core'
 
 import {BaseCommand, EXIT_MEANINGS} from '../../app/base-command.js'
-import {describeCommands, formatCommands} from '../../app/discovery.js'
+import {runCommands} from '../../app/discovery.js'
 
 export default class Commands extends BaseCommand {
   static description =
@@ -15,7 +15,6 @@ export default class Commands extends BaseCommand {
 
   async run(): Promise<void> {
     const {flags} = await this.parse(Commands)
-    const described = describeCommands(this.config.commands, this.config.bin)
-    process.stdout.write(flags.json ? `${JSON.stringify(described, null, 2)}\n` : formatCommands(described))
+    runCommands(this.config.commands, this.config.bin, {json: flags.json})
   }
 }

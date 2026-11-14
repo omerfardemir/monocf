@@ -28,6 +28,7 @@ describe('every failure under --json', () => {
     ['an unknown flag of a command in a topic', ['secrets', 'check', '--bogus', '--json'], 'unknown-flag', 'Run monocf secrets check --help.'],
     ['an unknown command', ['nope', '--json'], 'unknown-command', 'Run monocf commands --json to list the commands.'],
     ['an unknown command in a topic', ['secrets', 'nope', '--json'], 'unknown-command', undefined],
+    ['a topic with no command', ['secrets', '--json'], 'command-needed', 'Run one of: monocf secrets check, monocf secrets deploy.'],
     ['a flag value that is not an integer', ['bundle', '-e', 'dev', '--concurrency', 'x', '--json'], 'invalid-flag-value', undefined],
     ['a value that is not an option', ['plan', '-e', 'dev', '--state', 'file:state', '--on-drift', 'maybe', '--json'], 'invalid-flag-value', undefined],
     ['flags that exclude each other', ['graph', '--json', '--mermaid'], 'flag-conflict', undefined],
@@ -88,6 +89,15 @@ describe('every failure under --json', () => {
     expect(result.exitCode).toBe(2)
     expect(result.stdout).toBe('')
     expect(result.stderr).toContain('Nonexistent flag: --bogus')
+  })
+
+  it('gives a topic with no command its help without --json', async () => {
+    const fixture = createFixture({workers})
+
+    const result = await runCli(fixture, ['secrets'], {noCalls: true})
+
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout).toContain('secrets check')
   })
 
   it('leaves a --json after -- to the command', async () => {
