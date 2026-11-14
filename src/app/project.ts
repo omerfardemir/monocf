@@ -25,7 +25,7 @@ export function loadOptions(flags: OptionFlags, cwd: string = process.cwd()): Op
 export function findIgnored(options: Options, workers: string[]): string[] {
   const ignored = findIgnoredWorkers(options, workers)
   const [problem] = unknownEnvProblems(readIgnoreLines(options), () => envsAndUnreadable(readProjectInputs(options), options))
-  if (problem !== undefined) throw new ConfigError(problem)
+  if (problem !== undefined) throw new ConfigError(problem, {code: 'ignore-file-invalid'})
   return ignored
 }
 
@@ -36,10 +36,10 @@ export interface Selection {
 
 /** Turns a worker argument, or the current directory, or --all into the workers a command runs for. */
 export function selectFromArguments(options: Options, name?: string, cwd: string = process.cwd()): Selection {
-  if (options.all && name !== undefined) throw new ConfigError('Worker name is not allowed when using --all flag')
+  if (options.all && name !== undefined) throw new ConfigError('Worker name is not allowed when using --all flag', {code: 'flag-conflict'})
 
   const target = name ?? (options.all ? undefined : inferWorker(options, cwd))
-  if (!options.all && target === undefined) throw new ConfigError('Worker name is required if --all flag is not set')
+  if (!options.all && target === undefined) throw new ConfigError('Worker name is required if --all flag is not set', {code: 'missing-argument'})
 
   const workers = discoverWorkers(options)
   const ignored = findIgnored(options, workers)
@@ -126,7 +126,7 @@ export function assertHoldsNoSource(what: string, dir: string, {rootDir, workers
   const held = contains(rootDir) ? 'the project root' : workers.find(({path}) => contains(path))?.dir
   if (held === undefined) return
   const name = held === 'the project root' ? held : `the worker ${held}`
-  throw new ConfigError(`${what} ${dir} holds ${name}, so apply couldn't tell a change to the code from monocf's own files. Use a directory of its own.`)
+  throw new ConfigError(`${what} ${dir} holds ${name}, so apply couldn't tell a change to the code from monocf's own files. Use a directory of its own.`, {code: 'output-path-unsafe'})
 }
 
 const STATUS_MAX_BUFFER = 256 * 1024 * 1024

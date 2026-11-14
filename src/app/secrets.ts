@@ -1,6 +1,6 @@
 import {readProjectInputs, resolveProject} from '../config/resolve.js'
 import {validateSelection} from '../config/validate.js'
-import {EXIT_FAILED, MonocfError} from '../errors.js'
+import {MonocfError} from '../errors.js'
 import type {OptionFlags} from '../project/options.js'
 import {materialiseConfig, writeSecretsFile} from '../runtime/materialise.js'
 import {readSecrets, requireSecretsFile} from '../runtime/secrets.js'
@@ -42,7 +42,7 @@ async function assertWorkerExists(context: RunContext, {configPath, dir, env}: W
   if (missing) {
     throw new MonocfError(
       `${dir}: this worker does not exist on Cloudflare. Deploy it first, or pass --create to create it with its secrets.`,
-      EXIT_FAILED,
+      {code: 'worker-not-deployed'},
     )
   }
 

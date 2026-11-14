@@ -1,6 +1,6 @@
 import {Flags} from '@oclif/core'
 
-import {BaseCommand} from '../../app/base-command.js'
+import {BaseCommand, EXIT_MEANINGS, WRANGLER_EXIT_CODES} from '../../app/base-command.js'
 import {projectFlags} from '../../app/flags.js'
 import {runPlan} from '../../app/plan.js'
 
@@ -31,6 +31,12 @@ export default class Plan extends BaseCommand {
     state: Flags.string({description: 'Where deployed state lives: file:<dir> or r2://<bucket>/<prefix>', required: true}),
     workers: Flags.string({description: 'Plan only these workers, as a comma-separated list. default: all'}),
   }
+  static exitCodes = {
+    ...WRANGLER_EXIT_CODES,
+    1: 'Drift blocks a worker, or a worker failed to build or be read',
+    3: `${EXIT_MEANINGS.environment}, or a plan refused by a guard against a wrong account or state`,
+  }
+  static safety = 'reads-cloudflare' as const
 
   async run(): Promise<void> {
     const {flags} = await this.parse(Plan)

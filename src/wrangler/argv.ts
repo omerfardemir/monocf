@@ -13,7 +13,7 @@ export type Step =
   | {action: 'versions-deploy'; configPath: string; versionId: string}
   | {action: 'queue-consumer-remove'; queue: string; script: string}
   | {action: 'queue-consumers'; queue: string}
-  | {action: 'whoami'}
+  | {action: 'whoami'; json?: boolean}
 
 export interface ArgvOptions {
   env?: string
@@ -175,7 +175,7 @@ export function buildArgv(step: Step, options: ArgvOptions = {}): string[] {
     }
 
     case 'whoami': {
-      return ['whoami']
+      return ['whoami', ...(step.json ? ['--json'] : [])]
     }
   }
 }

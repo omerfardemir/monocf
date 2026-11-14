@@ -30,9 +30,9 @@ export function runGraph(flags: GraphFlags): void {
   writeNotices(project.notices.filter(({worker}) => selection.selected.includes(worker)).map(({message}) => message))
 
   if (flags.callers !== undefined) {
-    if (selection.ignored.includes(flags.callers)) throw new ConfigError(ignoredMessage(flags.callers, options.env))
+    if (selection.ignored.includes(flags.callers)) throw new ConfigError(ignoredMessage(flags.callers, options.env), {code: 'worker-ignored'})
     const node = view.nodes.find(({name}) => name === flags.callers)
-    if (!node) throw new ConfigError(`Worker not found: ${flags.callers}. Please check the worker name.`)
+    if (!node) throw new ConfigError(`Worker not found: ${flags.callers}. Please check the worker name.`, {code: 'worker-not-found'})
     const {callers, name, transitiveCallers} = node
     const result = {callers, schemaVersion: SCHEMA_VERSION, transitiveCallers, worker: name}
     const text = flags.json

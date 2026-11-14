@@ -1,7 +1,7 @@
 import {Args, Flags} from '@oclif/core'
 
 import {runApply} from '../../app/apply.js'
-import {BaseCommand} from '../../app/base-command.js'
+import {BaseCommand, EXIT_MEANINGS, WRANGLER_EXIT_CODES} from '../../app/base-command.js'
 import {DEFAULT_CONCURRENCY} from '../../app/deployment.js'
 import {projectFlags} from '../../app/flags.js'
 
@@ -22,6 +22,12 @@ export default class Apply extends BaseCommand {
     json: Flags.boolean({description: 'Print results as NDJSON on stdout'}),
     'summary-file': Flags.string({description: 'Also add a summary in markdown to this file, such as $GITHUB_STEP_SUMMARY'}),
   }
+  static exitCodes = {
+    ...WRANGLER_EXIT_CODES,
+    1: `${EXIT_MEANINGS.workerFailed}, or the state could not be written`,
+    2: 'Usage or config error, or a stale, blocked or refused plan. Nothing was attempted',
+  }
+  static safety = 'writes-cloudflare' as const
 
   async run(): Promise<void> {
     const {args, flags} = await this.parse(Apply)

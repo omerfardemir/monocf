@@ -77,7 +77,7 @@ async function actualNames(context: RunContext, worker: ResolvedWorker, env: str
 export async function runSecretsCheck(flags: SecretsCheckFlags): Promise<void> {
   const options = loadOptions(flags)
   const {env, rootDir} = options
-  if (env === undefined) throw new ConfigError('secrets check needs --env.')
+  if (env === undefined) throw new ConfigError('secrets check needs --env.', {code: 'missing-flag'})
   const selection = selectAll(options)
   const inputs = readProjectInputs(options)
   const project = resolveProject(options, inputs)

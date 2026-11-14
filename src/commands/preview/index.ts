@@ -1,4 +1,4 @@
-import {BaseCommand} from '../../app/base-command.js'
+import {BaseCommand, WRANGLER_EXIT_CODES} from '../../app/base-command.js'
 import {previewFlags, runWorkerCommand, workerArgs} from '../../app/worker-command.js'
 
 export default class Preview extends BaseCommand {
@@ -6,6 +6,8 @@ export default class Preview extends BaseCommand {
   static description = 'Upload a new version of workers with wrangler versions upload, without sending it traffic'
   static examples = ['<%= config.bin %> preview orders -e dev', '<%= config.bin %> preview orders -e dev -M "try the new route"']
   static flags = previewFlags
+  static exitCodes = WRANGLER_EXIT_CODES
+  static safety = 'writes-cloudflare' as const
 
   async run(): Promise<void> {
     const {args, flags} = await this.parse(Preview)

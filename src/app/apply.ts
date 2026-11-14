@@ -56,20 +56,20 @@ function readPlanFile(path: string): Plan {
     text = readFileSync(path, 'utf8')
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-      throw new ConfigError(`There's no plan at ${path}. A plan that fails writes none, and removes an earlier one there, so check that plan succeeded.`)
+      throw new ConfigError(`There's no plan at ${path}. A plan that fails writes none, and removes an earlier one there, so check that plan succeeded.`, {code: 'plan-missing'})
     }
 
-    throw new ConfigError(`Can't read the plan ${path}: ${(error as Error).message}`)
+    throw new ConfigError(`Can't read the plan ${path}: ${(error as Error).message}`, {code: 'plan-invalid'})
   }
 
   let parsed: unknown
   try {
     parsed = JSON.parse(text)
   } catch (error) {
-    throw new ConfigError(`The plan ${path} is not valid JSON: ${(error as Error).message}`)
+    throw new ConfigError(`The plan ${path} is not valid JSON: ${(error as Error).message}`, {code: 'plan-invalid'})
   }
 
-  if (!isPlainObject(parsed) || !Array.isArray(parsed.steps)) throw new ConfigError(`${path} is not a plan.`)
+  if (!isPlainObject(parsed) || !Array.isArray(parsed.steps)) throw new ConfigError(`${path} is not a plan.`, {code: 'plan-invalid'})
   return parsed as unknown as Plan
 }
 
@@ -89,31 +89,31 @@ function resolveRef(rootDir: string, ref: string): string | undefined {
 /** Stale plans stop here, with exit 2 and nothing attempted. CI's variables don't count: only what's really checked out does. */
 function assertCanApply(plan: Plan, {expectBranchTip, rootDir, wranglerVersion}: {expectBranchTip?: string; rootDir: string; wranglerVersion: string}): void {
   if (plan.schemaVersion !== PLAN_SCHEMA_VERSION) {
-    throw new ConfigError(`The plan has schema version ${String(plan.schemaVersion)}, and this monocf applies ${PLAN_SCHEMA_VERSION}. Plan again.`)
+    throw new ConfigError(`The plan has schema version ${String(plan.schemaVersion)}, and this monocf applies ${PLAN_SCHEMA_VERSION}. Plan again.`, {code: 'plan-schema-unsupported'})
   }
 
-  if (plan.refused !== undefined) throw new ConfigError(`The plan was refused: ${plan.refused}`)
-  if (plan.applicable !== true) throw new ConfigError("The plan is marked as not applicable. Look at what blocks it, then plan again.")
+  if (plan.refused !== undefined) throw new ConfigError(`The plan was refused: ${plan.refused}`, {code: 'plan-refused'})
+  if (plan.applicable !== true) throw new ConfigError("The plan is marked as not applicable. Look at what blocks it, then plan again.", {code: 'plan-blocked'})
   const head = checkoutHead(rootDir)
   if (head === undefined || head !== plan.commit) {
-    throw new ConfigError(`The plan is for commit ${plan.commit}, and ${head ?? 'no commit'} is checked out. Plan on this commit.`)
+    throw new ConfigError(`The plan is for commit ${plan.commit}, and ${head ?? 'no commit'} is checked out. Plan on this commit.`, {code: 'plan-stale'})
   }
 
   if (wranglerVersion !== plan.wrangler) {
-    throw new ConfigError(`The plan was made with wrangler ${plan.wrangler}, and ${wranglerVersion} is installed. A different version changes bundles, so plan again.`)
+    throw new ConfigError(`The plan was made with wrangler ${plan.wrangler}, and ${wranglerVersion} is installed. A different version changes bundles, so plan again.`, {code: 'plan-wrangler-mismatch'})
   }
 
   if (expectBranchTip !== undefined) {
     const tip = resolveRef(rootDir, expectBranchTip)
-    if (tip === undefined) throw new ConfigError(`--expect-branch-tip ${expectBranchTip} doesn't resolve to a commit.`)
-    if (tip !== plan.commit) throw new ConfigError(`${expectBranchTip} is at ${tip}, and the plan is for ${plan.commit}, so a newer commit has taken over.`)
+    if (tip === undefined) throw new ConfigError(`--expect-branch-tip ${expectBranchTip} doesn't resolve to a commit.`, {code: 'invalid-flag-value'})
+    if (tip !== plan.commit) throw new ConfigError(`${expectBranchTip} is at ${tip}, and the plan is for ${plan.commit}, so a newer commit has taken over.`, {code: 'branch-tip-moved'})
   }
 }
 
 /** The clean checkout says the ignore file is what the plan saw, unless git ignores it. A plan never gets to touch what it leaves out. */
 function assertNotIgnored(names: string[], options: Options): void {
   const ignored = findIgnored(options, names)
-  if (ignored.length > 0) throw new ConfigError(`The plan deploys ${ignored.join(', ')}, and ${IGNORE_FILE} leaves that out of ${options.env}. Plan again.`)
+  if (ignored.length > 0) throw new ConfigError(`The plan deploys ${ignored.join(', ')}, and ${IGNORE_FILE} leaves that out of ${options.env}. Plan again.`, {code: 'plan-stale'})
 }
 
 const MAX_NAMED_PATHS = 5
@@ -143,11 +143,11 @@ function assertCleanCheckout(
     ...(location.kind === 'file' ? envs.flatMap((env) => [join(location.dir, env, 'manifest.json'), join(location.dir, env, 'runs')]) : []),
     ...outputs,
   ], leftByAKilledWrite)
-  if (paths === undefined) throw new ConfigError("git can't say whether this checkout has changes, so nothing says that the plan describes it.")
+  if (paths === undefined) throw new ConfigError("git can't say whether this checkout has changes, so nothing says that the plan describes it.", {code: 'checkout-unknown'})
   if (paths.length === 0) return
   const named = paths.slice(0, MAX_NAMED_PATHS)
   const more = paths.length > MAX_NAMED_PATHS ? `, and ${paths.length - MAX_NAMED_PATHS} more` : ''
-  throw new ConfigError(`This checkout has changes the plan doesn't include: ${named.join(', ')}${more}. Commit them and plan again, or remove them.`)
+  throw new ConfigError(`This checkout has changes the plan doesn't include: ${named.join(', ')}${more}. Commit them and plan again, or remove them.`, {code: 'checkout-dirty'})
 }
 
 /**
@@ -179,7 +179,7 @@ function assertDescribes(plan: Plan, workers: Map<string, ResolvedWorker>, {noti
   const external = stale.some((worker) => worker.includes('external inputs'))
     ? " If a CI step builds these inputs, give the worker a build.command, so that wrangler makes them at deploy, or bring the same files to this job."
     : ''
-  throw new ConfigError(`The plan doesn't describe this checkout: ${stale.join('; ')}. Plan again.${external}`)
+  throw new ConfigError(`The plan doesn't describe this checkout: ${stale.join('; ')}. Plan again.${external}`, {code: 'plan-stale'})
 }
 
 interface Target {
@@ -594,7 +594,7 @@ class Applier {
     await this.readLiveBefore(target)
     const {deployedName, previousVersionId} = target.step
     if (target.liveBefore !== previousVersionId) {
-      throw new MonocfError(`${target.worker.dir}: the plan was made with ${previousVersionId} live on ${deployedName}, and ${target.liveBefore ?? 'something else'} is live now. Plan again.`, EXIT_FAILED)
+      throw new MonocfError(`${target.worker.dir}: the plan was made with ${previousVersionId} live on ${deployedName}, and ${target.liveBefore ?? 'something else'} is live now. Plan again.`, {code: 'live-version-changed'})
     }
   }
 
@@ -663,7 +663,7 @@ export async function runApply(planPath: string, flags: ApplyFlags): Promise<voi
   for (const {deployedName, worker} of plan.steps) {
     const resolved = workers.get(worker)
     if (resolved?.deployedName !== deployedName) {
-      throw new ConfigError(`The plan deploys ${worker} as ${deployedName}, and this checkout says ${resolved?.deployedName ?? 'nothing'}. Plan again.`)
+      throw new ConfigError(`The plan deploys ${worker} as ${deployedName}, and this checkout says ${resolved?.deployedName ?? 'nothing'}. Plan again.`, {code: 'plan-stale'})
     }
   }
 
@@ -677,7 +677,7 @@ export async function runApply(planPath: string, flags: ApplyFlags): Promise<voi
   const json = flags.json === true
   let exitCode: number = EXIT_OK
 
-  await withRun({action: 'apply', env: plan.env, json, notices: [{message: `Run ${runId}.`}, ...notices], resolved: project.workers, rootDir, workers: names, wrangler}, async (context) => {
+  await withRun({action: 'apply', env: plan.env, json, notices: [{message: `Run ${runId}.`}, ...notices], resolved: project.workers, rootDir, runId, workers: names, wrangler}, async (context) => {
     const store = openStateStore(location, stateCall(context), context.runDir.path)
     await store.check()
     const manifest = await readManifest(store, plan.env)

@@ -78,19 +78,19 @@ interface Target {
 }
 
 function assertFlags(workerName: string | undefined, {force, state, to, toRun}: RollbackFlags): void {
-  if (state === undefined) throw new ConfigError('rollback needs --state.')
+  if (state === undefined) throw new ConfigError('rollback needs --state.', {code: 'missing-flag'})
   if (toRun !== undefined && (workerName !== undefined || to !== undefined)) {
-    throw new ConfigError('Give --to-run, or a worker and --to, not both.')
+    throw new ConfigError('Give --to-run, or a worker and --to, not both.', {code: 'flag-conflict'})
   }
 
   if (toRun === undefined && (workerName === undefined || to === undefined)) {
-    throw new ConfigError('rollback needs --to-run <run-id>, or a worker and --to <version-id>.')
+    throw new ConfigError('rollback needs --to-run <run-id>, or a worker and --to <version-id>.', {code: 'missing-flag'})
   }
 
-  if (toRun !== undefined && !VALID_RUN_ID.test(toRun)) throw new ConfigError(`--to-run ${toRun} isn't a run ID.`)
-  if (to?.trim() === '') throw new ConfigError('--to must not be empty.')
+  if (toRun !== undefined && !VALID_RUN_ID.test(toRun)) throw new ConfigError(`--to-run ${toRun} isn't a run ID.`, {code: 'invalid-flag-value'})
+  if (to?.trim() === '') throw new ConfigError('--to must not be empty.', {code: 'invalid-flag-value'})
   if (workerName !== undefined && !force) {
-    throw new ConfigError(`With no run record, monocf can't check Durable Object compatibility for ${workerName}. Pass --force to accept that.`)
+    throw new ConfigError(`With no run record, monocf can't check Durable Object compatibility for ${workerName}. Pass --force to accept that.`, {code: 'force-required'})
   }
 }
 
@@ -280,7 +280,7 @@ function targetsFromRun(
         } else if (entry.changed === false) {
           skip(name, {message: "This run didn't change it, and this checkout has no such worker, so there is nothing to put back."})
         } else {
-          throw new MonocfError(`${name} is in the run record, and this checkout has no such worker.`, EXIT_FAILED)
+          throw new MonocfError(`${name} is in the run record, and this checkout has no such worker.`, {code: 'record-worker-missing'})
         }
       } else {
         skip(name, reason)
@@ -398,7 +398,7 @@ async function restore({context, env, runId, writer}: Execution, target: Target,
   if (versionId !== undefined) {
     const alreadyLive = active?.state === 'active' && active.versionId === versionId
     if (verifyOnly) {
-      if (!alreadyLive) throw new MonocfError(`${dir}: ${versionId} isn't live any more, and this run didn't change it, so there's nothing of its to undo. Use --to to choose a version.`, EXIT_FAILED)
+      if (!alreadyLive) throw new MonocfError(`${dir}: ${versionId} isn't live any more, and this run didn't change it, so there's nothing of its to undo. Use --to to choose a version.`, {code: 'version-not-live'})
       record.message = 'Already live, nothing to restore.'
       return
     }
@@ -582,7 +582,7 @@ async function execute(execution: Execution, records: RunRecord['workers']): Pro
       action: 'rollback',
       dependsOn: callers.get(target.worker.dir) ?? [],
       async run(attempt) {
-        if (target.refusal) throw new MonocfError(target.refusal, EXIT_FAILED)
+        if (target.refusal) throw new MonocfError(target.refusal, {code: 'rollback-refused'})
         return restore(execution, target, attempt, records[target.worker.dir])
       },
       worker: target.worker.dir,
@@ -600,7 +600,7 @@ export async function runRollback(workerName: string | undefined, flags: Rollbac
   assertFlags(workerName, flags)
   const options = loadOptions(flags)
   const {env, rootDir} = options
-  if (env === undefined) throw new ConfigError('rollback needs --env.')
+  if (env === undefined) throw new ConfigError('rollback needs --env.', {code: 'missing-flag'})
   const location = parseStateUrl(flags.state!)
   const wrangler = locateWrangler(rootDir)
   const inputs = readProjectInputs(options)
@@ -614,7 +614,7 @@ export async function runRollback(workerName: string | undefined, flags: Rollbac
   const startedAt = new Date().toISOString()
   let exitCode: number = EXIT_OK
 
-  await withRun({action: 'rollback', env, json, notices: [{message: `Run ${runId}.`}], resolved: project.workers, rootDir, workers: selected, wrangler}, async (context) => {
+  await withRun({action: 'rollback', env, json, notices: [{message: `Run ${runId}.`}], resolved: project.workers, rootDir, runId, workers: selected, wrangler}, async (context) => {
     const store = openStateStore(location, stateCall(context), context.runDir.path)
     await store.check()
     const manifest = await readManifest(store, env)
@@ -634,7 +634,7 @@ export async function runRollback(workerName: string | undefined, flags: Rollbac
       targets = [{message: 'rollback', versionId: flags.to!, worker}]
     } else {
       const body = await store.read(runKey(env, flags.toRun))
-      if (body === null) throw new ConfigError(`${flags.state} has no run ${flags.toRun} for ${env}.`)
+      if (body === null) throw new ConfigError(`${flags.state} has no run ${flags.toRun} for ${env}.`, {code: 'run-not-found'})
       const record = parseRunRecord(body, env, flags.toRun)
       commit = record.commit
       // The whole graph: a caller's earlier version can't reach a provider this run recreated, even one that's ignored now.

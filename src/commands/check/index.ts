@@ -1,6 +1,6 @@
 import {Flags} from '@oclif/core'
 
-import {BaseCommand} from '../../app/base-command.js'
+import {BaseCommand, EXIT_MEANINGS} from '../../app/base-command.js'
 import {runCheck} from '../../app/check.js'
 import {projectFlags} from '../../app/flags.js'
 
@@ -18,6 +18,8 @@ export default class Check extends BaseCommand {
     json: Flags.boolean({description: 'Print findings as JSON'}),
     strict: Flags.boolean({description: 'Warnings fail the check too'}),
   }
+  static exitCodes = {0: EXIT_MEANINGS.ok, 2: 'Check errors, or warnings with --strict, or a usage error'}
+  static safety = 'offline' as const
 
   async run(): Promise<void> {
     const {flags} = await this.parse(Check)

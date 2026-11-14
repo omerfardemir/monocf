@@ -2,13 +2,27 @@
 
 ## Unreleased
 
+monocf is easier to drive from a coding agent or a script: every failure has a stable code, the commands describe themselves, and a skill ships in the package.
+
 ### Breaking changes
 
 - **An env's own `name` is used, as wrangler does.** With `"env": {"production": {"name": "search-api"}}`, the worker deploys as `search-api` in production, not `<name>-production`. 0.3.0 overwrote that name, so `plan` read and `apply` recorded a worker that plain wrangler never deploys, and service bindings pointed at it. A config that sets an env `name` it didn't mean now deploys under that name: remove it to keep `<name>-<env>`. An env `name` in the base config applies to every worker, which `check` reports as `duplicate-name` unless it holds a placeholder such as `{workerName}`. `check` also reports two envs that deploy under one name, from either env. A `null` env name counts as unset, as in wrangler. Fixes #12.
 
 ### Added
 
+- **Every failure under `--json` is an `error` event on stdout,** also a flag error, such as an unknown or missing flag, and an unknown command. Before, those printed nothing on stdout. The message still goes to stderr, and the exit code is as before. Only a topic with no command, such as `monocf secrets --json`, changes: it fails with `command-needed` and exit 2, where it printed its help.
+- **Error events carry a stable `code`,** such as `state-scheme-unsupported` or `plan-stale`, and a `hint` saying what to do next.
+- **`monocf explain <code>`** says what an error code, a `check` rule or a plan reason means, and what to do. `--json` gives one document, and no code lists them all.
+- **`monocf commands`** lists every command, and whether it's `offline`, `reads-cloudflare` or `writes-cloudflare`. `--json` adds each command's flags, required flags, exit codes and examples.
+- **`whoami --json` and `worker create --json`.** `whoami --json` gives the accounts with masked IDs.
+- **`run-started` carries a `runId`** for `apply` and `rollback`, the ID `rollback --to-run` takes.
+- **[docs/json-output.md](docs/json-output.md)** describes every event, document, the plan file and the bundle manifest. It ships in the package.
+- **A skill for coding agents,** at `skills/monocf/SKILL.md` in the package. See [Coding agents](README.md#coding-agents) for where to copy it.
 - **`check --all-envs` reports a route that more than one env claims,** as the error `cross-env-route`. A top-level route is inherited by every env without its own, so the first `apply` on `dev` could move a production custom domain to a dev worker, and 0.3.0 compared routes within one env only. `check -e <env>` warns about such a route as `inherited-route`, so `check -e <env> --strict` can now fail where it passed. See [Routes that more than one env claims](README.md#routes-that-more-than-one-env-claims). Fixes #11.
+
+### Changed
+
+- **wrangler gets no stdin unless monocf's own stdin is a terminal.** No command waited on stdin before, but a pipe an agent or a CI step held open reached wrangler, which reads one when it isn't a terminal.
 
 ## 0.3.0
 

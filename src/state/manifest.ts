@@ -1,7 +1,7 @@
 import {createHash} from 'node:crypto'
 
 import {isPlainObject} from '../config/types.js'
-import {EXIT_ENVIRONMENT, MonocfError} from '../errors.js'
+import {MonocfError} from '../errors.js'
 import type {Triggers} from '../fingerprint/fingerprint.js'
 
 export const STATE_SCHEMA_VERSION = 1
@@ -59,7 +59,7 @@ const REQUIRED_TEXT = [
 ] as const
 
 function unusable(message: string): MonocfError {
-  return new MonocfError(`The state manifest ${message}`, EXIT_ENVIRONMENT)
+  return new MonocfError(`The state manifest ${message}`, {code: 'state-invalid'})
 }
 
 function assertWorker(name: string, entry: unknown): void {

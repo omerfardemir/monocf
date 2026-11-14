@@ -141,7 +141,9 @@ describe('monocf graph', () => {
     const result = await offline(project(), args)
     expect(result.exitCode).toBe(2)
     expect(result.stderr).toContain(message)
-    expect(result.stdout).toBe('')
+    // Under --json the one line on stdout is the error event, which json-errors.test.ts checks.
+    if (args.includes('--json')) expect(JSON.parse(result.stdout)).toMatchObject({code: 'flag-conflict', type: 'error'})
+    else expect(result.stdout).toBe('')
   })
 
   it('stops with exit 2 when a selected worker could not be resolved', async () => {

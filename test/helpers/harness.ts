@@ -278,6 +278,8 @@ export interface FakeCloudflare {
 }
 
 export interface RunOptions {
+  /** The `bin/run.js` to run, such as a packed copy's. Defaults to this repository's. */
+  bin?: string
   /** Set to serve reads. Without it, every read fails, so a test can't reach one by accident. */
   cloudflare?: FakeCloudflare
   /** Directory to run from, relative to the fixture root. Defaults to the root. */
@@ -285,6 +287,8 @@ export interface RunOptions {
   env?: Record<string, string>
   /** The run is expected to make no wrangler call, for example a usage error. */
   noCalls?: boolean
+  /** A pipe for stdin that stays open until the run ends, as an agent's or a CI step's can, instead of none. */
+  openStdin?: boolean
   rules?: WranglerRule[]
 }
 
@@ -346,7 +350,7 @@ export function startCli(fixture: Fixture, args: string[], options: RunOptions =
   const cloudflarePath = join(stateDir, 'cloudflare.json')
   if (options.cloudflare) writeJson(cloudflarePath, options.cloudflare)
 
-  const child = spawn(process.execPath, [join(repoRoot, 'bin', 'run.js'), ...args], {
+  const child = spawn(process.execPath, [options.bin ?? join(repoRoot, 'bin', 'run.js'), ...args], {
     cwd: options.cwd ? join(fixture.root, options.cwd) : fixture.root,
     env: {
       ...isolatedEnvironment(stateDir),
@@ -357,8 +361,9 @@ export function startCli(fixture: Fixture, args: string[], options: RunOptions =
       WRANGLER_SEND_METRICS: 'false',
       ...options.env,
     },
-    stdio: ['ignore', 'pipe', 'pipe'],
-  })
+    // Nothing is written to an open stdin, and it's never ended, so a process reading it would wait for ever.
+    stdio: [options.openStdin ? 'pipe' : 'ignore', 'pipe', 'pipe'],
+  }) as ChildProcessByStdio<null, Readable, Readable>
 
   let stdout = ''
   let stderr = ''

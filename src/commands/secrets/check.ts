@@ -1,6 +1,6 @@
 import {Flags} from '@oclif/core'
 
-import {BaseCommand} from '../../app/base-command.js'
+import {BaseCommand, WRANGLER_EXIT_CODES} from '../../app/base-command.js'
 import {projectFlags} from '../../app/flags.js'
 import {runSecretsCheck} from '../../app/secrets-check.js'
 
@@ -13,6 +13,8 @@ export default class SecretsCheck extends BaseCommand {
     env: Flags.string({char: 'e', description: 'Environment to use (dev, production etc.)', required: true}),
     json: Flags.boolean({description: 'Print results as NDJSON on stdout'}),
   }
+  static exitCodes = {...WRANGLER_EXIT_CODES, 1: 'A worker is missing a secret, or a read failed'}
+  static safety = 'reads-cloudflare' as const
 
   async run(): Promise<void> {
     const {flags} = await this.parse(SecretsCheck)

@@ -86,7 +86,7 @@ export class Interrupts {
 
   /** Called between steps, so nothing new starts after a signal. */
   throwIfInterrupted(): void {
-    if (this.received) throw new MonocfError(`Interrupted by ${this.received}.`, signalExitCode(this.received))
+    if (this.received) throw new MonocfError(`Interrupted by ${this.received}.`, {code: 'interrupted', exitCode: signalExitCode(this.received)})
   }
 
   track(child: ChildProcess): void {

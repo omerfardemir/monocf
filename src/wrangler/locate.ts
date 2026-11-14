@@ -2,7 +2,8 @@ import {existsSync, readFileSync} from 'node:fs'
 import {createRequire} from 'node:module'
 import {dirname, join} from 'node:path'
 
-import {EXIT_ENVIRONMENT, MonocfError} from '../errors.js'
+import {MonocfError} from '../errors.js'
+import type {EnvironmentErrorCode} from '../explain/registry.js'
 
 const WRANGLER_FLOOR = '4.151.0'
 
@@ -12,8 +13,8 @@ export interface Wrangler {
   version: string
 }
 
-function environmentError(message: string): MonocfError {
-  return new MonocfError(message, EXIT_ENVIRONMENT)
+function environmentError(message: string, code: EnvironmentErrorCode = 'wrangler-unusable'): MonocfError {
+  return new MonocfError(message, {code})
 }
 
 function parseVersion(version: string): number[] | undefined {
@@ -78,12 +79,12 @@ export function locateWrangler(rootDir: string, nodeVersion: string = process.ve
   }
 
   if (compareVersions(version, WRANGLER_FLOOR)! < 0) {
-    throw environmentError(`monocf needs wrangler ${WRANGLER_FLOOR} or newer, but ${rootDir} resolves ${version}.`)
+    throw environmentError(`monocf needs wrangler ${WRANGLER_FLOOR} or newer, but ${rootDir} resolves ${version}.`, 'wrangler-too-old')
   }
 
   const floor = nodeFloor(engines?.node)
   if (floor && compareVersions(nodeVersion, floor)! < 0) {
-    throw environmentError(`wrangler ${version} needs Node.js ${floor} or newer, but this is ${nodeVersion}.`)
+    throw environmentError(`wrangler ${version} needs Node.js ${floor} or newer, but this is ${nodeVersion}.`, 'node-too-old')
   }
 
   const cli = join(dirname(packagePath), 'wrangler-dist', 'cli.js')

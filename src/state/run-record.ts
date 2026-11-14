@@ -1,5 +1,5 @@
 import {isPlainObject} from '../config/types.js'
-import {EXIT_ENVIRONMENT, MonocfError} from '../errors.js'
+import {MonocfError} from '../errors.js'
 import type {Triggers} from '../fingerprint/fingerprint.js'
 import type {StateWorker} from './manifest.js'
 
@@ -48,7 +48,7 @@ export interface RunRecord {
 }
 
 function unusable(runId: string, message: string): MonocfError {
-  return new MonocfError(`The record of run ${runId} ${message}`, EXIT_ENVIRONMENT)
+  return new MonocfError(`The record of run ${runId} ${message}`, {code: 'state-invalid'})
 }
 
 /** Anything in it that can't be trusted stops a rollback, which would otherwise act on it. */

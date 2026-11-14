@@ -1,6 +1,6 @@
 import {Flags} from '@oclif/core'
 
-import {BaseCommand} from '../../app/base-command.js'
+import {BaseCommand, WRANGLER_EXIT_CODES} from '../../app/base-command.js'
 import {runWorkerCommand, workerArgs, workerFlags} from '../../app/worker-command.js'
 import type {WorkerAction} from '../../app/worker.js'
 
@@ -16,6 +16,8 @@ export default class Worker extends BaseCommand {
   static description = 'Deprecated: use monocf build, deploy, preview or dev, which take the same flags'
   static examples = ['<%= config.bin %> worker my-worker -c deploy -e dev']
   static flags = {...workerFlags, command: workerCommand()}
+  static exitCodes = WRANGLER_EXIT_CODES
+  static safety = 'writes-cloudflare' as const
 
   async run(): Promise<void> {
     const {args, flags} = await this.parse(Worker)

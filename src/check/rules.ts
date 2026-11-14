@@ -3,6 +3,7 @@ import {join} from 'node:path'
 import {effectiveField, envSection, type EnvDeployedName, type ProjectInputs, type ResolvedProject} from '../config/resolve.js'
 import {isPlainObject, UnknownPlaceholderError, type Notice, type RawConfig, type ResolvedWorker} from '../config/types.js'
 import {definedEnvs, envsAndUnreadable, isEnvMissing} from '../config/validate.js'
+import type {CheckRule} from '../explain/registry.js'
 import {buildGraph, type Edge, type Graph} from '../graph/graph.js'
 import {computeOrder} from '../graph/order.js'
 import type {FileReader} from '../project/load.js'
@@ -16,7 +17,8 @@ export interface Finding {
   env?: string
   level: FindingLevel
   message: string
-  rule: string
+  /** A new rule needs an entry in the registry that `monocf explain` reads, or this doesn't compile. */
+  rule: CheckRule
   worker?: string
 }
 
@@ -126,7 +128,7 @@ function cycleFinding(members: string[], edges: Edge[], level: FindingLevel, not
   return {
     level,
     message: `Binding cycle${note}: ${cyclePath(members, edges).join(' -> ')}`,
-    rule: 'cycle',
+    rule: 'cycle' as const,
     worker: members[0],
   }
 }
@@ -196,7 +198,7 @@ const crossEnvBinding: Rule = (context) =>
       worker,
     }))
 
-function directoryRule(rule: string, sources: string[]): Rule {
+function directoryRule(rule: CheckRule, sources: string[]): Rule {
   return (context) =>
     selectedNotices(context, 'directory-name')
       .filter(({source}) => sources.includes(source))
@@ -230,7 +232,7 @@ const duplicateName: Rule = (context) => {
       .map(([name, dirs]) => ({
         level: 'error' as const,
         message: `${dirs.join(' and ')} all deploy as ${name}, so each deploy overwrites the other.`,
-        rule: 'duplicate-name',
+        rule: 'duplicate-name' as const,
         worker: dirs[0],
       })),
     ...sharedAcrossEnvs(context),
@@ -392,11 +394,11 @@ const missingMain: Rule = (context) =>
 const nameLength: Rule = (context) =>
   selectedWorkers(context).flatMap(({deployedName, dir}) => [
     ...(deployedName.length > MAX_NAME_LENGTH
-      ? [{level: 'error' as const, message: `${dir}: ${deployedName} is ${deployedName.length} characters long, over the limit of ${MAX_NAME_LENGTH}.`, rule: 'name-length', worker: dir}]
+      ? [{level: 'error' as const, message: `${dir}: ${deployedName} is ${deployedName.length} characters long, over the limit of ${MAX_NAME_LENGTH}.`, rule: 'name-length' as const, worker: dir}]
       : []),
     ...(VALID_NAME.test(deployedName)
       ? []
-      : [{level: 'error' as const, message: `${dir}: ${deployedName} may hold only lowercase letters, digits and inner dashes.`, rule: 'name-length', worker: dir}]),
+      : [{level: 'error' as const, message: `${dir}: ${deployedName} may hold only lowercase letters, digits and inner dashes.`, rule: 'name-length' as const, worker: dir}]),
   ])
 
 const noCompatDate: Rule = (context) =>

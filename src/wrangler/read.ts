@@ -1,7 +1,7 @@
 import {stripVTControlCharacters} from 'node:util'
 
 import {isPlainObject} from '../config/types.js'
-import {EXIT_ENVIRONMENT, EXIT_FAILED, MonocfError} from '../errors.js'
+import {MonocfError} from '../errors.js'
 import {signalExitCode} from '../runtime/signals.js'
 import type {Step} from './argv.js'
 import type {WranglerResult} from './process.js'
@@ -22,6 +22,11 @@ export type ActiveInfo =
   | {sourceOutOfReach?: true; sourceTag?: string; state: 'active'; tag?: string; triggeredBy?: string; versionId: string}
   | {state: 'missing'}
   | {shares: ActiveShare[]; state: 'split'}
+
+/** Enough to tell two accounts apart by eye, with no ID in a log or a PR comment. */
+export function maskAccount(accountId: string): string {
+  return `${accountId.slice(0, 4)}…${accountId.slice(-4)}`
+}
 
 export function isSuccessful({code, signal}: WranglerResult): boolean {
   return code === 0 && signal === null
@@ -53,23 +58,30 @@ function errorDetail(stderr: string): string {
 
 /** A read that failed. No credentials is an environment error, so CI can tell it from a Cloudflare problem. */
 export function readFailure(label: string, result: WranglerResult): MonocfError {
-  if (result.signal) return new MonocfError(`${label}: wrangler was killed by ${result.signal}.`, signalExitCode(result.signal))
+  if (result.signal) return new MonocfError(`${label}: wrangler was killed by ${result.signal}.`, {code: 'wrangler-killed', exitCode: signalExitCode(result.signal)})
   if (TOO_MANY_FAILURES.test(result.stderr)) {
     const wait = `${label}: Cloudflare reports too many authentication failures (10502). Check the token, and wait for this to clear before trying again.`
-    return new MonocfError(wait, EXIT_ENVIRONMENT)
+    return new MonocfError(wait, {code: 'auth-rate-limited'})
   }
 
   const detail = errorDetail(result.stderr)
   const message = `${label}: wrangler failed with exit code ${result.code}${detail ? `: ${detail}` : '.'}`
-  return new MonocfError(message, NO_CREDENTIALS.test(result.stderr) ? EXIT_ENVIRONMENT : EXIT_FAILED)
+  return new MonocfError(message, {code: NO_CREDENTIALS.test(result.stderr) ? 'not-authenticated' : 'wrangler-failed'})
 }
 
-function parseJson(label: string, stdout: string): unknown {
+/** Undefined for anything that isn't JSON, for a caller that has something to say before that's an error. */
+export function tryParseJson(stdout: string): unknown {
   try {
     return JSON.parse(stdout)
   } catch {
-    throw new MonocfError(`${label}: wrangler printed something that isn't JSON.`, EXIT_FAILED)
+    return undefined
   }
+}
+
+function parseJson(label: string, stdout: string): unknown {
+  const parsed = tryParseJson(stdout)
+  if (parsed === undefined) throw new MonocfError(`${label}: wrangler printed something that isn't JSON.`, {code: 'wrangler-output-invalid'})
+  return parsed
 }
 
 function compareShares(a: ActiveShare, b: ActiveShare): number {
@@ -85,7 +97,7 @@ export function parseDeploymentStatus(label: string, stdout: string): ActiveInfo
     .map(({percentage, version_id: versionId}) => ({percentage: typeof percentage === 'number' ? percentage : 100, versionId}))
     .filter(({percentage}) => percentage > 0)
     .sort(compareShares)
-  if (shares.length === 0) throw new MonocfError(`${label}: Cloudflare reports no active version.`, EXIT_FAILED)
+  if (shares.length === 0) throw new MonocfError(`${label}: Cloudflare reports no active version.`, {code: 'no-active-version'})
   return shares.length === 1 ? {state: 'active', versionId: shares[0].versionId} : {shares, state: 'split'}
 }
 
@@ -172,10 +184,10 @@ export async function readQueueConsumers(call: WranglerCall, queue: string, acco
   try {
     parsed = JSON.parse(result.stdout)
   } catch {
-    throw new MonocfError(`The consumers of queue ${queue}: wrangler's answer isn't JSON.`, EXIT_FAILED)
+    throw new MonocfError(`The consumers of queue ${queue}: wrangler's answer isn't JSON.`, {code: 'wrangler-output-invalid'})
   }
 
-  if (!Array.isArray(parsed)) throw new MonocfError(`The consumers of queue ${queue}: wrangler's answer isn't a list.`, EXIT_FAILED)
+  if (!Array.isArray(parsed)) throw new MonocfError(`The consumers of queue ${queue}: wrangler's answer isn't a list.`, {code: 'wrangler-output-invalid'})
   return parsed.flatMap((consumer) => {
     const script = isPlainObject(consumer) ? (consumer.script ?? consumer.service) : undefined
     return typeof script === 'string' ? [script] : []

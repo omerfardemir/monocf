@@ -3,7 +3,7 @@ import {readFileSync, rmSync, statSync, writeFileSync} from 'node:fs'
 import {join, resolve} from 'node:path'
 
 import {ConfigError} from '../config/types.js'
-import {EXIT_ENVIRONMENT, MonocfError} from '../errors.js'
+import {MonocfError} from '../errors.js'
 import {writeFileAtomic} from '../runtime/atomic.js'
 import {isSuccessful, readFailure, type WranglerCall} from '../wrangler/read.js'
 
@@ -25,17 +25,17 @@ const VALID_BUCKET = /^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/
 export function parseStateUrl(url: string, cwd: string = process.cwd()): StateLocation {
   if (url.startsWith('file:')) {
     const dir = url.slice('file:'.length)
-    if (dir.trim() === '') throw new ConfigError(`--state ${url} names no directory.`)
+    if (dir.trim() === '') throw new ConfigError(`--state ${url} names no directory.`, {code: 'state-url-invalid'})
     return {dir: resolve(cwd, dir), kind: 'file', url}
   }
 
   if (url.startsWith('r2://')) {
     const [bucket, ...prefix] = url.slice('r2://'.length).split('/')
-    if (!VALID_BUCKET.test(bucket)) throw new ConfigError(`--state ${url} has no valid bucket name.`)
+    if (!VALID_BUCKET.test(bucket)) throw new ConfigError(`--state ${url} has no valid bucket name.`, {code: 'state-url-invalid'})
     return {bucket, kind: 'r2', prefix: prefix.filter((part) => part !== '').join('/'), url}
   }
 
-  throw new ConfigError(`--state ${url} is not supported. Use file:<dir> or r2://<bucket>/<prefix>.`)
+  throw new ConfigError(`--state ${url} is not supported. Use file:<dir> or r2://<bucket>/<prefix>.`, {code: 'state-scheme-unsupported'})
 }
 
 function isMissing(error: unknown): boolean {
@@ -50,10 +50,10 @@ function fileStore({dir, url}: Extract<StateLocation, {kind: 'file'}>): StateSto
       try {
         isDirectory = statSync(dir).isDirectory()
       } catch (error) {
-        if (!isMissing(error)) throw new MonocfError(`Can't use the state directory ${dir}: ${(error as Error).message}`, EXIT_ENVIRONMENT)
+        if (!isMissing(error)) throw new MonocfError(`Can't use the state directory ${dir}: ${(error as Error).message}`, {code: 'state-unusable'})
       }
 
-      if (!isDirectory) throw new MonocfError(`The state directory ${dir} doesn't exist. Create it first.`, EXIT_ENVIRONMENT)
+      if (!isDirectory) throw new MonocfError(`The state directory ${dir} doesn't exist. Create it first.`, {code: 'state-unusable'})
     },
     describe: () => url,
     async read(key) {
@@ -61,7 +61,7 @@ function fileStore({dir, url}: Extract<StateLocation, {kind: 'file'}>): StateSto
         return readFileSync(join(dir, key), 'utf8')
       } catch (error) {
         if (isMissing(error)) return null
-        throw new MonocfError(`Can't read ${key} from ${url}: ${(error as Error).message}`, EXIT_ENVIRONMENT)
+        throw new MonocfError(`Can't read ${key} from ${url}: ${(error as Error).message}`, {code: 'state-unusable'})
       }
     },
     async write(key, body) {
@@ -93,13 +93,13 @@ function r2Store({bucket, prefix, url}: Extract<StateLocation, {kind: 'r2'}>, ca
           throw new MonocfError(
             `Can't use the state bucket ${bucket}: this login has more than one account, and nothing says which holds it. Set CLOUDFLARE_ACCOUNT_ID to that account's ID.
 ${message}`,
-            EXIT_ENVIRONMENT,
+            {code: 'account-ambiguous'},
           )
         }
 
         // A rate limit or an outage left after the retries isn't a missing bucket, so only that answer gets the hint.
         const hint = MISSING_BUCKET.test(result.stderr) ? ` It doesn't exist. Create it with: wrangler r2 bucket create ${bucket}` : ''
-        throw new MonocfError(`Can't use the state bucket ${bucket}.${hint}\n${message}`, EXIT_ENVIRONMENT)
+        throw new MonocfError(`Can't use the state bucket ${bucket}.${hint}\n${message}`, {code: 'state-unusable'})
       }
     },
     describe: () => url,
