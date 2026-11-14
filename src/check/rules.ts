@@ -1,6 +1,6 @@
 import {join} from 'node:path'
 
-import {effectiveField, envSection, type ProjectInputs, type ResolvedProject} from '../config/resolve.js'
+import {effectiveField, envSection, type EnvDeployedName, type ProjectInputs, type ResolvedProject} from '../config/resolve.js'
 import {isPlainObject, UnknownPlaceholderError, type Notice, type RawConfig, type ResolvedWorker} from '../config/types.js'
 import {definedEnvs, envsAndUnreadable, isEnvMissing} from '../config/validate.js'
 import {buildGraph, type Edge, type Graph} from '../graph/graph.js'
@@ -224,14 +224,36 @@ const duplicateName: Rule = (context) => {
     byName.set(deployedName, [...(byName.get(deployedName) ?? []), dir])
   }
 
-  return [...byName]
-    .filter(([, dirs]) => dirs.length > 1 && dirs.some((dir) => context.selected.includes(dir)))
-    .map(([name, dirs]) => ({
-      level: 'error',
-      message: `${dirs.join(' and ')} all deploy as ${name}, so each deploy overwrites the other.`,
-      rule: 'duplicate-name',
-      worker: dirs[0],
-    }))
+  return [
+    ...[...byName]
+      .filter(([, dirs]) => dirs.length > 1 && dirs.some((dir) => context.selected.includes(dir)))
+      .map(([name, dirs]) => ({
+        level: 'error' as const,
+        message: `${dirs.join(' and ')} all deploy as ${name}, so each deploy overwrites the other.`,
+        rule: 'duplicate-name',
+        worker: dirs[0],
+      })),
+    ...sharedAcrossEnvs(context),
+  ]
+}
+
+/**
+ * An env that sets its own name can meet another env's name, and then an apply in one env overwrites the other's
+ * worker, with each env's state saying a different version is live. Only a name the selected env deploys is reported,
+ * so `check -e` sees it from either env.
+ */
+function sharedAcrossEnvs({env, project, selected}: CheckContext): Omit<Finding, 'env'>[] {
+  const byName = new Map<string, EnvDeployedName[]>()
+  for (const entry of project.envDeployedNames) {
+    byName.set(entry.deployedName, [...(byName.get(entry.deployedName) ?? []), entry])
+  }
+
+  return [...byName].flatMap(([name, entries]) => {
+    const mine = entries.find((entry) => entry.env === env && selected.includes(entry.dir))
+    if (!mine || new Set(entries.map((entry) => entry.env)).size < 2) return []
+    const where = entries.map((entry) => `${entry.dir} in ${entry.env}`).join(' and ')
+    return [{level: 'error' as const, message: `${where} all deploy as ${name}, so each deploy overwrites the other.`, rule: 'duplicate-name', worker: mine.dir}]
+  })
 }
 
 function routePatterns(config: RawConfig, env?: string): string[] {

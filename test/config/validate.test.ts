@@ -76,7 +76,7 @@ describe('validateSelection', () => {
     ],
   }
   const error = new ConfigError('broken')
-  const project: ResolvedProject = {failures: [{dir: 'bad', error}], notices: [], workers: []}
+  const project: ResolvedProject = {envDeployedNames: [], failures: [{dir: 'bad', error}], notices: [], workers: []}
   const options = {env: 'staging', variables: {}} as unknown as Options
 
   it('accepts a selection that defines the env, whatever fails outside it', () => {
