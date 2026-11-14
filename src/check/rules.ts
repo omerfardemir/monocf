@@ -2,7 +2,7 @@ import {join} from 'node:path'
 
 import {effectiveField, envSection, type ProjectInputs, type ResolvedProject} from '../config/resolve.js'
 import {isPlainObject, UnknownPlaceholderError, type Notice, type RawConfig, type ResolvedWorker} from '../config/types.js'
-import {envsAndUnreadable, isEnvMissing} from '../config/validate.js'
+import {definedEnvs, envsAndUnreadable, isEnvMissing} from '../config/validate.js'
 import {buildGraph, type Edge, type Graph} from '../graph/graph.js'
 import {computeOrder} from '../graph/order.js'
 import type {FileReader} from '../project/load.js'
@@ -212,6 +212,12 @@ const tailServiceDirectory = directoryRule('tail-service-directory', [
   'tail_consumers',
 ])
 
+function groupBy<T>(items: T[], key: (item: T) => string): Map<string, T[]> {
+  const groups = new Map<string, T[]>()
+  for (const item of items) groups.set(key(item), [...(groups.get(key(item)) ?? []), item])
+  return groups
+}
+
 const duplicateName: Rule = (context) => {
   const byName = new Map<string, string[]>()
   for (const {deployedName, dir} of context.project.workers) {
@@ -236,13 +242,17 @@ function routePatterns(config: RawConfig, env?: string): string[] {
   })
 }
 
-const duplicateRoute: Rule = (context) => {
-  const owners = new Map<string, string[]>()
-  for (const {config, dir, env} of selectedWorkers(context)) {
-    for (const pattern of new Set(routePatterns(config, env))) owners.set(pattern, [...(owners.get(pattern) ?? []), dir])
-  }
+type RouteClaim = Pick<ResolvedWorker, 'deployedName' | 'dir' | 'env'> & {pattern: string}
 
-  return [...owners]
+function routeClaims(context: CheckContext): RouteClaim[] {
+  return selectedWorkers(context).flatMap(({config, deployedName, dir, env}) =>
+    [...new Set(routePatterns(config, env))].map((pattern) => ({deployedName, dir, env, pattern})),
+  )
+}
+
+const duplicateRoute: Rule = (context) =>
+  [...groupBy(routeClaims(context), ({pattern}) => pattern)]
+    .map(([pattern, claims]) => [pattern, claims.map(({dir}) => dir)] as const)
     .filter(([, dirs]) => dirs.length > 1)
     .map(([pattern, dirs]) => ({
       level: 'error',
@@ -250,28 +260,43 @@ const duplicateRoute: Rule = (context) => {
       rule: 'duplicate-route',
       worker: dirs[0],
     }))
-}
 
-/** A route set at the top level, which every env without its own `route` or `routes` inherits. */
-function inheritsRoutes(config: RawConfig, env?: string): boolean {
-  if (env === undefined || routePatterns(config).length === 0) return false
+/** Wrangler hands an env the top-level `route` or `routes` unless it sets either itself, as both inherit. */
+function inheritsRoutes(config: RawConfig, env: string): boolean {
+  if (routePatterns(config).length === 0) return false
   const section = envSection(config, env)
   return section.routes === undefined && section.route === undefined
 }
 
+/** The other envs a worker defines that inherit its top-level route too. */
+function otherInheritingEnvs({config, dir, env}: ResolvedWorker, {inputs, options}: CheckContext): string[] {
+  return definedEnvs(inputs, options).filter(
+    (other) => other !== env && !isEnvMissing(dir, {...options, env: other}, inputs) && inheritsRoutes(config, other),
+  )
+}
+
 /**
- * One env can't see another, so this is a warning: a top-level route that more than one env inherits sends each of
- * their workers to the same pattern, and the last apply takes it. `check --all-envs` reports the collision itself.
+ * One env can't see what another deploys, so this is a warning: a top-level route that more than one env inherits sends
+ * each of their workers to the same pattern, and the last apply takes it. Several envs checked at once compare the
+ * routes instead, as `cross-env-route`, so this runs for one env only.
  */
 const inheritedRoute: Rule = (context) =>
-  selectedWorkers(context)
-    .filter(({config, env}) => inheritsRoutes(config, env) && Object.keys(isPlainObject(config.env) ? config.env : {}).length > 1)
-    .map(({config, dir, env}) => ({
-      level: 'warning',
-      message: `${dir}: ${env} inherits the top-level route ${routePatterns(config).join(', ')}, and so does every other env that sets none. Move the route into the env that should serve it.`,
-      rule: 'inherited-route',
-      worker: dir,
-    }))
+  selectedWorkers(context).flatMap((worker) => {
+    const {config, dir, env} = worker
+    // A worker that doesn't define the env already fails missing-env there.
+    if (env === undefined || isEnvMissing(dir, context.options, context.inputs) || !inheritsRoutes(config, env)) return []
+    const others = otherInheritingEnvs(worker, context)
+    if (others.length === 0) return []
+    const verb = others.length > 1 ? 'do' : 'does'
+    return [
+      {
+        level: 'warning' as const,
+        message: `${dir}: ${env} inherits the top-level route ${routePatterns(config).join(', ')}, and so ${verb} ${englishList(others)}. Move the route into the env that should serve it.`,
+        rule: 'inherited-route',
+        worker: dir,
+      },
+    ]
+  })
 
 const resolveFailures: Rule = ({project, selected}) =>
   project.failures
@@ -405,7 +430,6 @@ const RULES: Rule[] = [
   tailServiceDirectory,
   duplicateName,
   duplicateRoute,
-  inheritedRoute,
   duplicateBindingName,
   resolveFailures,
   externalBinding,
@@ -420,8 +444,8 @@ const RULES: Rule[] = [
 ]
 
 /** Runs every rule for one env. Pure, apart from what the reader looks at. */
-export function runRules(context: CheckContext): Finding[] {
-  return RULES.flatMap((rule) =>
+export function runRules(context: CheckContext, rules: Rule[] = RULES): Finding[] {
+  return rules.flatMap((rule) =>
     rule(context).map((finding) => ({
       ...finding,
       // A finding with no worker is about the project file, so it doesn't depend on the env.
@@ -430,43 +454,39 @@ export function runRules(context: CheckContext): Finding[] {
   )
 }
 
-function listed(items: string[]): string {
+function englishList(items: string[]): string {
   return items.length < 3 ? items.join(' and ') : `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`
 }
 
-interface RouteClaim {
-  deployedName: string
-  dir: string
-  env?: string
+function claimMessage(pattern: string, claims: RouteClaim[]): string {
+  const dirs = [...new Set(claims.map(({dir}) => dir))]
+  const several = dirs.length > 1
+  const where = claims.map(({deployedName, dir, env}) => `${several ? `${dir} in ` : ''}${env} as ${deployedName}`)
+  const subject = several ? `${englishList(dirs)} claim the route ${pattern}:` : `${dirs[0]} claims the route ${pattern} in`
+  return `${subject} ${englishList(where)}. Only one can hold it: move the route into the env that should serve it.`
 }
 
 /**
  * A custom domain points at one worker, and a zone route matches one, so a pattern claimed under more than one deployed
  * name across envs goes to whichever apply ran last. Two workers in one env are `duplicate-route`, so this needs two envs.
  */
-export function crossEnvRoutes(contexts: CheckContext[]): Finding[] {
-  const claims = new Map<string, RouteClaim[]>()
-  for (const context of contexts) {
-    for (const {config, deployedName, dir, env} of selectedWorkers(context)) {
-      for (const pattern of new Set(routePatterns(config, env))) {
-        claims.set(pattern, [...(claims.get(pattern) ?? []), {deployedName, dir, env}])
-      }
-    }
-  }
-
-  return [...claims].flatMap(([pattern, list]) => {
-    const envs = [...new Set(list.map(({env}) => env ?? 'no env'))]
-    const names = [...new Set(list.map(({deployedName}) => deployedName))]
-    if (envs.length < 2 || names.length < 2) return []
-    const dirs = [...new Set(list.map(({dir}) => dir))]
-    const claimed = `${listed(dirs)} ${dirs.length > 1 ? 'claim' : 'claims'} the route ${pattern} in ${listed(envs)} (${names.join(', ')})`
-    return [
-      {
-        level: 'error' as const,
-        message: `${claimed}. Only one can hold it: move the route into the env that should serve it.`,
-        rule: 'cross-env-route',
-        worker: dirs[0],
-      },
-    ]
+function crossEnvRoutes(contexts: CheckContext[]): Finding[] {
+  const byPattern = groupBy(contexts.flatMap((context) => routeClaims(context)), ({pattern}) => pattern)
+  return [...byPattern].flatMap(([pattern, claims]) => {
+    const distinct = [...groupBy(claims, ({deployedName, env}) => `${env} ${deployedName}`).values()].map(([first]) => first)
+    const envs = new Set(distinct.map(({env}) => env))
+    const names = new Set(distinct.map(({deployedName}) => deployedName))
+    if (envs.size < 2 || names.size < 2) return []
+    return [{level: 'error' as const, message: claimMessage(pattern, distinct), rule: 'cross-env-route', worker: distinct[0].dir}]
   })
+}
+
+/**
+ * Runs every rule for each env. One env alone can only warn about a route other envs inherit, while several can be
+ * compared, so which of the two route rules runs depends on how many envs there are.
+ */
+export function runChecks(contexts: CheckContext[]): Finding[] {
+  const perEnv = contexts.flatMap((context) => runRules(context))
+  if (contexts.length > 1) return [...perEnv, ...crossEnvRoutes(contexts)]
+  return [...perEnv, ...contexts.flatMap((context) => runRules(context, [inheritedRoute]))]
 }

@@ -1,6 +1,6 @@
 import {join} from 'node:path'
 
-import {crossEnvRoutes, runRules, type CheckContext, type Finding} from '../check/rules.js'
+import {runChecks, type CheckContext, type Finding} from '../check/rules.js'
 import {readProjectInputs, resolveProject, type ProjectInputs} from '../config/resolve.js'
 import {definedEnvs} from '../config/validate.js'
 import {EXIT_OK, EXIT_USAGE} from '../errors.js'
@@ -37,18 +37,13 @@ export function runCheck(flags: CheckFlags): void {
     const envOptions = {...options, env}
     return {directories, env, ignored, inputs, options: envOptions, project: resolveProject(envOptions, inputs), reader: nodeReader, selected}
   })
-  const crossEnv = crossEnvRoutes(contexts)
-  // The error names every env, so the warning each env gives on its own would only repeat it.
-  const covered = new Set(crossEnv.map(({worker}) => worker))
   const seen = new Set<string>()
-  const findings = [...contexts.flatMap((context) => runRules(context)), ...crossEnv]
-    .filter((finding) => !(finding.rule === 'inherited-route' && covered.has(finding.worker)))
-    .filter((finding) => {
-      const key = JSON.stringify(finding)
-      if (seen.has(key)) return false
-      seen.add(key)
-      return true
-    })
+  const findings = runChecks(contexts).filter((finding) => {
+    const key = JSON.stringify(finding)
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
 
   const count = (level: Finding['level']) => findings.filter((finding) => finding.level === level).length
   const [errors, warnings, notes] = [count('error'), count('warning'), count('note')]

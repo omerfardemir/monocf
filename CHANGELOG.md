@@ -4,7 +4,7 @@
 
 ### Added
 
-- **`check --all-envs` reports a route that more than one env claims,** as the error `cross-env-route`. A top-level route is inherited by every env without its own, so the first `apply` on `dev` could move a production custom domain to a dev worker, and 0.3.0 compared routes within one env only. `check -e <env>` warns about such a route as `inherited-route`. See [Routes that more than one env claims](README.md#routes-that-more-than-one-env-claims). Fixes #11.
+- **`check --all-envs` reports a route that more than one env claims,** as the error `cross-env-route`. A top-level route is inherited by every env without its own, so the first `apply` on `dev` could move a production custom domain to a dev worker, and 0.3.0 compared routes within one env only. `check -e <env>` warns about such a route as `inherited-route`, so `check -e <env> --strict` can now fail where it passed. See [Routes that more than one env claims](README.md#routes-that-more-than-one-env-claims). Fixes #11.
 
 ## 0.3.0
 
