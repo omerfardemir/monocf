@@ -4,7 +4,8 @@ import {join} from 'node:path'
 
 import {accountIdOf} from '../config/resolve.js'
 import type {ResolvedWorker} from '../config/types.js'
-import {EXIT_FAILED, EXIT_OK, MonocfError} from '../errors.js'
+import {EXIT_FAILED, EXIT_OK, MonocfError, type ErrorDetails} from '../errors.js'
+import type {ErrorCode} from '../explain/registry.js'
 import type {EventSink} from '../report/events.js'
 import {humanSink} from '../report/human.js'
 import {ndjsonSink} from '../report/ndjson.js'
@@ -62,21 +63,24 @@ export function isSuccess({code, signal}: WranglerResult): boolean {
 export class WranglerFailure extends MonocfError {
   constructor(
     message: string,
-    exitCode: number,
+    details: ErrorDetails,
     readonly result: WranglerResult,
   ) {
-    super(message, exitCode)
+    super(message, details)
   }
 }
 
 /** The error for a finished process. A signal keeps its own exit code, so CI can tell a kill from a failure. */
 export function failureOf(label: string, action: Step['action'], result: WranglerResult): MonocfError {
   const name = `${label}wrangler ${COMMAND_NAMES[action]}`
-  if (result.signal) return new WranglerFailure(`${name} was killed by ${result.signal}.`, signalExitCode(result.signal), result)
+  if (result.signal) {
+    return new WranglerFailure(`${name} was killed by ${result.signal}.`, {code: 'wrangler-killed', exitCode: signalExitCode(result.signal)}, result)
+  }
+
   const {code, message} = result.output.failure ?? {}
   const withCode = message && code !== undefined && !message.includes(String(code)) ? `${message} [code: ${code}]` : message
   const detail = withCode ? `: ${scrubAccountIds(withCode)}` : '.'
-  return new WranglerFailure(`${name} failed with exit code ${result.code}${detail}`, EXIT_FAILED, result)
+  return new WranglerFailure(`${name} failed with exit code ${result.code}${detail}`, {code: 'wrangler-failed'}, result)
 }
 
 export interface StepRun {
@@ -107,7 +111,7 @@ export async function runStep(context: RunContext, {accountId, argvOptions, mode
   if ((step.action === 'deploy' || step.action === 'preview') && result.output.versionId === undefined) {
     throw new MonocfError(
       `${worker}: wrangler ${COMMAND_NAMES[step.action]} exited 0 without reporting a version ID, so the upload is unconfirmed.`,
-      EXIT_FAILED,
+      {code: 'upload-unconfirmed'},
     )
   }
 
@@ -181,13 +185,17 @@ export interface WorkerStep {
 }
 
 function failureFrom(failed: FailedStep[]): Error {
-  const errors = failed.map(({error}) => error as Error & {exitCode?: number})
+  const errors = failed.map(({error}) => error as Error & {code?: ErrorCode; exitCode?: number})
   if (errors.length === 1) return errors[0]
   const killed = errors.find(({exitCode}) => exitCode !== undefined && exitCode > 128)
   // Every worker failing the same way, such as no credentials, says more than "workers failed".
   const shared = errors.every(({exitCode}) => exitCode === errors[0].exitCode) ? errors[0].exitCode : undefined
+  const sameCode = errors.every(({code}) => code !== undefined && code === errors[0].code) ? errors[0].code : undefined
   const lines = errors.map(({message}) => `  ${message}`).join('\n')
-  return new MonocfError(`${errors.length} workers failed:\n${lines}`, killed?.exitCode ?? shared ?? EXIT_FAILED)
+  return new MonocfError(`${errors.length} workers failed:\n${lines}`, {
+    code: killed?.code ?? sameCode ?? 'workers-failed',
+    exitCode: killed?.exitCode ?? shared ?? EXIT_FAILED,
+  })
 }
 
 /**
@@ -243,6 +251,8 @@ export interface RunSetup {
   /** Every worker a wrangler process may run for, so each gets what its `.env` files say. */
   resolved: Pick<ResolvedWorker, 'dir' | 'path'>[]
   rootDir: string
+  /** For a run that writes a run record, which `rollback --to-run` takes. */
+  runId?: string
   workers: string[]
   wrangler: Wrangler
 }
@@ -252,7 +262,7 @@ export interface RunSetup {
  * can return an exit code, for a result that isn't success and has no error to raise.
  */
 export async function withRun(setup: RunSetup, work: (context: RunContext) => Promise<number | void>): Promise<void> {
-  const {action, env, json, notices, resolved, rootDir, workers, wrangler} = setup
+  const {action, env, json, notices, resolved, rootDir, runId, workers, wrangler} = setup
   const sink = createSink(json)
   const runDir = createRunDir(rootDir)
   const readDir = mkdtempSync(join(tmpdir(), 'monocf-read-'))
@@ -269,7 +279,7 @@ export async function withRun(setup: RunSetup, work: (context: RunContext) => Pr
     return environment
   }
 
-  sink({action, ...(env !== undefined && {env}), type: 'run-started', workers})
+  sink({action, ...(env !== undefined && {env}), ...(runId !== undefined && {runId}), type: 'run-started', workers})
   for (const notice of notices) sink({...notice, type: 'notice'})
 
   try {

@@ -3,7 +3,7 @@ import {join} from 'node:path'
 import {readProjectInputs, resolveProject, type ResolvedProject} from '../config/resolve.js'
 import {ConfigError, isPlainObject, type ResolvedWorker} from '../config/types.js'
 import {assertResolved, validateSelection} from '../config/validate.js'
-import {EXIT_FAILED, MonocfError} from '../errors.js'
+import {MonocfError} from '../errors.js'
 import {buildGraph} from '../graph/graph.js'
 import {computeOrder, dependenciesWithin, serviceClosure} from '../graph/order.js'
 import type {OptionFlags, Options} from '../project/options.js'
@@ -59,13 +59,13 @@ const CHECKED_FLAGS: (keyof WorkerFlags)[] = [
 
 function validateFlags(flags: WorkerFlags): void {
   if (flags.deployFromVersionId !== undefined && !flags.fromVersion) {
-    throw new ConfigError('--deploy-from-version-id requires --from-version')
+    throw new ConfigError('--deploy-from-version-id requires --from-version', {code: 'flag-conflict'})
   }
 
   for (const flag of CHECKED_FLAGS) {
     if (flags[flag] !== undefined && !FLAGS_BY_ACTION[flags.command].includes(flag)) {
       const name = flag.replaceAll(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)
-      throw new ConfigError(`--${name} is not supported by the ${flags.command} command`)
+      throw new ConfigError(`--${name} is not supported by the ${flags.command} command`, {code: 'flag-unsupported'})
     }
   }
 
@@ -73,16 +73,17 @@ function validateFlags(flags: WorkerFlags): void {
     if (flags.all || flags.deployBindings) {
       throw new ConfigError(
         'Deploying from a version works for one named worker. It cannot be combined with --all or with --deploy-bindings.',
+        {code: 'flag-conflict'},
       )
     }
 
     if (flags.concurrency !== undefined) {
-      throw new ConfigError('--concurrency has no effect with --from-version, which runs for one worker')
+      throw new ConfigError('--concurrency has no effect with --from-version, which runs for one worker', {code: 'flag-unsupported'})
     }
 
-    if (flags.minify) throw new ConfigError('--minify has no effect with --from-version, which uploads nothing')
+    if (flags.minify) throw new ConfigError('--minify has no effect with --from-version, which uploads nothing', {code: 'flag-unsupported'})
     if (flags.deploySecrets) {
-      throw new ConfigError('--deploy-secrets has no effect with --from-version, which uploads nothing')
+      throw new ConfigError('--deploy-secrets has no effect with --from-version, which uploads nothing', {code: 'flag-unsupported'})
     }
   }
 }
@@ -134,7 +135,7 @@ function bindingNotices(project: ResolvedProject, workers: string[]): {message: 
 
 function byDir(project: ResolvedProject, dir: string): ResolvedWorker {
   const worker = project.workers.find((candidate) => candidate.dir === dir)
-  if (!worker) throw new ConfigError(`Worker ${dir} could not be resolved.`)
+  if (!worker) throw new ConfigError(`Worker ${dir} could not be resolved.`, {code: 'config-invalid'})
   return worker
 }
 
@@ -206,7 +207,7 @@ function latestVersion(stdout: string, worker: string): string {
   try {
     versions = JSON.parse(stdout)
   } catch (error) {
-    throw new MonocfError(`${worker}: wrangler versions list gave invalid JSON: ${(error as Error).message}`, EXIT_FAILED)
+    throw new MonocfError(`${worker}: wrangler versions list gave invalid JSON: ${(error as Error).message}`, {code: 'wrangler-output-invalid'})
   }
 
   // The list is ascending, so the newest version comes last.
@@ -214,7 +215,7 @@ function latestVersion(stdout: string, worker: string): string {
   if (!isPlainObject(latest) || typeof latest.id !== 'string') {
     throw new MonocfError(
       `${worker}: no versions found. Before deploying from a version, create one with "monocf preview ${worker}".`,
-      EXIT_FAILED,
+      {code: 'no-versions'},
     )
   }
 

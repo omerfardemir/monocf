@@ -1,6 +1,6 @@
 import {Flags} from '@oclif/core'
 
-import {BaseCommand} from '../../app/base-command.js'
+import {BaseCommand, EXIT_MEANINGS} from '../../app/base-command.js'
 import {projectFlags} from '../../app/flags.js'
 import {runGraph} from '../../app/graph.js'
 
@@ -19,6 +19,8 @@ export default class Graph extends BaseCommand {
     json: Flags.boolean({description: 'Print the graph as JSON', exclusive: ['mermaid']}),
     mermaid: Flags.boolean({description: 'Print the graph as a Mermaid flowchart'}),
   }
+  static exitCodes = {0: EXIT_MEANINGS.ok, 2: EXIT_MEANINGS.usage}
+  static safety = 'offline' as const
 
   async run(): Promise<void> {
     const {flags} = await this.parse(Graph)

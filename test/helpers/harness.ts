@@ -285,6 +285,8 @@ export interface RunOptions {
   env?: Record<string, string>
   /** The run is expected to make no wrangler call, for example a usage error. */
   noCalls?: boolean
+  /** A pipe for stdin that stays open until the run ends, as an agent's or a CI step's can, instead of none. */
+  openStdin?: boolean
   rules?: WranglerRule[]
 }
 
@@ -357,8 +359,9 @@ export function startCli(fixture: Fixture, args: string[], options: RunOptions =
       WRANGLER_SEND_METRICS: 'false',
       ...options.env,
     },
-    stdio: ['ignore', 'pipe', 'pipe'],
-  })
+    // Nothing is written to an open stdin, and it's never ended, so a process reading it would wait for ever.
+    stdio: [options.openStdin ? 'pipe' : 'ignore', 'pipe', 'pipe'],
+  }) as ChildProcessByStdio<null, Readable, Readable>
 
   let stdout = ''
   let stderr = ''

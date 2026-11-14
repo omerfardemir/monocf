@@ -4,7 +4,7 @@ import {isAbsolute, join, parse, relative, resolve} from 'node:path'
 import {effectiveField, envSection, readProjectInputs, resolveProject} from '../config/resolve.js'
 import {ConfigError, isPlainObject, type RawConfig, type ResolvedWorker} from '../config/types.js'
 import {validateSelection} from '../config/validate.js'
-import {EXIT_FAILED, MonocfError} from '../errors.js'
+import {MonocfError} from '../errors.js'
 import {fieldsNeedingDeploy, workerExternalHash} from '../fingerprint/external.js'
 import {
   bundleHash,
@@ -70,7 +70,7 @@ function assertSafeOut(out: string, workers: ResolvedWorker[], rootDir: string):
   for (const {dir, path} of workers) {
     const target = join(out, dir)
     if (isWithin(target, path) || isWithin(target, rootDir)) {
-      throw new ConfigError(`--out ${out} would empty ${target}, which holds source files.`)
+      throw new ConfigError(`--out ${out} would empty ${target}, which holds source files.`, {code: 'output-path-unsafe'})
     }
   }
 }
@@ -163,7 +163,7 @@ function findBadEntrypoints({emit}: Pick<RunContext, 'emit'>, workers: ResolvedW
 /** A manifest exists at this point, so a failure here leaves one behind, unlike a failed build. */
 export function checkEntrypoints(context: Pick<RunContext, 'emit'>, workers: ResolvedWorker[], out: string, env: string): void {
   const errors = findBadEntrypoints(context, workers, out, env)
-  if (errors > 0) throw new MonocfError(`${errors} service bindings name an entrypoint that doesn't exist.`, EXIT_FAILED)
+  if (errors > 0) throw new MonocfError(`${errors} service bindings name an entrypoint that doesn't exist.`, {code: 'entrypoint-missing'})
 }
 
 function compareNames(a: string, b: string): number {
@@ -244,9 +244,9 @@ export async function buildBundle(context: RunContext, job: BundleJob): Promise<
 /** `monocf bundle`: a dry-run build of each worker in parallel, and a manifest of what would be uploaded. */
 export async function runBundle(names: string[], flags: BundleFlags): Promise<void> {
   const options = loadOptions(flags)
-  if (flags.out?.trim() === '') throw new ConfigError('--out must not be empty.')
+  if (flags.out?.trim() === '') throw new ConfigError('--out must not be empty.', {code: 'invalid-flag-value'})
   const {env, rootDir} = options
-  if (env === undefined) throw new ConfigError('bundle needs --env.')
+  if (env === undefined) throw new ConfigError('bundle needs --env.', {code: 'missing-flag'})
 
   const {selected} = selectNamed(options, names)
   const inputs = readProjectInputs(options)

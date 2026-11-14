@@ -4,6 +4,7 @@ import {join} from 'node:path'
 import {ConfigError} from '../config/types.js'
 import type {OptionFlags} from '../project/options.js'
 import {WORKER_CONFIG_FILE} from '../project/workers.js'
+import {formatNdjson} from '../report/ndjson.js'
 import {loadOptions} from './project.js'
 
 const VALID_NAME = /^[a-z0-9][a-z0-9-]*$/
@@ -52,19 +53,20 @@ function addToGitignore(rootDir: string, lines: string[]): void {
 }
 
 /** `monocf worker create`: writes a minimal worker from what's embedded here, with no network and no install. */
-export function createWorker(name: string, flags: OptionFlags): void {
+export function createWorker(name: string, flags: OptionFlags & {json?: boolean}): void {
   if (!VALID_NAME.test(name)) {
     throw new ConfigError(
       `Invalid worker name "${name}". Use lowercase letters, digits and dashes, starting with a letter or a digit.`,
+      {code: 'worker-name-invalid'},
     )
   }
 
   const options = loadOptions(flags)
-  if (!existsSync(options.rootDir)) throw new ConfigError(`The root directory ${options.rootDir} doesn't exist.`)
+  if (!existsSync(options.rootDir)) throw new ConfigError(`The root directory ${options.rootDir} doesn't exist.`, {code: 'root-dir-missing'})
   const workersDir = join(options.rootDir, options.workersDirName)
 
   const target = join(workersDir, name)
-  if (existsSync(target)) throw new ConfigError(`${target} already exists.`)
+  if (existsSync(target)) throw new ConfigError(`${target} already exists.`, {code: 'worker-exists'})
 
   mkdirSync(join(target, 'src'), {recursive: true})
   writeFileSync(join(target, WORKER_CONFIG_FILE), workerConfig(name, options.baseConfigPath !== undefined))
@@ -74,4 +76,5 @@ export function createWorker(name: string, flags: OptionFlags): void {
   addToGitignore(options.rootDir, IGNORED_PATHS)
 
   process.stderr.write(`Created ${target}. Install its dependencies with your package manager.\n`)
+  if (flags.json) process.stdout.write(formatNdjson({path: target, type: 'worker-created', worker: name}))
 }

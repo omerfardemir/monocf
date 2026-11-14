@@ -17,6 +17,7 @@ export function validateEnv(dir: string, sources: EnvSources, env?: string): voi
   if (env !== undefined && !isEnvDefined(sources, env)) {
     throw new ConfigError(
       `Unknown environment "${env}" for worker ${dir}. Define it under "env" in the base config or in the wrangler config of the worker.`,
+      {code: 'unknown-env'},
     )
   }
 }
@@ -40,7 +41,7 @@ export function envsAndUnreadable(inputs: ProjectInputs, options: Pick<Options, 
 export function validateName(config: RawConfig, file: string): string {
   const {name} = config
   if (typeof name !== 'string' || name === '') {
-    throw new ConfigError('The worker has no name. Set "name" in the base config or in the wrangler config.', file)
+    throw new ConfigError('The worker has no name. Set "name" in the base config or in the wrangler config.', {code: 'config-invalid', file})
   }
 
   return name
@@ -51,7 +52,7 @@ export function validateList(section: RawConfig, field: string, file: string): R
   const list = section[field]
   if (list === undefined) return []
   if (!Array.isArray(list) || !list.every((entry) => isPlainObject(entry))) {
-    throw new ConfigError(`"${field}" must be a list of objects.`, file)
+    throw new ConfigError(`"${field}" must be a list of objects.`, {code: 'config-invalid', file})
   }
 
   return list
@@ -61,7 +62,7 @@ export function validateList(section: RawConfig, field: string, file: string): R
 export function validateTargetName(entry: RawConfig, field: string, file: string): string | undefined {
   const name = entry[field]
   if (name === undefined) return undefined
-  if (typeof name !== 'string') throw new ConfigError(`"${field}" must be a string in every binding.`, file)
+  if (typeof name !== 'string') throw new ConfigError(`"${field}" must be a string in every binding.`, {code: 'config-invalid', file})
   return name
 }
 

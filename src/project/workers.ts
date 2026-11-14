@@ -19,7 +19,7 @@ export function workerPath({rootDir, workersDirName}: WorkerLocation, dir: strin
 export function discoverWorkers(options: WorkerLocation, reader: FileReader = nodeReader): string[] {
   const workersDir = join(options.rootDir, options.workersDirName)
   if (!reader.exists(workersDir)) {
-    throw new ConfigError(`Workers directory not found at ${workersDir}. Please check the workers directory.`)
+    throw new ConfigError(`Workers directory not found at ${workersDir}. Please check the workers directory.`, {code: 'workers-dir-missing'})
   }
 
   return reader
@@ -172,7 +172,7 @@ export function findIgnoredWorkers(options: IgnoreOptions, workers: string[], re
   const lines = readIgnoreLines(options, reader)
   // Nothing says what this line was meant to leave out, so running anything could deploy what it was written to stop.
   const malformed = lines.find(({problem}) => problem !== undefined)
-  if (malformed) throw new ConfigError(malformed.problem!)
+  if (malformed) throw new ConfigError(malformed.problem!, {code: 'ignore-file-invalid'})
   return ignoredIn(lines, options, workers)
 }
 
@@ -213,12 +213,12 @@ export function ignoredMessage(name: string, env: string | undefined): string {
 export function selectWorkers(workers: string[], ignored: string[], name?: string, env?: string): string[] {
   if (name === undefined) {
     const selected = workers.filter((worker) => !ignored.includes(worker))
-    if (selected.length === 0) throw new ConfigError('No workers found.')
+    if (selected.length === 0) throw new ConfigError('No workers found.', {code: 'no-workers'})
     return selected
   }
 
-  if (!workers.includes(name)) throw new ConfigError(`Worker not found: ${name}. Please check the worker name.`)
-  if (ignored.includes(name)) throw new ConfigError(ignoredMessage(name, env))
+  if (!workers.includes(name)) throw new ConfigError(`Worker not found: ${name}. Please check the worker name.`, {code: 'worker-not-found'})
+  if (ignored.includes(name)) throw new ConfigError(ignoredMessage(name, env), {code: 'worker-ignored'})
 
   return [name]
 }

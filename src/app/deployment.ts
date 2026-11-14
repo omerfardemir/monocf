@@ -1,7 +1,7 @@
 import {randomBytes} from 'node:crypto'
 
 import {isPlainObject, type ResolvedWorker} from '../config/types.js'
-import {EXIT_FAILED, MonocfError} from '../errors.js'
+import {MonocfError} from '../errors.js'
 import {runPool, type RetryPolicy, type StepResult} from '../runtime/pool.js'
 import {accountHash, manifestKey, parseStateManifest, runKey, STATE_SCHEMA_VERSION, type StateManifest, type StateWorker} from '../state/manifest.js'
 import type {RunRecord} from '../state/run-record.js'
@@ -82,7 +82,7 @@ export class StateWriter {
     try {
       await this.store.write(manifestKey(this.env), this.body())
     } catch (error) {
-      throw new MonocfError(`Nothing was changed, as the state store took no note of which callers will need a new version: ${(error as Error).message}`, EXIT_FAILED)
+      throw new MonocfError(`Nothing was changed, as the state store took no note of which callers will need a new version: ${(error as Error).message}`, {code: 'state-write-failed'})
     }
   }
 
@@ -177,7 +177,7 @@ export async function verifyActive(
   }
 
   if (active.state !== 'active' || active.versionId !== expected) {
-    throw new MonocfError(`${dir}: verify-mismatch: expected ${expected} at 100%, and Cloudflare serves ${describeActive(active)}.`, EXIT_FAILED)
+    throw new MonocfError(`${dir}: verify-mismatch: expected ${expected} at 100%, and Cloudflare serves ${describeActive(active)}.`, {code: 'verify-mismatch'})
   }
 }
 

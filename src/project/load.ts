@@ -47,7 +47,7 @@ export function parseJsonc(text: string, file: string): unknown {
   const errors: ParseError[] = []
   const value = parse(text.replace(/^\uFEFF/, ''), errors, {allowTrailingComma: true})
   if (errors.length > 0) {
-    throw new ConfigError(`Invalid JSON at offset ${errors[0].offset}: ${printParseErrorCode(errors[0].error)}`, file)
+    throw new ConfigError(`Invalid JSON at offset ${errors[0].offset}: ${printParseErrorCode(errors[0].error)}`, {code: 'config-invalid', file})
   }
 
   return value
@@ -68,7 +68,7 @@ export function findConfigFile(startDir: string, reader: FileReader = nodeReader
 function validateVariables(variables: object, file: string): void {
   for (const [key, value] of Object.entries(variables)) {
     if (!['boolean', 'number', 'string'].includes(typeof value)) {
-      throw new ConfigError(`"variables.${key}" must be a string, number or boolean.`, file)
+      throw new ConfigError(`"variables.${key}" must be a string, number or boolean.`, {code: 'config-invalid', file})
     }
   }
 }
@@ -76,16 +76,16 @@ function validateVariables(variables: object, file: string): void {
 /** Parses and validates project config text. Unknown keys are errors, so a typo can't silently disable something. */
 export function parseProjectFile(text: string, file: string): ProjectFile {
   const value = parseJsonc(text, file)
-  if (!isPlainObject(value)) throw new ConfigError('The config must be an object.', file)
+  if (!isPlainObject(value)) throw new ConfigError('The config must be an object.', {code: 'config-invalid', file})
 
   for (const [key, entry] of Object.entries(value)) {
     const expected = KEY_TYPES[key as keyof ProjectFile]
     if (!Object.hasOwn(KEY_TYPES, key)) {
-      throw new ConfigError(`Unknown key "${key}". Known keys: ${Object.keys(KEY_TYPES).join(', ')}.`, file)
+      throw new ConfigError(`Unknown key "${key}". Known keys: ${Object.keys(KEY_TYPES).join(', ')}.`, {code: 'config-invalid', file})
     }
 
     if (expected === 'object' ? !isPlainObject(entry) : typeof entry !== expected) {
-      throw new ConfigError(`"${key}" must be of type ${expected}.`, file)
+      throw new ConfigError(`"${key}" must be of type ${expected}.`, {code: 'config-invalid', file})
     }
   }
 

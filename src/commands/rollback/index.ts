@@ -1,6 +1,6 @@
 import {Args, Flags} from '@oclif/core'
 
-import {BaseCommand} from '../../app/base-command.js'
+import {BaseCommand, EXIT_MEANINGS} from '../../app/base-command.js'
 import {projectFlags} from '../../app/flags.js'
 import {runRollback} from '../../app/rollback.js'
 
@@ -24,6 +24,8 @@ export default class Rollback extends BaseCommand {
     to: Flags.string({description: 'The version to put back, for one named worker'}),
     'to-run': Flags.string({description: 'The run whose changes to undo'}),
   }
+  static exitCodes = {0: EXIT_MEANINGS.ok, 1: `${EXIT_MEANINGS.workerFailed}, or was refused`, 2: EXIT_MEANINGS.usage, 3: EXIT_MEANINGS.environment, '128+n': EXIT_MEANINGS.signal}
+  static safety = 'writes-cloudflare' as const
 
   async run(): Promise<void> {
     const {args, flags} = await this.parse(Rollback)

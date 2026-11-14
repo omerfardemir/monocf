@@ -18,7 +18,7 @@ function collectEdits(patch: RawConfig, parent: string[], file?: string): Edit[]
     const path = [...parent, key]
     if (Array.isArray(value)) return value.map((element) => ({append: true, path, value: element}))
     if (value === null) {
-      throw new ConfigError(`"${path.join('.')}" is null, which a config merge can't apply. Remove the key.`, file)
+      throw new ConfigError(`"${path.join('.')}" is null, which a config merge can't apply. Remove the key.`, {code: 'config-invalid', file})
     }
 
     if (isPlainObject(value)) return collectEdits(value, path, file)
@@ -27,7 +27,7 @@ function collectEdits(patch: RawConfig, parent: string[], file?: string): Edit[]
 }
 
 function conflict(path: string[], file?: string): ConfigError {
-  return new ConfigError(`Can't merge "${path.join('.')}": the base and the worker use different types here.`, file)
+  return new ConfigError(`Can't merge "${path.join('.')}": the base and the worker use different types here.`, {code: 'config-invalid', file})
 }
 
 function applyEdit(target: RawConfig, {append, path, value}: Edit, file?: string): void {

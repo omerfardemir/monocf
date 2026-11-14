@@ -1,31 +1,16 @@
-import {readFileSync, readdirSync} from 'node:fs'
-import {dirname, join, relative, sep} from 'node:path'
-import {fileURLToPath, pathToFileURL} from 'node:url'
+import {readFileSync} from 'node:fs'
+import {join} from 'node:path'
 import {beforeAll, describe, expect, it} from 'vitest'
 
-const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
+import {CHECK_RULES, PLAN_REASONS} from '../../src/explain/registry.js'
+import {flagsNoCommandTakes, loadCommands, repoRoot, unknownFlagsInInvocations, type CommandClass} from '../helpers/commands.js'
+
 const readme = readFileSync(join(repoRoot, 'README.md'), 'utf8').replaceAll('\r\n', '\n')
-const commandsDir = join(repoRoot, 'dist', 'commands')
 
-interface Flag {
-  allowNo?: boolean
-  char?: string
-}
-
-const commands = new Map<string, Record<string, Flag>>()
-
-/** `plan/index.js` is `plan`, and `secrets/check.js` is `secrets check`. */
-function commandId(file: string): string {
-  return relative(commandsDir, file).replace(/\.js$/, '').split(sep).filter((part) => part !== 'index').join(' ')
-}
+let commands = new Map<string, CommandClass>()
 
 beforeAll(async () => {
-  const files = (readdirSync(commandsDir, {recursive: true}) as string[]).filter((file) => file.endsWith('.js'))
-  for (const file of files) {
-    const path = join(commandsDir, file)
-    const {default: command} = await import(pathToFileURL(path).href)
-    commands.set(commandId(path), command.flags ?? {})
-  }
+  commands = await loadCommands()
 })
 
 /** The README with the generated reference left out, so this checks what a person wrote. */
@@ -33,59 +18,40 @@ function written(): string {
   return readme.replace(/<!-- commands -->[\s\S]*<!-- commandsstop -->/, '')
 }
 
-function invocations(): string[] {
-  return [...written().matchAll(/\bmonocf ((?:[^\n`#|]|`(?=\S))+)/g)].map(([, rest]) => rest.trim()).filter((rest) => /^[a-z]+\b/.test(rest))
+function section(title: string): string {
+  const start = readme.indexOf(`\n## ${title}\n`)
+  const end = readme.indexOf('\n## ', start + 1)
+  return readme.slice(start, end)
 }
 
-function commandOf(line: string): string | undefined {
-  const [first, second] = line.split(/\s+/)
-  return commands.has(`${first} ${second}`) ? `${first} ${second}` : commands.has(first) ? first : undefined
-}
-
-function knownFlag(flags: Record<string, Flag>, token: string): boolean {
-  const name = token.replace(/^-+/, '').split('=')[0]
-  if (token.startsWith('--')) {
-    return Object.hasOwn(flags, name) || (name.startsWith('no-') && flags[name.slice(3)]?.allowNo === true)
-  }
-
-  return Object.values(flags).some(({char}) => char === name)
+/** The backticked names in one column of every table in the text, as `| \`name\` |` rows. */
+function tableColumn(text: string, column: number): string[] {
+  return text
+    .split('\n')
+    .filter((line) => line.startsWith('|') && !line.startsWith('|---'))
+    .flatMap((line) => [...(line.split('|')[column + 1] ?? '').matchAll(/`([a-z-]+)`/g)].map(([, name]) => name))
 }
 
 describe('README', () => {
   it('names only commands that exist, and flags they take', () => {
-    const found = invocations()
-    expect(found.length).toBeGreaterThan(20)
-    const problems: string[] = []
-    for (const line of found) {
-      // Words such as "monocf finds it" are prose: only something a command starts counts.
-      const command = commandOf(line)
-      if (command !== undefined) {
-        const tokens = line.split(/\s+/).filter((token) => /^--?[a-zA-Z]/.test(token))
-        const unknown = tokens.filter((token) => !knownFlag(commands.get(command)!, token))
-        if (unknown.length > 0) problems.push(`monocf ${line}: ${unknown.join(', ')}`)
-      }
-    }
-
-    expect(problems).toEqual([])
+    expect(written().match(/\bmonocf [a-z]/g)!.length).toBeGreaterThan(20)
+    expect(unknownFlagsInInvocations(commands, written())).toEqual([])
   })
 
   it('names only flags that some command takes', () => {
-    const all = [...commands.values()]
-    const flags = [...written().matchAll(/(?<![\w-])--[a-z][a-zA-Z-]+/g)].map(([flag]) => flag)
-    // Flags of wrangler or git that the guide names, not monocf's, and the `--no-` prefix itself.
-    const others = new Set(['--no-', '--no-tags', '--depth', '--secrets-file', '--var', '--save-dev', '--short'])
-    const unknown = flags.filter((flag) => !others.has(flag) && !all.some((each) => knownFlag(each, flag)))
-    expect(unknown).toEqual([])
+    // Flags of wrangler or git that the guide names, not monocf's, oclif's own --help, and the `--no-` prefix itself.
+    const others = new Set(['--help', '--no-', '--no-tags', '--depth', '--secrets-file', '--var', '--save-dev', '--short'])
+    expect(flagsNoCommandTakes(commands, written(), others)).toEqual([])
   })
 
   it('has a generated entry for every command', () => {
     const generated = /<!-- commands -->([\s\S]*)<!-- commandsstop -->/.exec(readme)?.[1] ?? ''
     for (const id of commands.keys()) expect(generated).toContain(`## \`monocf ${id}`)
-    for (const [id, flags] of commands) {
+    for (const [id, {flags = {}}] of commands) {
       const start = generated.indexOf(`## \`monocf ${id}`)
       const end = generated.indexOf('\n## `', start + 1)
-      const section = generated.slice(start, end === -1 ? undefined : end)
-      for (const name of Object.keys(flags)) expect(section, `${id} --${name}`).toContain(name)
+      const body = generated.slice(start, end === -1 ? undefined : end)
+      for (const name of Object.keys(flags)) expect(body, `${id} --${name}`).toContain(name)
     }
   })
 
@@ -106,5 +72,21 @@ describe('README', () => {
     const links = [...written().matchAll(/\]\(#([^)]+)\)/g)].map(([, anchor]) => anchor)
     expect(links.length).toBeGreaterThan(5)
     expect(links.filter((anchor) => !anchors.has(anchor))).toEqual([])
+  })
+})
+
+describe('README and the registry that monocf explain reads', () => {
+  it('names every plan reason in its table of redeploys, and no other', () => {
+    const redeploys = section('What causes a redeploy')
+    const named = new Set(tableColumn(redeploys, 2))
+    expect([...named].filter((reason) => !Object.hasOwn(PLAN_REASONS, reason))).toEqual([])
+    const mentioned = Object.keys(PLAN_REASONS).filter((reason) => named.has(reason) || redeploys.includes(`\`${reason}\``))
+    expect(mentioned).toEqual(Object.keys(PLAN_REASONS))
+  })
+
+  it('names only check rules that exist', () => {
+    const rules = tableColumn(readme, 0).filter((name) => name.startsWith('ignored-'))
+    expect(rules.length).toBeGreaterThan(3)
+    expect(rules.filter((rule) => !Object.hasOwn(CHECK_RULES, rule))).toEqual([])
   })
 })

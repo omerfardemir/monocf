@@ -75,7 +75,7 @@ describe('validateSelection', () => {
       {config: {}, configPath: 'c', dir: 'billing', path: 'p'},
     ],
   }
-  const error = new ConfigError('broken')
+  const error = new ConfigError('broken', {code: 'config-invalid'})
   const project: ResolvedProject = {failures: [{dir: 'bad', error}], notices: [], workers: []}
   const options = {env: 'staging', variables: {}} as unknown as Options
 

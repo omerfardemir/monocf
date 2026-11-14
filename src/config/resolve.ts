@@ -49,7 +49,7 @@ export interface ResolvedProject {
 
 function parseConfigObject(text: string, file: string): RawConfig {
   const config = parseJsonc(text, file)
-  if (!isPlainObject(config)) throw new ConfigError('The config must be an object.', file)
+  if (!isPlainObject(config)) throw new ConfigError('The config must be an object.', {code: 'config-invalid', file})
   return config
 }
 
@@ -60,7 +60,7 @@ function readPackageJson(dir: string, reader: FileReader): RawWorker['packageJso
     const {version} = JSON.parse(reader.readFile(path)) as {version?: unknown}
     return {path, version}
   } catch (error) {
-    throw new ConfigError(`Invalid package.json: ${(error as Error).message}`, path)
+    throw new ConfigError(`Invalid package.json: ${(error as Error).message}`, {code: 'config-invalid', file: path})
   }
 }
 
@@ -68,7 +68,7 @@ function readConfigText(file: string, reader: FileReader): string {
   try {
     return reader.readFile(file)
   } catch (error) {
-    throw new ConfigError(`Could not read the config: ${(error as Error).message}`, file)
+    throw new ConfigError(`Could not read the config: ${(error as Error).message}`, {code: 'config-invalid', file})
   }
 }
 
@@ -94,7 +94,7 @@ export function readProjectInputs(options: Options, reader: FileReader = nodeRea
   const inputs: ProjectInputs = {failures: [], workers: []}
   const {baseConfigPath} = options
   if (baseConfigPath) {
-    if (!reader.exists(baseConfigPath)) throw new ConfigError('The base config does not exist.', baseConfigPath)
+    if (!reader.exists(baseConfigPath)) throw new ConfigError('The base config does not exist.', {code: 'base-config-missing', file: baseConfigPath})
     inputs.base = {config: parseConfigObject(reader.readFile(baseConfigPath), baseConfigPath), path: baseConfigPath}
   }
 
@@ -287,7 +287,7 @@ function resolveTarget(
 ): BindingTarget {
   const {env, failed, owners, prepared, worker} = context
   if (failed.has(name)) {
-    throw new ConfigError(`Binding ${binding} targets worker ${name}, which could not be resolved.`)
+    throw new ConfigError(`Binding ${binding} targets worker ${name}, which could not be resolved.`, {code: 'binding-unresolved'})
   }
 
   const local = prepared.get(name)
@@ -323,6 +323,7 @@ function resolveTarget(
   if (owner.env === env && failed.has(owner.dir)) {
     throw new ConfigError(
       `Binding ${binding} targets ${name}, the deployed name of ${owner.dir}, which could not be resolved.`,
+      {code: 'binding-unresolved'},
     )
   }
 

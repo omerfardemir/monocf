@@ -16,7 +16,7 @@ import {writeFileAtomic} from '../runtime/atomic.js'
 import {accountHash, manifestKey, parseStateManifest, type StateManifest} from '../state/manifest.js'
 import {openStateStore, parseStateUrl} from '../state/store.js'
 import {locateWrangler} from '../wrangler/locate.js'
-import {readActiveVersion, readSecretSource, readVersionOrigin, type ActiveInfo, type WranglerCall} from '../wrangler/read.js'
+import {maskAccount, readActiveVersion, readSecretSource, readVersionOrigin, type ActiveInfo, type WranglerCall} from '../wrangler/read.js'
 import {withReadRetries} from '../wrangler/retry.js'
 import {configHash, doHash, triggersHash, triggersOf} from '../fingerprint/fingerprint.js'
 import {externalInputs, isSameOrWithin, workerExternalHash} from '../fingerprint/external.js'
@@ -39,7 +39,7 @@ export interface PlanFlags extends OptionFlags {
 const READ_CONCURRENCY = 8
 
 function assertNotBlank(flag: string, value: string | undefined): void {
-  if (value?.trim() === '') throw new ConfigError(`${flag} must not be empty.`)
+  if (value?.trim() === '') throw new ConfigError(`${flag} must not be empty.`, {code: 'invalid-flag-value'})
 }
 
 /** What's left of an earlier run must not outlive this one's failure: `apply` or a PR comment would pick it up. */
@@ -47,7 +47,7 @@ function removeOutput(path: string): void {
   try {
     rmSync(path, {force: true})
   } catch (error) {
-    throw new MonocfError(`Can't write ${path}: ${(error as Error).message}`, EXIT_ENVIRONMENT)
+    throw new MonocfError(`Can't write ${path}: ${(error as Error).message}`, {code: 'output-unwritable'})
   }
 }
 
@@ -55,14 +55,14 @@ function writeOutput(path: string, body: string): void {
   try {
     writeFileAtomic(path, body)
   } catch (error) {
-    throw new MonocfError(`Can't write ${path}: ${(error as Error).message}`, EXIT_ENVIRONMENT)
+    throw new MonocfError(`Can't write ${path}: ${(error as Error).message}`, {code: 'output-unwritable'})
   }
 }
 
 function workerNames(flag: string | undefined): string[] {
   if (flag === undefined) return []
   const names = flag.split(',').map((name) => name.trim())
-  if (names.includes('')) throw new ConfigError(`--workers ${flag} has an empty name.`)
+  if (names.includes('')) throw new ConfigError(`--workers ${flag} has an empty name.`, {code: 'invalid-flag-value'})
   return names
 }
 
@@ -182,11 +182,6 @@ async function readActiveVersions(
   return Object.fromEntries(active)
 }
 
-/** Enough to tell two accounts apart by eye, with no ID in a log or a PR comment. */
-function maskAccount(accountId: string): string {
-  return `${accountId.slice(0, 4)}…${accountId.slice(-4)}`
-}
-
 const CHOSEN_BY_WRANGLER = 'chosen by wrangler'
 
 function guardsFor(context: RunContext, workers: ResolvedWorker[], env: string, flags: PlanFlags): PlanGuards {
@@ -218,7 +213,7 @@ function assertNotUploaded(markdownPath: string, workers: ResolvedWorker[], env:
   const markdown = realPath(markdownPath)
   for (const {config, dir, path} of workers) {
     const input = externalInputs(config, env, path).find((candidate) => isSameOrWithin(realPath(candidate.path), markdown))
-    if (input) throw new ConfigError(`--markdown ${markdownPath} is inside ${input.path}, which ${dir} uploads. Write it somewhere else.`)
+    if (input) throw new ConfigError(`--markdown ${markdownPath} is inside ${input.path}, which ${dir} uploads. Write it somewhere else.`, {code: 'output-path-unsafe'})
   }
 }
 
@@ -251,8 +246,8 @@ export async function runPlan(flags: PlanFlags): Promise<void> {
 
   const options = loadOptions(flags)
   const {env, rootDir} = options
-  if (env === undefined) throw new ConfigError('plan needs --env.')
-  if (flags.state === undefined) throw new ConfigError('plan needs --state.')
+  if (env === undefined) throw new ConfigError('plan needs --env.', {code: 'missing-flag'})
+  if (flags.state === undefined) throw new ConfigError('plan needs --state.', {code: 'missing-flag'})
   const planPath = flags.out ? resolve(flags.out) : join(rootDir, '.monocf', 'plan', `${env}.json`)
   removeOutput(planPath)
   const location = parseStateUrl(flags.state)
@@ -267,7 +262,7 @@ export async function runPlan(flags: PlanFlags): Promise<void> {
   const findings = runRules({directories, env, ignored, inputs, options, project, reader: nodeReader, selected})
   reportFindings(findings, json)
   const errors = findings.filter(({level}) => level === 'error').length
-  if (errors > 0) throw new ConfigError(`${errors} check errors, so there is no plan. See monocf check.`)
+  if (errors > 0) throw new ConfigError(`${errors} check errors, so there is no plan. See monocf check.`, {code: 'check-failed'})
 
   const workers = project.workers.filter(({dir}) => selected.includes(dir))
   if (markdownPath !== undefined) assertNotUploaded(markdownPath, workers, env)

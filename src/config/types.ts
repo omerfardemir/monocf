@@ -1,4 +1,5 @@
-import {EXIT_USAGE, MonocfError} from '../errors.js'
+import {MonocfError} from '../errors.js'
+import type {UsageErrorCode} from '../explain/registry.js'
 
 export type RawConfig = Record<string, unknown>
 
@@ -61,14 +62,18 @@ export type Notice =
 export class ConfigError extends MonocfError {
   readonly file?: string
 
-  constructor(message: string, file?: string) {
-    super(file ? `${file}: ${message}` : message, EXIT_USAGE)
+  constructor(message: string, {code, file, hint}: {code: UsageErrorCode; file?: string; hint?: string}) {
+    super(file ? `${file}: ${message}` : message, {code, hint})
     this.name = 'ConfigError'
     this.file = file
   }
 }
 
-export class UnknownPlaceholderError extends ConfigError {}
+export class UnknownPlaceholderError extends ConfigError {
+  constructor(message: string, file?: string) {
+    super(message, {code: 'unknown-placeholder', file})
+  }
+}
 
 export function isPlainObject(value: unknown): value is RawConfig {
   return typeof value === 'object' && value !== null && !Array.isArray(value)

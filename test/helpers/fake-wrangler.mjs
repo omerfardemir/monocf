@@ -299,6 +299,16 @@ function defaultStdout() {
     ])
   }
 
+  if (startsWithCommand('whoami') && argv.includes('--json')) {
+    return JSON.stringify({
+      accounts: [{id: '0123456789abcdef0123456789abcdef', name: 'Fake account'}],
+      authType: 'User API Token',
+      email: 'fake@example.com',
+      loggedIn: true,
+      tokenPermissions: ['workers_scripts:write'],
+    })
+  }
+
   if (startsWithCommand('whoami')) return 'fake-user\n'
   return ''
 }

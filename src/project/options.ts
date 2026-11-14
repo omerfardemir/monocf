@@ -60,7 +60,7 @@ const STRING_FLAGS: [keyof OptionFlags, string][] = [
 function rejectBlankFlags(flags: OptionFlags): void {
   for (const [key, name] of STRING_FLAGS) {
     const value = flags[key]
-    if (typeof value === 'string' && value.trim() === '') throw new ConfigError(`${name} must not be empty.`)
+    if (typeof value === 'string' && value.trim() === '') throw new ConfigError(`${name} must not be empty.`, {code: 'invalid-flag-value'})
   }
 }
 

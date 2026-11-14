@@ -24,6 +24,7 @@ export function requireSecretsFile(workerPath: string, rootDir: string, env?: st
   if (!existsSync(worker) && !existsSync(root)) {
     throw new ConfigError(
       `Secrets file not found at ${worker} or ${root}. Uploading secrets requires one of these exact files, with no fallback to another environment.`,
+      {code: 'secrets-file-missing'},
     )
   }
 }
@@ -63,7 +64,7 @@ function serializeEntry(key: string, value: string): string {
     .map((candidate) => `${key}=${candidate}`)
     .find((candidate) => dotenv.parse(candidate)[key] === value)
   if (line === undefined) {
-    throw new ConfigError(`The value of ${key} can't be written to a .dev.vars file without changing it.`)
+    throw new ConfigError(`The value of ${key} can't be written to a .dev.vars file without changing it.`, {code: 'secret-value-invalid'})
   }
 
   return line
@@ -78,7 +79,7 @@ export function serializeDevVars(values: EnvValues): string {
   const parsed = dotenv.parse(text)
   for (const [key, value] of Object.entries(values)) {
     if (parsed[key] !== value) {
-      throw new ConfigError(`The value of ${key} can't be written to a .dev.vars file without changing it.`)
+      throw new ConfigError(`The value of ${key} can't be written to a .dev.vars file without changing it.`, {code: 'secret-value-invalid'})
     }
   }
 

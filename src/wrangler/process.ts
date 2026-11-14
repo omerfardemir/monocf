@@ -1,6 +1,6 @@
 import {spawn, type ChildProcess, type StdioOptions} from 'node:child_process'
 
-import {EXIT_ENVIRONMENT, MonocfError} from '../errors.js'
+import {MonocfError} from '../errors.js'
 import {linePrefixer} from '../report/prefix.js'
 import type {Wrangler} from './locate.js'
 import {readOutputFile, type WranglerOutput} from './output.js'
@@ -44,9 +44,17 @@ export interface RunningWrangler {
   done: Promise<WranglerResult>
 }
 
+/**
+ * wrangler gets a stdin only from a terminal, for its prompts and the keys of `dev`. A pipe that an agent or a CI step holds open
+ * would otherwise reach it, and wrangler reads one when it's not a terminal, as `secret put` does.
+ */
+function stdinFor(): 'ignore' | 'inherit' {
+  return process.stdin.isTTY ? 'inherit' : 'ignore'
+}
+
 function stdioFor(mode: OutputMode): StdioOptions {
-  if (mode === 'inherit') return 'inherit'
-  if (mode === 'stderr') return process.stderr.isTTY && !process.env.CI ? ['inherit', 2, 2] : ['inherit', 'pipe', 'pipe']
+  if (mode === 'inherit') return [stdinFor(), 'inherit', 'inherit']
+  if (mode === 'stderr') return process.stderr.isTTY && !process.env.CI ? [stdinFor(), 2, 2] : [stdinFor(), 'pipe', 'pipe']
   return ['ignore', 'pipe', 'pipe']
 }
 
@@ -116,7 +124,7 @@ export function spawnWrangler(
 
   const done = new Promise<WranglerResult>((resolve, reject) => {
     child.once('error', (error) => {
-      reject(new MonocfError(`Could not start wrangler: ${error.message}`, EXIT_ENVIRONMENT))
+      reject(new MonocfError(`Could not start wrangler: ${error.message}`, {code: 'wrangler-unusable'}))
     })
     // 'close', not 'exit': it fires once the streams have flushed, so captured output is complete.
     child.once('close', (code, signal) => {
