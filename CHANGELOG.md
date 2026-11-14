@@ -1,8 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.4.0
 
-monocf is easier to drive from a coding agent or a script: every failure has a stable code, the commands describe themselves, and a skill ships in the package.
+monocf is easier to drive from a coding agent or a script: every failure has a stable code, the commands describe themselves, and a skill ships in the package. An env that sets its own `name` now deploys under it, as wrangler does, and `check --all-envs` catches a route that more than one env claims.
 
 ### Breaking changes
 
