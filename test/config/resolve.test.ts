@@ -77,7 +77,7 @@ describe('names', () => {
     expect(orders.env).toBeUndefined()
   })
 
-  it('uses an env own name with no suffix, as wrangler does', () => {
+  it("uses an env's own name with no suffix, as wrangler does", () => {
     const files = {...base, ...worker('orders', {env: {staging: {name: 'my-name'}}})}
     const orders = resolved(files, 'orders', 'staging')
     expect(orders.deployedName).toBe('my-name')
@@ -110,6 +110,24 @@ describe('names', () => {
     expect(noticesOf(project.notices, 'worker-name').map(({message}) => message)).toEqual([
       'The env.staging.name "My-name-" deploys as -y-name-, as a worker name holds only lowercase letters, digits and dashes. Rename it.',
     ])
+  })
+
+  it('reads a null env name as unset, as wrangler does', () => {
+    const files = worker('orders', {env: {staging: {name: null}}, main: 'x.ts', name: 'orders'})
+    expect(resolved(files, 'orders', 'staging').deployedName).toBe('orders-staging')
+  })
+
+  it('lists the name of every env, with the selected one even where the config lacks it', () => {
+    const files = {...base, ...worker('orders', {env: {production: {name: 'orders'}}})}
+    const {project} = resolveFiles(files, 'qa')
+    expect(project.envDeployedNames).toEqual(
+      expect.arrayContaining([
+        {deployedName: 'orders-v1-qa', dir: 'orders', env: 'qa'},
+        {deployedName: 'orders', dir: 'orders', env: 'production'},
+        {deployedName: 'orders-v1-staging', dir: 'orders', env: 'staging'},
+      ]),
+    )
+    expect(project.envDeployedNames).toHaveLength(3)
   })
 
   it('reports an env name that is not a string as a failure of that worker', () => {
@@ -308,14 +326,14 @@ describe('binding targets', () => {
     expect(noticesOf(project.notices, 'external-binding')).toEqual([])
   })
 
-  it('rewrites a directory name to the env own name of the target', () => {
+  it("rewrites a directory name to the target's env name", () => {
     const files = {...base, ...worker('orders', binding('billing')), ...worker('billing', {env: {staging: {name: 'billing'}}})}
     const orders = resolved(files, 'orders', 'staging')
     expect(orders.bindings[0].target).toEqual({dir: 'billing', kind: 'local'})
     expect(envSection(orders.config, 'staging').services).toEqual([{binding: 'B', service: 'billing'}])
   })
 
-  it('knows the env own name of another env, and reports it as hardcoded', () => {
+  it("knows another env's own name, and reports it as hardcoded", () => {
     const files = {
       ...base,
       ...worker('orders', binding('legacy-billing')),

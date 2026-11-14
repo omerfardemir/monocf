@@ -226,11 +226,33 @@ describe('duplicate-name', () => {
     ])
   })
 
-  it('is an error when two envs own names are the same', () => {
+  it("is an error when two workers' env names are the same", () => {
     const files = {...base, ...worker('a', {env: {staging: {name: 'shared'}}}), ...worker('b', {env: {staging: {name: 'shared'}}})}
     expect(rule(files, 'duplicate-name', 'staging')).toEqual([
       expect.objectContaining({level: 'error', message: 'a and b all deploy as shared, so each deploy overwrites the other.'}),
     ])
+  })
+
+  it('is an error, seen from either env, when two envs deploy under one name', () => {
+    const files = {...base, ...worker('search', {env: {production: {name: 'search'}, staging: {name: 'search'}}})}
+    const message = 'search in production and search in staging all deploy as search, so each deploy overwrites the other.'
+    for (const env of ['production', 'staging']) {
+      expect(rule(files, 'duplicate-name', env)).toEqual([{env, level: 'error', message, rule: 'duplicate-name', worker: 'search'}])
+    }
+
+    expect(rule(files, 'duplicate-name')).toEqual([])
+  })
+
+  it("is an error when an env's own name is another env's suffixed name", () => {
+    const files = {...base, ...worker('a', {env: {production: {name: 'b-v1-staging'}}}), ...worker('b')}
+    expect(rule(files, 'duplicate-name', 'staging')).toEqual([
+      expect.objectContaining({message: 'a in production and b in staging all deploy as b-v1-staging, so each deploy overwrites the other.', worker: 'b'}),
+    ])
+  })
+
+  it('stays quiet when an env keeps the top-level name, which only a run with no env deploys too', () => {
+    const files = {...base, ...worker('search', {env: {production: {name: 'search-v1'}}})}
+    expect(rule(files, 'duplicate-name', 'production')).toEqual([])
   })
 
   it('stays quiet when only ignored workers collide', () => {

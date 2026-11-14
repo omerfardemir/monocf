@@ -4,7 +4,7 @@
 
 ### Breaking changes
 
-- **An env's own `name` is used, as wrangler does.** With `"env": {"production": {"name": "search-api"}}`, the worker deploys as `search-api` in production, not `<name>-production`. 0.3.0 overwrote that name, so `plan` read and `apply` recorded a worker that plain wrangler never deploys, and service bindings pointed at it. A config that sets an env `name` it didn't mean now deploys under that name: remove it to keep `<name>-<env>`. An env `name` in the base config applies to every worker, which `check` reports as `duplicate-name` unless it holds a placeholder such as `{workerName}`. Fixes #12.
+- **An env's own `name` is used, as wrangler does.** With `"env": {"production": {"name": "search-api"}}`, the worker deploys as `search-api` in production, not `<name>-production`. 0.3.0 overwrote that name, so `plan` read and `apply` recorded a worker that plain wrangler never deploys, and service bindings pointed at it. A config that sets an env `name` it didn't mean now deploys under that name: remove it to keep `<name>-<env>`. An env `name` in the base config applies to every worker, which `check` reports as `duplicate-name` unless it holds a placeholder such as `{workerName}`. `check` also reports two envs that deploy under one name, from either env. A `null` env name counts as unset, as in wrangler. Fixes #12.
 
 ## 0.3.0
 
