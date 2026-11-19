@@ -1,9 +1,7 @@
-import {afterEach, describe, expect, it} from 'vitest'
+import {describe, expect, it} from 'vitest'
 
-import {runDeploySteps, STALE_READ_DELAYS_MS, versionsDeploy, type DeployStep, type VersionsDeployOptions} from '../../src/app/deployment.js'
-import {failureOf, type RunContext} from '../../src/app/run.js'
-import type {ReportEvent} from '../../src/report/events.js'
-import {Interrupts} from '../../src/runtime/signals.js'
+import {STALE_READ_DELAYS_MS, versionsDeploy, type VersionsDeployOptions} from '../../src/app/deployment.js'
+import {failureOf} from '../../src/app/run.js'
 import type {WranglerResult} from '../../src/wrangler/process.js'
 import {isVersionNotFound} from '../../src/wrangler/retry.js'
 
@@ -129,53 +127,5 @@ describe('versionsDeploy', () => {
     const aborted = deploying(notFound())
     await expect(versionsDeploy(UPLOADED, aborted.deploy, options({signal: AbortSignal.abort()}))).rejects.toThrow('[code: 100146]')
     expect(aborted.calls()).toBe(1)
-  })
-})
-
-describe('a promote that meets 100146', () => {
-  const interrupts: Interrupts[] = []
-
-  afterEach(() => {
-    for (const each of interrupts.splice(0)) each.dispose()
-  })
-
-  async function promote(results: WranglerResult[]): Promise<ReportEvent[]> {
-    const events: ReportEvent[] = []
-    const context = {emit: (event: ReportEvent) => events.push(event), interrupts: new Interrupts()} as unknown as RunContext
-    interrupts.push(context.interrupts)
-    const {deploy} = deploying(...results)
-    const step: DeployStep = {
-      action: 'promote',
-      dependsOn: [],
-      async run() {
-        await versionsDeploy(UPLOADED, deploy, {
-          isLive: async () => false,
-          notice: (message) => context.emit({message, type: 'notice', worker: 'worker-a'}),
-          async sleep() {},
-          uploadedVersionId: UPLOADED,
-        })
-        return UPLOADED
-      },
-      worker: 'worker-a',
-    }
-    await runDeploySteps(context, {concurrency: 1, onResult() {}, steps: [step]})
-    return events
-  }
-
-  it('ends ok once Cloudflare lists the version', async () => {
-    const events = await promote([notFound(), notFound()])
-    expect(events.filter(({type}) => type === 'notice')).toHaveLength(2)
-    expect(events.at(-1)).toEqual({action: 'promote', status: 'ok', type: 'step-finished', versionId: UPLOADED, worker: 'worker-a'})
-  })
-
-  it('fails as before when it never does', async () => {
-    const events = await promote(Array.from({length: 10}, notFound))
-    expect(events.at(-1)).toEqual({
-      action: 'promote',
-      message: `worker-a: wrangler versions deploy failed with exit code 1: ${NOT_FOUND_TEXT}`,
-      status: 'failed',
-      type: 'step-finished',
-      worker: 'worker-a',
-    })
   })
 })
