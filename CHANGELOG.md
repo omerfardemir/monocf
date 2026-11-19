@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **`apply` waits for Cloudflare to list a version it just uploaded.** A `versions deploy` seconds after the upload could fail with code 100146, "The requested Worker version could not be found", for a version that existed, and the same deploy later went through. For the version this run uploaded, a promote now tries again after 2, 4, 8 and 16 s, with a notice each time, and fails as before if Cloudflare still doesn't list it. Code 100146 for any other version, such as a rollback target, still fails at once. Fixes #18.
+
 ## 0.4.0
 
 monocf is easier to drive from a coding agent or a script: every failure has a stable code, the commands describe themselves, and a skill ships in the package. An env that sets its own `name` now deploys under it, as wrangler does, and `check --all-envs` catches a route that more than one env claims.
