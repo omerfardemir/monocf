@@ -18,6 +18,20 @@ export function isTransient(result: WranglerResult): boolean {
   return TRANSIENT.test(`${message}\n${result.stderr}`)
 }
 
+// The `command-failed` entry carries Cloudflare's code only when wrangler kept it, and the text says `[code: 100146]` either way.
+const VERSION_NOT_FOUND = 100_146
+const VERSION_NOT_FOUND_TEXT = /\bcode: 100146\b/
+
+/**
+ * Cloudflare's answer for a version it doesn't know. Seconds after an upload it can give this for the version it just made, so
+ * for that one version it means "not yet". For any other it's a real answer.
+ */
+export function isVersionNotFound(result: WranglerResult): boolean {
+  if (isSuccessful(result) || result.signal) return false
+  const {code, message = ''} = result.output.failure ?? {}
+  return code === VERSION_NOT_FOUND || VERSION_NOT_FOUND_TEXT.test(`${message}\n${result.stderr}`)
+}
+
 /** Exponential, and between half and all of it, so that parallel workers don't come back together. */
 export function retryDelayMs(attempt: number, random: () => number = Math.random): number {
   return BASE_DELAY_MS * 2 ** (attempt - 1) * (0.5 + random() / 2)
