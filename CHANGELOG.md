@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.4.1
+
+`apply` no longer fails a deploy when Cloudflare is slow to list a version it has just uploaded.
 
 ### Fixed
 
