@@ -1,13 +1,12 @@
 import {readProjectInputs, resolveProject} from '../config/resolve.js'
-import {ConfigError, isPlainObject, type ResolvedWorker} from '../config/types.js'
+import {ConfigError} from '../config/types.js'
 import {validateSelection} from '../config/validate.js'
 import {EXIT_FAILED, EXIT_OK} from '../errors.js'
 import type {OptionFlags} from '../project/options.js'
 import {declaredSecretNames, SECRETS_EXAMPLE_FILE} from '../runtime/secret-names.js'
 import {locateWrangler} from '../wrangler/locate.js'
-import {isSuccessful, readActiveVersion, readFailure, type ActiveInfo} from '../wrangler/read.js'
-import {accountOf, runWorkerSteps, withRun, type RunContext} from './run.js'
-import {workerCall} from './deployment.js'
+import {readLiveSecrets} from './live-secrets.js'
+import {runWorkerSteps, withRun} from './run.js'
 import {loadOptions, selectAll} from './project.js'
 
 export interface SecretsCheckFlags extends OptionFlags {
@@ -15,36 +14,6 @@ export interface SecretsCheckFlags extends OptionFlags {
 }
 
 const READ_CONCURRENCY = 8
-
-function activeVersionOf(active: ActiveInfo): string | undefined {
-  if (active.state === 'missing') return undefined
-  if (active.state === 'active') return active.versionId
-  return [...active.shares].sort((a, b) => b.percentage - a.percentage)[0].versionId
-}
-
-/** `secret list` follows the latest upload, so the version that's live has to be asked. */
-async function actualNames(context: RunContext, worker: ResolvedWorker, env: string): Promise<string[] | undefined> {
-  const {deployedName, dir} = worker
-  const accountId = accountOf(context, worker, env)
-  const call = workerCall(context, dir)
-  const versionId = activeVersionOf(await readActiveVersion(call, deployedName, accountId))
-  if (versionId === undefined) return undefined
-  const result = await call({action: 'version-view', name: deployedName, versionId}, accountId)
-  if (!isSuccessful(result)) throw readFailure(deployedName, result)
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(result.stdout)
-  } catch {
-    throw readFailure(deployedName, {...result, code: 1, stderr: 'wrangler versions view printed something that is not JSON.'})
-  }
-
-  const resources = isPlainObject(parsed) ? parsed.resources : undefined
-  const bindings = isPlainObject(resources) && Array.isArray(resources.bindings) ? resources.bindings : []
-  return bindings
-    .filter((binding): binding is {name: string; type: string} => isPlainObject(binding) && binding.type === 'secret_text' && typeof binding.name === 'string')
-    .map(({name}) => name)
-    .sort()
-}
 
 /** `monocf secrets check`: says which secret names the active version of each worker is missing. Never a value. */
 export async function runSecretsCheck(flags: SecretsCheckFlags): Promise<void> {
@@ -74,7 +43,7 @@ export async function runSecretsCheck(flags: SecretsCheckFlags): Promise<void> {
               return
             }
 
-            const actual = await actualNames(context, worker, env)
+            const actual = (await readLiveSecrets(context, worker, env))?.names
             if (actual === undefined) {
               exitCode = EXIT_FAILED
               context.emit({missing: expected, note: 'the worker does not exist', type: 'secrets-check', worker: dir})

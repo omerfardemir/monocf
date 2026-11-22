@@ -9,6 +9,8 @@
 ### Changed
 
 - **`secrets deploy` gives wrangler the values on stdin,** so they no longer touch the disk. Before, it wrote them to a file in `.monocf` for the length of the run. `deploy -s` and `preview -s` still use a file, as wrangler takes those only from one.
+- **`secrets deploy` confirms each upload.** wrangler exits 0 on input it can't read, having uploaded nothing. Now monocf reads the worker back after each upload and fails it with `upload-unconfirmed` unless Cloudflare serves a new version that holds every name. The `step-finished` event carries that version's `versionId`.
+- **`secrets deploy` checks that every selected worker exists before it uploads to any,** and names each missing one. Before, it found a missing worker only when it reached it, after uploading to the ones before.
 
 ## 0.4.0
 

@@ -300,8 +300,9 @@ export const ERROR_CODES = {
   },
   'upload-unconfirmed': {
     exitCode: 1,
-    meaning: 'wrangler exited 0 without reporting a version ID, so the upload is unconfirmed.',
-    next: 'Plan again: the plan shows what went live.',
+    meaning:
+      "wrangler exited 0, but monocf can't confirm the upload: a deploy reported no version ID, or after secrets deploy Cloudflare doesn't serve a new version that holds every name.",
+    next: 'After a deploy, plan again: the plan shows what went live. After secrets deploy, run secrets check, then upload again.',
   },
   'verify-mismatch': {
     exitCode: 1,

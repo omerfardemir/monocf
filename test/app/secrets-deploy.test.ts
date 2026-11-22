@@ -1,13 +1,15 @@
-import {existsSync, readFileSync} from 'node:fs'
+import {existsSync, readFileSync, writeFileSync} from 'node:fs'
 import {join} from 'node:path'
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 
 import {runSecretsDeploy} from '../../src/app/secrets.js'
-import {createFixture, type WranglerCall} from '../helpers/harness.js'
+import {createFixture, type FakeCloudflare, type WranglerCall} from '../helpers/harness.js'
 
 const savedEnvironment = {...process.env}
 let logPath: string
+let cloudflarePath: string
 let stderr: string
+let stdout: string
 
 beforeEach(() => {
   stderr = ''
@@ -15,7 +17,11 @@ beforeEach(() => {
     stderr += String(chunk)
     return true
   })
-  vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+  stdout = ''
+  vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => {
+    stdout += String(chunk)
+    return true
+  })
 })
 
 afterEach(() => {
@@ -24,16 +30,30 @@ afterEach(() => {
   process.exitCode = undefined
 })
 
-function project(files: Record<string, string> = {}, workers = ['orders', 'user-service']) {
+/** The fixture's base config names a worker `<dir>-v1`, and an env adds its own name. */
+function deployedName(dir: string): string {
+  return `${dir}-v1-production`
+}
+
+function useFixture(root: string, live: string[]): void {
+  logPath = join(root, 'calls.ndjson')
+  cloudflarePath = join(root, 'cloudflare.json')
+  const cloudflare: FakeCloudflare = {
+    workers: Object.fromEntries(live.map((dir) => [deployedName(dir), {active: [[`first-of-${dir}`, 100]], tags: {[`first-of-${dir}`]: null}}])),
+  }
+  writeFileSync(cloudflarePath, JSON.stringify(cloudflare))
+  process.env.FAKE_WRANGLER_LOG = logPath
+  process.env.FAKE_WRANGLER_CF = cloudflarePath
+  delete process.env.FAKE_WRANGLER_RULES
+}
+
+function project(files: Record<string, string> = {}, workers = ['orders', 'user-service'], {live = workers}: {live?: string[]} = {}) {
   const fixture = createFixture({
     environments: ['production'],
     files,
     workers: workers.map((name) => ({config: {env: {production: {secrets: {required: ['API_KEY', 'DATABASE_URL']}}}}, name})),
   })
-  logPath = join(fixture.root, 'calls.ndjson')
-  process.env.FAKE_WRANGLER_LOG = logPath
-  delete process.env.FAKE_WRANGLER_CF
-  delete process.env.FAKE_WRANGLER_RULES
+  useFixture(fixture.root, live)
   for (const name of ['API_KEY', 'DATABASE_URL', 'ORDERS__API_KEY', 'ORDERS__DATABASE_URL', 'USER_SERVICE__API_KEY', 'USER_SERVICE__DATABASE_URL']) {
     delete process.env[name]
   }
@@ -110,8 +130,7 @@ describe('secrets deploy --from-env', () => {
 
   it('skips a worker that declares no names, with a notice', async () => {
     const fixture = createFixture({environments: ['production'], workers: [{name: 'static'}]})
-    logPath = join(fixture.root, 'calls.ndjson')
-    process.env.FAKE_WRANGLER_LOG = logPath
+    useFixture(fixture.root, ['static'])
 
     await runSecretsDeploy('static', {env: 'production', fromEnv: true, rootDir: fixture.root})
 
@@ -126,6 +145,48 @@ describe('secrets deploy --from-env', () => {
     await runSecretsDeploy('orders', {env: 'production', fromEnv: true, rootDir: root})
 
     expect(bulkCalls()[0].secretInput!.vars).toEqual({API_KEY: 'from-env', DATABASE_URL: 'from-env'})
+  })
+})
+
+describe('secrets deploy checks', () => {
+  it('reports the live version each upload made', async () => {
+    const {root} = project({}, ['orders'])
+    Object.assign(process.env, {API_KEY: 'k', DATABASE_URL: 'd'})
+
+    await runSecretsDeploy('orders', {env: 'production', fromEnv: true, json: true, rootDir: root})
+
+    const events = stdout.split('\n').filter(Boolean).map((line) => JSON.parse(line))
+    expect(events).toContainEqual(expect.objectContaining({action: 'secrets', status: 'ok', type: 'step-finished', versionId: 'version-1-of-orders', worker: 'orders'}))
+  })
+
+  it('uploads nothing when any selected worker does not exist, and names each one', async () => {
+    const {root} = project({}, ['orders', 'user-service', 'billing'], {live: ['orders']})
+    Object.assign(process.env, {API_KEY: 'k', DATABASE_URL: 'd'})
+
+    const run = runSecretsDeploy(undefined, {all: true, env: 'production', fromEnv: true, rootDir: root})
+
+    await expect(run).rejects.toMatchObject({code: 'worker-not-deployed'})
+    await expect(run).rejects.toThrow('billing, user-service: these workers do not exist on Cloudflare.')
+    expect(bulkCalls()).toEqual([])
+  })
+
+  it('creates a missing worker with --create', async () => {
+    const {root} = project({}, ['orders'], {live: []})
+    Object.assign(process.env, {API_KEY: 'k', DATABASE_URL: 'd'})
+
+    await runSecretsDeploy('orders', {create: true, env: 'production', fromEnv: true, rootDir: root})
+
+    expect(bulkCalls()).toHaveLength(1)
+    const cloudflare = JSON.parse(readFileSync(cloudflarePath, 'utf8')) as FakeCloudflare
+    expect(cloudflare.workers?.[deployedName('orders')]?.secrets).toEqual(['API_KEY', 'DATABASE_URL'])
+  })
+
+  it('prints which variables it uses only once every worker is known to exist', async () => {
+    const {root} = project({}, ['orders'], {live: []})
+    Object.assign(process.env, {API_KEY: 'k', DATABASE_URL: 'd'})
+
+    await expect(runSecretsDeploy('orders', {env: 'production', fromEnv: true, rootDir: root})).rejects.toThrow()
+    expect(stderr).not.toContain('uploading')
   })
 })
 

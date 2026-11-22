@@ -1,8 +1,8 @@
-import {readProjectInputs, resolveProject} from '../config/resolve.js'
+import {readProjectInputs, resolveProject, type ResolvedProject} from '../config/resolve.js'
 import {ConfigError, type ResolvedWorker} from '../config/types.js'
 import {validateSelection} from '../config/validate.js'
 import {MonocfError} from '../errors.js'
-import type {OptionFlags} from '../project/options.js'
+import type {OptionFlags, Options} from '../project/options.js'
 import {materialiseConfig} from '../runtime/materialise.js'
 import {declaredSecretNames, SECRETS_EXAMPLE_FILE} from '../runtime/secret-names.js'
 import {
@@ -10,16 +10,12 @@ import {
   readSecrets,
   readSecretsFromEnv,
   requireSecretsFile,
-  workerVariablePrefix,
   type EnvValues,
 } from '../runtime/secrets.js'
-import {buildArgv} from '../wrangler/argv.js'
 import {locateWrangler} from '../wrangler/locate.js'
-import {spawnWrangler} from '../wrangler/process.js'
+import {confirmSecretsUpload, readLiveSecrets, type LiveSecrets} from './live-secrets.js'
 import {loadOptions, selectFromArguments} from './project.js'
-import {aloneMode, failureOf, isSuccess, reportStep, runStep, withRun, type RunContext} from './run.js'
-
-const WORKER_NOT_FOUND_CODE = 10_007
+import {aloneMode, reportStep, runStep, withRun, type RunContext} from './run.js'
 
 export interface SecretsFlags extends OptionFlags {
   create?: boolean
@@ -27,74 +23,39 @@ export interface SecretsFlags extends OptionFlags {
   json?: boolean
 }
 
-interface Upload {
-  /** Why there's nothing to upload, when there isn't. */
-  skip?: string
-  /** Where each value came from, by name: a variable, for --from-env. */
-  sources?: Record<string, string>
-  values: EnvValues
-  worker: ResolvedWorker
-}
-
-interface WorkerTarget {
-  configPath: string
-  dir: string
-  env?: string
-}
-
-/** `secret bulk` creates a missing worker in a non-interactive run, so a typo in a name would make a new one. */
-async function assertWorkerExists(context: RunContext, {configPath, dir, env}: WorkerTarget): Promise<void> {
-  const {environmentOf, interrupts, runDir, wrangler} = context
-  const step = {action: 'deployment-status', configPath} as const
-  const running = spawnWrangler(wrangler, buildArgv(step, {env}), {
-    cwd: runDir.workerDir(dir),
-    environment: environmentOf(dir),
-    mode: 'capture',
-    outputFile: runDir.outputFile(dir),
-  })
-  interrupts.track(running.child)
-  const result = await running.done
-  interrupts.throwIfInterrupted()
-  if (isSuccess(result)) return
-
-  const missing = result.output.failure?.code === WORKER_NOT_FOUND_CODE || result.stderr.includes('code: 10007')
-  if (missing) {
-    throw new MonocfError(
-      `${dir}: this worker does not exist on Cloudflare. Deploy it first, or pass --create to create it with its secrets.`,
-      {code: 'worker-not-deployed'},
-    )
-  }
-
-  throw failureOf(`${dir}: `, step.action, result)
-}
+/** A worker either has values to upload or says why it has none, never both. */
+type Upload =
+  | {
+      /** Where each value came from, by name, for --from-env. Printed so a run shows which variable won. */
+      sources?: Record<string, string>
+      values: EnvValues
+      worker: ResolvedWorker
+    }
+  | {skip: string; worker: ResolvedWorker}
 
 /** From the exact `.dev.vars.<env>` files: the root's, then the worker's. */
-function fromFiles(workers: ResolvedWorker[], rootDir: string, env: string | undefined): Upload[] {
+function fromFiles(workers: ResolvedWorker[], {env, rootDir}: Options): Upload[] {
   for (const worker of workers) requireSecretsFile(worker.path, rootDir, env)
   return workers.map((worker) => {
     const values = readSecrets(worker.path, rootDir, env)
-    return {...(Object.keys(values).length === 0 && {skip: 'no secrets to upload'}), values, worker}
+    return Object.keys(values).length === 0 ? {skip: 'no secrets to upload', worker} : {values, worker}
   })
 }
 
-/**
- * From environment variables, for the names each worker declares. Every value has to be there before anything is uploaded, so a
- * run never leaves one worker with new secrets and the next with old ones.
- */
-function fromEnvironment(workers: ResolvedWorker[], allWorkers: ResolvedWorker[], env: string | undefined): Upload[] {
-  assertDistinctPrefixes(allWorkers.map(({dir}) => dir))
+/** From environment variables, for the names each worker declares. A missing value anywhere stops the run before any upload. */
+function fromEnvironment(workers: ResolvedWorker[], project: ResolvedProject, {env}: Options): Upload[] {
+  assertDistinctPrefixes(project.workers.map(({dir}) => dir))
   const uploads: Upload[] = []
   const missing: string[] = []
   for (const worker of workers) {
     const names = declaredSecretNames(worker, env)
     if (names === undefined || names.length === 0) {
-      uploads.push({skip: `no secret names to read: it has no secrets.required and no ${SECRETS_EXAMPLE_FILE}`, values: {}, worker})
+      uploads.push({skip: `no secret names to read: it has no secrets.required and no ${SECRETS_EXAMPLE_FILE}`, worker})
       continue
     }
 
     const found = readSecretsFromEnv(worker.dir, names, process.env)
-    const prefix = workerVariablePrefix(worker.dir)
-    missing.push(...found.missing.map((name) => `${worker.dir}: ${name} (set ${prefix}${name} or ${name})`))
+    missing.push(...found.missing.map(({name, tried}) => `${worker.dir}: ${name} (set ${tried.join(' or ')})`))
     uploads.push({sources: found.variables, values: found.values, worker})
   }
 
@@ -114,6 +75,27 @@ function describeSources(sources: Record<string, string>): string {
     .join(', ')
 }
 
+/**
+ * The live version of each worker, read before any upload. A missing worker stops the run here, as `secret bulk` would create
+ * one from what may be a typo, and the version is what a new upload has to replace.
+ */
+async function readBefore(context: RunContext, uploads: Upload[], {create, env}: {create: boolean; env?: string}): Promise<Map<string, LiveSecrets | undefined>> {
+  const before = new Map<string, LiveSecrets | undefined>()
+  for (const {worker} of uploads.filter((upload) => !('skip' in upload))) before.set(worker.dir, await readLiveSecrets(context, worker, env))
+  const missing = [...before].filter(([, live]) => live === undefined).map(([dir]) => dir)
+  if (missing.length > 0 && !create) {
+    const message =
+      missing.length === 1
+        ? `${missing[0]}: this worker does not exist on Cloudflare. Deploy it first, or pass --create to create it with its secrets.`
+        : `${missing.join(', ')}: these workers do not exist on Cloudflare. Deploy them first, or pass --create to create them with their secrets.`
+    throw new MonocfError(message, {
+      code: 'worker-not-deployed',
+    })
+  }
+
+  return before
+}
+
 /** `monocf secrets deploy`: uploads each selected worker's secrets, from its exact env files or from the environment. */
 export async function runSecretsDeploy(name: string | undefined, flags: SecretsFlags): Promise<void> {
   const options = loadOptions(flags)
@@ -122,39 +104,31 @@ export async function runSecretsDeploy(name: string | undefined, flags: SecretsF
   const project = resolveProject(options, inputs)
   validateSelection(selected, options, inputs, project)
   const workers = selected.map((dir) => project.workers.find((worker) => worker.dir === dir)!)
-  const uploads = flags.fromEnv ? fromEnvironment(workers, project.workers, options.env) : fromFiles(workers, options.rootDir, options.env)
-  const wrangler = locateWrangler(options.rootDir)
+  const uploads = flags.fromEnv ? fromEnvironment(workers, project, options) : fromFiles(workers, options)
+  const {env} = options
 
   await withRun(
-    {
-      action: 'secrets',
-      env: options.env,
-      json: flags.json === true,
-      notices: [],
-      resolved: workers,
-      rootDir: options.rootDir,
-      workers: selected,
-      wrangler,
-    },
+    {action: 'secrets', env, json: flags.json === true, notices: [], resolved: workers, rootDir: options.rootDir, workers: selected, wrangler: locateWrangler(options.rootDir)},
     async (context) => {
-      for (const {skip, sources, values, worker} of uploads) {
-        const {dir} = worker
-        if (skip !== undefined) {
-          context.emit({message: `${dir}: ${skip}.`, type: 'notice', worker: dir})
+      const before = await readBefore(context, uploads, {create: flags.create === true, env})
+      for (const upload of uploads) {
+        const {dir} = upload.worker
+        if ('skip' in upload) {
+          context.emit({message: `${dir}: ${upload.skip}.`, type: 'notice', worker: dir})
           continue
         }
 
+        const {sources, values, worker} = upload
         if (sources !== undefined) context.emit({message: `${dir}: uploading ${describeSources(sources)}.`, type: 'notice', worker: dir})
         await reportStep(context, 'secrets', dir, async () => {
-          const configPath = materialiseConfig(worker, context.runDir)
-          if (!flags.create) await assertWorkerExists(context, {configPath, dir, env: options.env})
           await runStep(context, {
-            argvOptions: {env: options.env},
+            argvOptions: {env},
             input: JSON.stringify(values),
             mode: aloneMode(context, false),
-            step: {action: 'secret-bulk', configPath},
+            step: {action: 'secret-bulk', configPath: materialiseConfig(worker, context.runDir)},
             worker: dir,
           })
+          return confirmSecretsUpload(() => readLiveSecrets(context, worker, env), {before: before.get(dir)?.versionId, dir, names: Object.keys(values)}, {signal: context.interrupts.signal})
         })
       }
     },

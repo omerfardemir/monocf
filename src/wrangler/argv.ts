@@ -7,7 +7,7 @@ export type Step =
   | {action: 'versions-of'; name: string}
   | {action: 'build'; configPath: string; outdir: string}
   | {action: 'deploy' | 'preview'; configPath: string; secretsFile?: string}
-  | {action: 'deployment-status' | 'triggers-deploy' | 'versions-list'; configPath: string}
+  | {action: 'triggers-deploy' | 'versions-list'; configPath: string}
   | {action: 'dev'; configPaths: string[]; inspectorPort?: number; persistTo: string; port?: number}
   | {action: 'secret-bulk'; configPath: string}
   | {action: 'versions-deploy'; configPath: string; versionId: string}
@@ -137,10 +137,6 @@ export function buildArgv(step: Step, options: ArgvOptions = {}): string[] {
     case 'secret-bulk': {
       // No file: the values come on stdin, so they never touch the disk.
       return ['secret', 'bulk', ...envFlag, ...config(step.configPath)]
-    }
-
-    case 'deployment-status': {
-      return ['deployments', 'status', '--json', ...envFlag, ...config(step.configPath)]
     }
 
     case 'active-version': {

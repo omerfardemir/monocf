@@ -89,12 +89,6 @@ describe('buildArgv', () => {
     ['secret bulk, which reads stdin', {action: 'secret-bulk', configPath}, {}, ['secret', 'bulk', ...config]],
     ['secret bulk with env', {action: 'secret-bulk', configPath}, {env: 'e'}, ['secret', 'bulk', '--env', 'e', ...config]],
     [
-      'deployments status',
-      {action: 'deployment-status', configPath},
-      {env: 'e'},
-      ['deployments', 'status', '--json', '--env', 'e', ...config],
-    ],
-    [
       'versions list',
       {action: 'versions-list', configPath},
       {env: 'e'},
@@ -147,7 +141,7 @@ describe('buildArgv', () => {
     expect(buildArgv(step, options)).toEqual(expected)
   })
 
-  it.each(['build', 'secret-bulk', 'deployment-status', 'versions-list', 'versions-deploy', 'triggers-deploy'] as const)(
+  it.each(['build', 'secret-bulk', 'versions-list', 'versions-deploy', 'triggers-deploy'] as const)(
     '%s never carries RELEASE',
     (action) => {
       const step = {action, configPath, file: '/s', outdir: '/o', versionId: 'v'} as Step

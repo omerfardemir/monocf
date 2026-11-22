@@ -39,7 +39,7 @@ The first event of a run.
 | `message` | string, optional | Why it failed, when it failed |
 | `reason` | string, optional | For `skipped`: the worker whose failure skipped it |
 | `status` | string | `ok`, `failed`, `skipped` or `cancelled` |
-| `versionId` | string, optional | The version a `deploy` or an upload made |
+| `versionId` | string, optional | The version a `deploy`, an upload or a `secrets deploy` made |
 | `worker` | string | The worker |
 
 ### `notice`
@@ -318,7 +318,7 @@ Generated from the registry `monocf explain` reads, by `npm run docs`.
 | `unknown-env` | 2 | The env is defined neither in the base config nor in the config of the worker. | Define it under "env", or pick another --env. |
 | `unknown-flag` | 2 | A flag the command doesn't take. | Run monocf <command> --help. |
 | `unknown-placeholder` | 2 | A config uses a placeholder that monocf.config.json does not define, or one outside a string. | Define it under "variables" in monocf.config.json. To keep it literal, map it to itself there. |
-| `upload-unconfirmed` | 1 | wrangler exited 0 without reporting a version ID, so the upload is unconfirmed. | Plan again: the plan shows what went live. |
+| `upload-unconfirmed` | 1 | wrangler exited 0, but monocf can't confirm the upload: a deploy reported no version ID, or after secrets deploy Cloudflare doesn't serve a new version that holds every name. | After a deploy, plan again: the plan shows what went live. After secrets deploy, run secrets check, then upload again. |
 | `verify-mismatch` | 1 | After a promote, Cloudflare serves something other than the version apply deployed. | Look at what is live, then plan again. |
 | `version-not-live` | 1 | The version the run deployed isn't live any more, and the run didn't change it, so there's nothing of its to undo. | Use rollback <worker> --to <version-id> to choose a version. |
 | `worker-exists` | 2 | A worker with that name already exists. | Pick another name. |

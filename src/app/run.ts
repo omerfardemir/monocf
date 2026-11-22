@@ -38,7 +38,6 @@ const COMMAND_NAMES: Record<Step['action'], string> = {
   'active-version': 'deployments status',
   build: 'deploy --dry-run',
   deploy: 'deploy',
-  'deployment-status': 'deployments status',
   dev: 'dev',
   preview: 'versions upload',
   'queue-consumer-remove': 'queues consumer remove',
@@ -87,7 +86,7 @@ export interface StepRun {
   /** A worker's own account. Its config says so too, and a config with none leaves it to the environment. */
   accountId?: string
   argvOptions?: ArgvOptions
-  /** For wrangler's stdin. */
+  /** Written to wrangler's stdin, so a secret value never touches the disk. */
   input?: string
   mode: OutputMode
   step: Step

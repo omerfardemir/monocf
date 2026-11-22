@@ -42,10 +42,22 @@ export function workerVariablePrefix(dir: string): string {
   return `${dir.toUpperCase().replaceAll(/[^A-Z0-9]/g, '_')}__`
 }
 
+/**
+ * A worker's own variable comes first, so one worker can get a value that differs from what the others share. This is the one
+ * place that order is written down.
+ */
+export function variablesFor(dir: string, name: string): [own: string, shared: string] {
+  return [`${workerVariablePrefix(dir)}${name}`, name]
+}
+
 /** Two workers with one prefix would each read the other's variables, and neither could be told apart from the other. */
 export function assertDistinctPrefixes(dirs: string[]): void {
   const byPrefix = new Map<string, string[]>()
-  for (const dir of dirs) byPrefix.set(workerVariablePrefix(dir), [...(byPrefix.get(workerVariablePrefix(dir)) ?? []), dir])
+  for (const dir of dirs) {
+    const prefix = workerVariablePrefix(dir)
+    byPrefix.set(prefix, [...(byPrefix.get(prefix) ?? []), dir])
+  }
+
   const clashes = [...byPrefix].filter(([, same]) => same.length > 1)
   if (clashes.length === 0) return
   const list = clashes.map(([prefix, same]) => `${same.join(', ')} all read ${prefix}*`).join('; ')
@@ -55,25 +67,25 @@ export function assertDistinctPrefixes(dirs: string[]): void {
 }
 
 export interface EnvSecrets {
-  /** The declared names that no variable gives a value. */
-  missing: string[]
+  /** With the variables tried, so an error can say what to set without the caller knowing the order. */
+  missing: {name: string; tried: string[]}[]
   values: EnvValues
   /** Each name's variable, so a run can say where a value came from without printing it. */
   variables: Record<string, string>
 }
 
 /**
- * The values for a worker's declared names, from its prefixed variable, else the shared one. Only declared names are read, so
- * nothing else in the environment, such as CLOUDFLARE_API_TOKEN, can be uploaded by mistake. An empty value counts as unset:
- * GitHub Actions gives an empty string for a secret that doesn't exist in the job's environment.
+ * The values for a worker's declared names. Only declared names are read: which variables become secrets is the project's
+ * choice, made where it declares them. An empty value counts as unset, as GitHub Actions gives an empty string for a secret
+ * that doesn't exist in the job's environment.
  */
 export function readSecretsFromEnv(dir: string, names: string[], environment: NodeJS.ProcessEnv): EnvSecrets {
-  const prefix = workerVariablePrefix(dir)
   const result: EnvSecrets = {missing: [], values: {}, variables: {}}
   for (const name of names) {
-    const variable = [`${prefix}${name}`, name].find((candidate) => (environment[candidate] ?? '') !== '')
+    const tried = variablesFor(dir, name)
+    const variable = tried.find((candidate) => (environment[candidate] ?? '') !== '')
     if (variable === undefined) {
-      result.missing.push(name)
+      result.missing.push({name, tried})
       continue
     }
 

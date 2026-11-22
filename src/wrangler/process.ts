@@ -55,10 +55,11 @@ function stdinFor(): 'ignore' | 'inherit' {
 }
 
 function stdioFor(mode: OutputMode, input: string | undefined): StdioOptions {
-  const stdin = input === undefined ? undefined : 'pipe'
-  if (mode === 'inherit') return [stdin ?? stdinFor(), 'inherit', 'inherit']
-  if (mode === 'stderr') return process.stderr.isTTY && !process.env.CI ? [stdin ?? stdinFor(), 2, 2] : [stdin ?? stdinFor(), 'pipe', 'pipe']
-  return [stdin ?? 'ignore', 'pipe', 'pipe']
+  const piped = input !== undefined
+  const stdin = piped ? 'pipe' : stdinFor()
+  if (mode === 'inherit') return [stdin, 'inherit', 'inherit']
+  if (mode === 'stderr') return process.stderr.isTTY && !process.env.CI ? [stdin, 2, 2] : [stdin, 'pipe', 'pipe']
+  return [piped ? 'pipe' : 'ignore', 'pipe', 'pipe']
 }
 
 const ACCOUNT_ID = /^[0-9a-f]{32}$/i
