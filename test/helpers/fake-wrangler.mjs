@@ -89,8 +89,13 @@ const entry = {
 }
 
 const secretsFile = flagValues(['--secrets-file'])[0]
-if (startsWithCommand('secret bulk')) {
-  entry.secretFile = readSecretFile(resolve(argv[argv.indexOf('bulk') + 1]))
+const bulkFile = argv[argv.indexOf('bulk') + 1]
+if (startsWithCommand('secret bulk') && bulkFile !== undefined && !bulkFile.startsWith('-')) {
+  entry.secretFile = readSecretFile(resolve(bulkFile))
+} else if (startsWithCommand('secret bulk')) {
+  // As real wrangler: with no file, the values come on stdin.
+  const raw = readFileSync(0, 'utf8')
+  entry.secretInput = {raw, vars: JSON.parse(raw)}
 } else if (secretsFile !== undefined) {
   entry.secretFile = readSecretFile(resolve(secretsFile))
 }

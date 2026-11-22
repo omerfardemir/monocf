@@ -63,6 +63,8 @@ export interface WranglerCall {
   mainSource: string | null
   outputFile: string | null
   secretFile?: {mode: number; name: string; raw: string; vars: Record<string, string>}
+  /** What `secret bulk` read from stdin, when it was given no file. */
+  secretInput?: {raw: string; vars: Record<string, string>}
 }
 
 export interface Fixture {

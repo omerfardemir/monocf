@@ -303,6 +303,8 @@ Generated from the registry `monocf explain` reads, by `npm run docs`.
 | `rollback-refused` | 1 | rollback refused a worker, as going back would cross a Durable Object change or one that can't be checked. | Ask a person whether to pass --force. |
 | `root-dir-missing` | 2 | The root directory doesn't exist. | Fix --root-dir. |
 | `run-not-found` | 2 | The state has no run with that ID for this env. | Use a run ID from an earlier apply, as its run-started output or state/<env>/runs/ shows. |
+| `secret-env-missing` | 2 | secrets deploy --from-env found no value for a name a worker declares, so it uploaded nothing. An empty variable counts as unset. | Set the variables the message names in the job's environment, for example from the CI's secrets. Never print a value. |
+| `secret-prefix-collision` | 2 | Two worker directories give the same variable prefix for secrets deploy --from-env, such as user-service and user_service. | Rename one worker's directory, or upload those secrets from .dev.vars files. |
 | `secret-value-invalid` | 2 | A secret's value can't be written to a .dev.vars file without changing it. | Change the value, or upload that secret with wrangler secret put. |
 | `secrets-file-missing` | 2 | Uploading secrets needs the exact .dev.vars.<env> file, and there is none. | Ask a person to create it. Never print or read its values. |
 | `state-invalid` | 3 | The state manifest or a run record can't be trusted: a field is missing, or its schema version is newer. | Use a newer monocf, or ask a person to look at the state store. |

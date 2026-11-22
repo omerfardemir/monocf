@@ -87,19 +87,22 @@ export interface StepRun {
   /** A worker's own account. Its config says so too, and a config with none leaves it to the environment. */
   accountId?: string
   argvOptions?: ArgvOptions
+  /** For wrangler's stdin. */
+  input?: string
   mode: OutputMode
   step: Step
   worker: string
 }
 
 /** Runs one wrangler process to its end. Exit 0 from an upload isn't proof, so a version ID has to be there too. */
-export async function runStep(context: RunContext, {accountId, argvOptions, mode, step, worker}: StepRun) {
+export async function runStep(context: RunContext, {accountId, argvOptions, input, mode, step, worker}: StepRun) {
   const {environmentOf, interrupts, runDir, wrangler} = context
   interrupts.throwIfInterrupted()
   const running = spawnWrangler(wrangler, buildArgv(step, argvOptions), {
     accountId,
     cwd: runDir.workerDir(worker),
     environment: environmentOf(worker),
+    input,
     mode,
     outputFile: runDir.outputFile(worker),
   })

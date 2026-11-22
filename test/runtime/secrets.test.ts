@@ -4,7 +4,7 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {afterEach, describe, expect, it} from 'vitest'
 
-import {readLocalVars, readSecrets, requireSecretsFile, serializeDevVars} from '../../src/runtime/secrets.js'
+import {readLocalVars, readSecrets, requireSecretsFile, serializeDevVars, workerVariablePrefix} from '../../src/runtime/secrets.js'
 
 const dirs: string[] = []
 
@@ -118,5 +118,15 @@ describe('readLocalVars', () => {
     const {root, worker} = project({})
 
     expect(readLocalVars(worker, root, 'e')).toBeUndefined()
+  })
+})
+
+describe('workerVariablePrefix', () => {
+  it.each([
+    ['orders', 'ORDERS__'],
+    ['user-service', 'USER_SERVICE__'],
+    ['api.v2', 'API_V2__'],
+  ])('reads %s as %s', (dir, prefix) => {
+    expect(workerVariablePrefix(dir)).toBe(prefix)
   })
 })

@@ -223,6 +223,16 @@ export const ERROR_CODES = {
     meaning: 'The state has no run with that ID for this env.',
     next: 'Use a run ID from an earlier apply, as its run-started output or state/<env>/runs/ shows.',
   },
+  'secret-env-missing': {
+    exitCode: 2,
+    meaning: 'secrets deploy --from-env found no value for a name a worker declares, so it uploaded nothing. An empty variable counts as unset.',
+    next: "Set the variables the message names in the job's environment, for example from the CI's secrets. Never print a value.",
+  },
+  'secret-prefix-collision': {
+    exitCode: 2,
+    meaning: 'Two worker directories give the same variable prefix for secrets deploy --from-env, such as user-service and user_service.',
+    next: "Rename one worker's directory, or upload those secrets from .dev.vars files.",
+  },
   'secret-value-invalid': {
     exitCode: 2,
     meaning: "A secret's value can't be written to a .dev.vars file without changing it.",

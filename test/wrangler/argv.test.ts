@@ -86,13 +86,8 @@ describe('buildArgv', () => {
         '/b.json',
       ],
     ],
-    ['secret bulk', {action: 'secret-bulk', configPath, file: '/s.json'}, {}, ['secret', 'bulk', '/s.json', ...config]],
-    [
-      'secret bulk with env',
-      {action: 'secret-bulk', configPath, file: '/s.json'},
-      {env: 'e'},
-      ['secret', 'bulk', '/s.json', '--env', 'e', ...config],
-    ],
+    ['secret bulk, which reads stdin', {action: 'secret-bulk', configPath}, {}, ['secret', 'bulk', ...config]],
+    ['secret bulk with env', {action: 'secret-bulk', configPath}, {env: 'e'}, ['secret', 'bulk', '--env', 'e', ...config]],
     [
       'deployments status',
       {action: 'deployment-status', configPath},

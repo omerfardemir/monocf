@@ -1,12 +1,9 @@
-import {readFileSync} from 'node:fs'
-import {join} from 'node:path'
-import dotenv from 'dotenv'
-
-import {envSection, readProjectInputs, resolveProject} from '../config/resolve.js'
+import {readProjectInputs, resolveProject} from '../config/resolve.js'
 import {ConfigError, isPlainObject, type ResolvedWorker} from '../config/types.js'
 import {validateSelection} from '../config/validate.js'
 import {EXIT_FAILED, EXIT_OK} from '../errors.js'
 import type {OptionFlags} from '../project/options.js'
+import {declaredSecretNames, SECRETS_EXAMPLE_FILE} from '../runtime/secret-names.js'
 import {locateWrangler} from '../wrangler/locate.js'
 import {isSuccessful, readActiveVersion, readFailure, type ActiveInfo} from '../wrangler/read.js'
 import {accountOf, runWorkerSteps, withRun, type RunContext} from './run.js'
@@ -18,30 +15,6 @@ export interface SecretsCheckFlags extends OptionFlags {
 }
 
 const READ_CONCURRENCY = 8
-const EXAMPLE_FILE = '.dev.vars.example'
-
-/** Names only: the values in the example are dropped as soon as the file is parsed. */
-function exampleNames(path: string): string[] | undefined {
-  try {
-    return Object.keys(dotenv.parse(readFileSync(join(path, EXAMPLE_FILE), 'utf8')))
-  } catch {
-    return undefined
-  }
-}
-
-function requiredNames(config: ResolvedWorker['config'], env: string): string[] | undefined {
-  const {secrets} = envSection(config, env)
-  if (!isPlainObject(secrets) || !Array.isArray(secrets.required)) return undefined
-  return secrets.required.filter((name): name is string => typeof name === 'string')
-}
-
-/** Every source says something, or nothing does. Undefined means this worker can't be checked. */
-function expectedNames({config, path}: ResolvedWorker, env: string): string[] | undefined {
-  const required = requiredNames(config, env)
-  const example = exampleNames(path)
-  if (required === undefined && example === undefined) return undefined
-  return [...new Set([...(required ?? []), ...(example ?? [])])].sort()
-}
 
 function activeVersionOf(active: ActiveInfo): string | undefined {
   if (active.state === 'missing') return undefined
@@ -95,9 +68,9 @@ export async function runSecretsCheck(flags: SecretsCheckFlags): Promise<void> {
           dependsOn: [],
           async run() {
             const {dir} = worker
-            const expected = expectedNames(worker, env)
+            const expected = declaredSecretNames(worker, env)
             if (expected === undefined) {
-              context.emit({note: `no secrets.required and no ${EXAMPLE_FILE}, so nothing to check against`, type: 'secrets-check', worker: dir})
+              context.emit({note: `no secrets.required and no ${SECRETS_EXAMPLE_FILE}, so nothing to check against`, type: 'secrets-check', worker: dir})
               return
             }
 

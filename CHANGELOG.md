@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **`secrets deploy --from-env`** reads secret values from environment variables instead of `.dev.vars` files, for a CI that keeps them in its own secret store, such as a GitHub environment. Each worker gets the names it declares in `secrets.required` and `.dev.vars.example`, from `<WORKER>__<NAME>` if set, else `<NAME>`. An empty variable counts as unset, and a missing value stops the run before anything is uploaded, with the new code `secret-env-missing`. Two worker directories with one prefix fail with `secret-prefix-collision`. See [Secrets from CI](README.md#secrets-from-ci).
+
+### Changed
+
+- **`secrets deploy` gives wrangler the values on stdin,** so they no longer touch the disk. Before, it wrote them to a file in `.monocf` for the length of the run. `deploy -s` and `preview -s` still use a file, as wrangler takes those only from one.
+
 ## 0.4.0
 
 monocf is easier to drive from a coding agent or a script: every failure has a stable code, the commands describe themselves, and a skill ships in the package. An env that sets its own `name` now deploys under it, as wrangler does, and `check --all-envs` catches a route that more than one env claims.
