@@ -31,6 +31,7 @@ import {
   TRIGGERS_NOT_APPLIED,
   triggersNotApplied,
   verifyActive,
+  versionsDeploy,
   workerCall,
   writeRunRecord,
   type DeployResult,
@@ -435,6 +436,21 @@ class Applier {
     return runStep(this.context, {accountId: target.accountId, argvOptions, mode: {prefix: `[${dir}] `}, step, worker: dir})
   }
 
+  private async versionsDeploy(target: Target, versionId: string): Promise<void> {
+    const {env, message} = this.argvOptions(target)
+    const {deployedName, worker} = target.step
+    const call = this.call(target)
+    await versionsDeploy(versionId, async () => this.wrangler(target, {action: 'versions-deploy', configPath: this.configOf(target), versionId}, {env, message}), {
+      async isLive() {
+        const active = await readActiveVersion(call, deployedName, target.accountId)
+        return active.state === 'active' && active.versionId === versionId
+      },
+      notice: (text) => this.context.emit({message: text, type: 'notice', worker}),
+      signal: this.context.interrupts.signal,
+      uploadedVersionId: target.record.uploadedVersionId,
+    })
+  }
+
   private async verify(target: Target, versionId: string): Promise<void> {
     const where = {accountId: target.accountId, deployedName: target.step.deployedName, dir: target.worker.dir}
     await verifyActive(this.call(target), where, versionId, {replaced: target.liveBefore, signal: this.context.interrupts.signal})
@@ -503,9 +519,8 @@ class Applier {
 
   private async syncTails(target: Target): Promise<void> {
     if (!this.tailsBehind(target)) return
-    const {env, message} = this.argvOptions(target)
     const versionId = target.step.previousVersionId!
-    await this.wrangler(target, {action: 'versions-deploy', configPath: this.configOf(target), versionId}, {env, message})
+    await this.versionsDeploy(target, versionId)
     await this.verify(target, versionId)
   }
 
@@ -572,10 +587,7 @@ class Applier {
         if (attempt === 1) await this.readLiveBefore(target)
         target.attempted = true
         const active = attempt > 1 ? await readActiveVersion(this.call(target), target.step.deployedName, target.accountId) : undefined
-        if (active?.state !== 'active' || active.versionId !== versionId) {
-          const {env, message} = this.argvOptions(target)
-          await this.wrangler(target, {action: 'versions-deploy', configPath: this.configOf(target), versionId}, {env, message})
-        }
+        if (active?.state !== 'active' || active.versionId !== versionId) await this.versionsDeploy(target, versionId)
 
         await this.verify(target, versionId)
         target.record.newVersionId = versionId

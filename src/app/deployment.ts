@@ -7,7 +7,7 @@ import {accountHash, manifestKey, parseStateManifest, runKey, STATE_SCHEMA_VERSI
 import type {RunRecord} from '../state/run-record.js'
 import type {StateStore} from '../state/store.js'
 import {readActiveVersion, type ActiveInfo, type WranglerCall} from '../wrangler/read.js'
-import {isTransient, MAX_ATTEMPTS, pause, retryDelayMs, withReadRetries} from '../wrangler/retry.js'
+import {isTransient, isVersionNotFound, MAX_ATTEMPTS, pause, retryDelayMs, withReadRetries} from '../wrangler/retry.js'
 import {accountOf, callWrangler, WranglerFailure, type RunContext} from './run.js'
 
 export const DEFAULT_CONCURRENCY = 6
@@ -178,6 +178,44 @@ export async function verifyActive(
 
   if (active.state !== 'active' || active.versionId !== expected) {
     throw new MonocfError(`${dir}: verify-mismatch: expected ${expected} at 100%, and Cloudflare serves ${describeActive(active)}.`, {code: 'verify-mismatch'})
+  }
+}
+
+export interface VersionsDeployOptions {
+  delaysMs?: readonly number[]
+  /** Whether the version is live now. An attempt can fail after it took effect, and then there's nothing to do again. */
+  isLive: () => Promise<boolean>
+  notice: (message: string) => void
+  signal?: AbortSignal
+  sleep?: (ms: number, signal?: AbortSignal) => Promise<void>
+  /** What this run uploaded, if anything. */
+  uploadedVersionId?: string
+}
+
+/**
+ * `versions deploy` a few seconds after `versions upload` can be told the new version doesn't exist (code 100146), and the same
+ * deploy minutes later goes through: Cloudflare doesn't return a version it just made yet. Only for the version this run uploaded
+ * is that known to be the reason, so only then is it tried again, on the waits a stale read gets. Any other version, such as one
+ * from the state or a rollback target, may really be gone. The last failure is the one that's thrown.
+ */
+export async function versionsDeploy(
+  versionId: string,
+  deploy: () => Promise<unknown>,
+  {delaysMs = STALE_READ_DELAYS_MS, isLive, notice, signal, sleep = pause, uploadedVersionId}: VersionsDeployOptions,
+): Promise<void> {
+  for (let index = 0; ; index++) {
+    try {
+      await deploy()
+      return
+    } catch (error) {
+      const delay = delaysMs[index]
+      const lagging = versionId === uploadedVersionId && error instanceof WranglerFailure && isVersionNotFound(error.result)
+      if (!lagging || delay === undefined || signal?.aborted) throw error
+      notice(`Cloudflare does not list version ${versionId} yet, trying again in ${Math.round(delay / 1000)} s.`)
+      await sleep(delay, signal)
+      if (signal?.aborted) throw error
+      if (await isLive()) return
+    }
   }
 }
 

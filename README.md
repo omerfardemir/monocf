@@ -348,7 +348,7 @@ EXAMPLES
   $ monocf apply plan.json --expect-branch-tip origin/main --summary-file "$GITHUB_STEP_SUMMARY" --json
 ```
 
-_See code: [src/commands/apply/index.ts](https://github.com/omerfardemir/monocf/blob/v0.4.0/src/commands/apply/index.ts)_
+_See code: [src/commands/apply/index.ts](https://github.com/omerfardemir/monocf/blob/v0.4.1/src/commands/apply/index.ts)_
 
 ## `monocf build [WORKERNAME]`
 
@@ -382,7 +382,7 @@ EXAMPLES
   $ monocf build -a -e dev --concurrency 4
 ```
 
-_See code: [src/commands/build/index.ts](https://github.com/omerfardemir/monocf/blob/v0.4.0/src/commands/build/index.ts)_
+_See code: [src/commands/build/index.ts](https://github.com/omerfardemir/monocf/blob/v0.4.1/src/commands/build/index.ts)_
 
 ## `monocf bundle`
 
@@ -414,7 +414,7 @@ EXAMPLES
   $ monocf bundle -e dev --concurrency 4 --json
 ```
 
-_See code: [src/commands/bundle/index.ts](https://github.com/omerfardemir/monocf/blob/v0.4.0/src/commands/bundle/index.ts)_
+_See code: [src/commands/bundle/index.ts](https://github.com/omerfardemir/monocf/blob/v0.4.1/src/commands/bundle/index.ts)_
 
 ## `monocf check`
 
@@ -444,7 +444,7 @@ EXAMPLES
   $ monocf check -e dev --strict
 ```
 
-_See code: [src/commands/check/index.ts](https://github.com/omerfardemir/monocf/blob/v0.4.0/src/commands/check/index.ts)_
+_See code: [src/commands/check/index.ts](https://github.com/omerfardemir/monocf/blob/v0.4.1/src/commands/check/index.ts)_
 
 ## `monocf commands`
 
@@ -467,7 +467,7 @@ EXAMPLES
   $ monocf commands --json
 ```
 
-_See code: [src/commands/commands/index.ts](https://github.com/omerfardemir/monocf/blob/v0.4.0/src/commands/commands/index.ts)_
+_See code: [src/commands/commands/index.ts](https://github.com/omerfardemir/monocf/blob/v0.4.1/src/commands/commands/index.ts)_
 
 ## `monocf deploy [WORKERNAME]`
 
@@ -509,7 +509,7 @@ EXAMPLES
   $ monocf deploy -a -e production
 ```
 
-_See code: [src/commands/deploy/index.ts](https://github.com/omerfardemir/monocf/blob/v0.4.0/src/commands/deploy/index.ts)_
+_See code: [src/commands/deploy/index.ts](https://github.com/omerfardemir/monocf/blob/v0.4.1/src/commands/deploy/index.ts)_
 
 ## `monocf dev [WORKERNAME]`
 
@@ -542,7 +542,7 @@ EXAMPLES
   $ monocf dev -a -p 8787
 ```
 
-_See code: [src/commands/dev/index.ts](https://github.com/omerfardemir/monocf/blob/v0.4.0/src/commands/dev/index.ts)_
+_See code: [src/commands/dev/index.ts](https://github.com/omerfardemir/monocf/blob/v0.4.1/src/commands/dev/index.ts)_
 
 ## `monocf explain [CODE]`
 
@@ -569,7 +569,7 @@ EXAMPLES
   $ monocf explain --json
 ```
 
-_See code: [src/commands/explain/index.ts](https://github.com/omerfardemir/monocf/blob/v0.4.0/src/commands/explain/index.ts)_
+_See code: [src/commands/explain/index.ts](https://github.com/omerfardemir/monocf/blob/v0.4.1/src/commands/explain/index.ts)_
 
 ## `monocf graph`
 
@@ -602,7 +602,7 @@ EXAMPLES
   $ monocf graph -e dev --callers orders
 ```
 
-_See code: [src/commands/graph/index.ts](https://github.com/omerfardemir/monocf/blob/v0.4.0/src/commands/graph/index.ts)_
+_See code: [src/commands/graph/index.ts](https://github.com/omerfardemir/monocf/blob/v0.4.1/src/commands/graph/index.ts)_
 
 ## `monocf plan`
 
@@ -644,7 +644,7 @@ EXAMPLES
   $ monocf plan -e production --state r2://my-state-bucket/monocf --on-drift fail --json
 ```
 
-_See code: [src/commands/plan/index.ts](https://github.com/omerfardemir/monocf/blob/v0.4.0/src/commands/plan/index.ts)_
+_See code: [src/commands/plan/index.ts](https://github.com/omerfardemir/monocf/blob/v0.4.1/src/commands/plan/index.ts)_
 
 ## `monocf preview [WORKERNAME]`
 
@@ -681,7 +681,7 @@ EXAMPLES
   $ monocf preview orders -e dev -M "try the new route"
 ```
 
-_See code: [src/commands/preview/index.ts](https://github.com/omerfardemir/monocf/blob/v0.4.0/src/commands/preview/index.ts)_
+_See code: [src/commands/preview/index.ts](https://github.com/omerfardemir/monocf/blob/v0.4.1/src/commands/preview/index.ts)_
 
 ## `monocf rollback [WORKERNAME]`
 
@@ -717,7 +717,7 @@ EXAMPLES
   $ monocf rollback orders -e production --state r2://my-state-bucket/monocf --to 1a2b3c4d --force
 ```
 
-_See code: [src/commands/rollback/index.ts](https://github.com/omerfardemir/monocf/blob/v0.4.0/src/commands/rollback/index.ts)_
+_See code: [src/commands/rollback/index.ts](https://github.com/omerfardemir/monocf/blob/v0.4.1/src/commands/rollback/index.ts)_
 
 ## `monocf secrets check`
 
@@ -742,7 +742,7 @@ EXAMPLES
   $ monocf secrets check -e production
 ```
 
-_See code: [src/commands/secrets/check.ts](https://github.com/omerfardemir/monocf/blob/v0.4.0/src/commands/secrets/check.ts)_
+_See code: [src/commands/secrets/check.ts](https://github.com/omerfardemir/monocf/blob/v0.4.1/src/commands/secrets/check.ts)_
 
 ## `monocf secrets deploy [WORKERNAME]`
 
@@ -779,7 +779,7 @@ EXAMPLES
   $ monocf secrets deploy -a -e production --from-env
 ```
 
-_See code: [src/commands/secrets/deploy.ts](https://github.com/omerfardemir/monocf/blob/v0.4.0/src/commands/secrets/deploy.ts)_
+_See code: [src/commands/secrets/deploy.ts](https://github.com/omerfardemir/monocf/blob/v0.4.1/src/commands/secrets/deploy.ts)_
 
 ## `monocf whoami`
 
@@ -801,7 +801,7 @@ EXAMPLES
   $ monocf whoami --json
 ```
 
-_See code: [src/commands/whoami/index.ts](https://github.com/omerfardemir/monocf/blob/v0.4.0/src/commands/whoami/index.ts)_
+_See code: [src/commands/whoami/index.ts](https://github.com/omerfardemir/monocf/blob/v0.4.1/src/commands/whoami/index.ts)_
 
 ## `monocf worker [WORKERNAME]`
 
@@ -843,7 +843,7 @@ EXAMPLES
   $ monocf worker my-worker -c deploy -e dev
 ```
 
-_See code: [src/commands/worker/index.ts](https://github.com/omerfardemir/monocf/blob/v0.4.0/src/commands/worker/index.ts)_
+_See code: [src/commands/worker/index.ts](https://github.com/omerfardemir/monocf/blob/v0.4.1/src/commands/worker/index.ts)_
 
 ## `monocf worker create WORKERNAME`
 
@@ -870,7 +870,7 @@ EXAMPLES
   $ monocf worker create my-worker --json
 ```
 
-_See code: [src/commands/worker/create.ts](https://github.com/omerfardemir/monocf/blob/v0.4.0/src/commands/worker/create.ts)_
+_See code: [src/commands/worker/create.ts](https://github.com/omerfardemir/monocf/blob/v0.4.1/src/commands/worker/create.ts)_
 <!-- commandsstop -->
 
 ## Continuous deployment
