@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.5.0
+
+`secrets deploy --from-env` uploads secrets from a CI's own secret store, such as a GitHub environment, without writing them to a file. `secrets deploy` also confirms each upload, and checks every worker before uploading to any.
 
 ### Added
 
