@@ -239,7 +239,7 @@ A `NAME`, `ENVIRONMENT` or `VERSION` in the worker's own config, in the section 
 
 `.dev.vars.<env>` in the root holds values for every worker, and the one in a worker's directory holds that worker's. The worker's values win. With no `-e`, the file is `.dev.vars`.
 
-- **Uploads** (`secrets deploy`, `deploy -s`, `preview -s`) read the exact file for the env. If neither the root nor the worker has one, it's exit 2. There's no fallback, so development values can't reach production.
+- **Uploads** (`secrets deploy`, `deploy -s`, `preview -s`) read the exact file for the env. If neither the root nor the worker has one, it's exit 2. There's no fallback, so development values can't reach production. `secrets deploy --from-env` reads no file: see [Secrets from CI](#secrets-from-ci).
 - **Local dev** falls back to `.dev.vars` when the env has no file of its own.
 
 ## Local development
@@ -746,11 +746,12 @@ _See code: [src/commands/secrets/check.ts](https://github.com/omerfardemir/monoc
 
 ## `monocf secrets deploy [WORKERNAME]`
 
-Upload secrets from the exact .dev.vars files for the env, to a worker that already exists
+Upload secrets to a worker that already exists, from the exact .dev.vars files for the env, or with --from-env from environment variables
 
 ```
 USAGE
-  $ monocf secrets deploy [WORKERNAME] [-a] [-b <value>] [--create] [-e <value>] [--json] [-r <value>] [-w <value>]
+  $ monocf secrets deploy [WORKERNAME] [-a] [-b <value>] [--create] [-e <value>] [--from-env] [--json] [-r <value>]
+    [-w <value>]
 
 ARGUMENTS
   WORKERNAME  Worker name
@@ -762,15 +763,20 @@ FLAGS
   -r, --root-dir=<value>          Root directory of the project
   -w, --workers-dir-name=<value>  Workers directory name in monorepo
       --create                    Create the worker if it does not exist yet
+      --from-env                  Read each name the worker declares from <WORKER>__<NAME>, else <NAME>, instead of from
+                                  .dev.vars files. Fails before uploading if one is unset or empty
       --json                      Print results as NDJSON on stdout
 
 DESCRIPTION
-  Upload secrets from the exact .dev.vars files for the env, to a worker that already exists
+  Upload secrets to a worker that already exists, from the exact .dev.vars files for the env, or with --from-env from
+  environment variables
 
 EXAMPLES
   $ monocf secrets deploy orders -e production
 
   $ monocf secrets deploy -a -e production
+
+  $ monocf secrets deploy -a -e production --from-env
 ```
 
 _See code: [src/commands/secrets/deploy.ts](https://github.com/omerfardemir/monocf/blob/v0.4.1/src/commands/secrets/deploy.ts)_
@@ -1092,11 +1098,54 @@ monocf secrets deploy -a -e production   # from .dev.vars.production
 monocf secrets check -e production       # names only, never values
 ```
 
-`secrets deploy` refuses a worker that doesn't exist yet, because wrangler would otherwise create a new one from a typo. `--create` allows it.
+`secrets deploy` refuses a worker that doesn't exist yet, because wrangler would otherwise create a new one from a typo. `--create` allows it. It checks every selected worker before it uploads to any.
+
+`secrets deploy` gives wrangler the values on its stdin, so they don't touch the disk. `deploy -s` and `preview -s` still pass a file, with mode 600 in `.monocf` and removed after the run, as wrangler takes those only from a file.
+
+wrangler can exit 0 having uploaded nothing, as it does on input it can't read. So after each upload, `secrets deploy` reads the worker back, and it counts the upload once Cloudflare serves a new version that holds every name it sent. Otherwise it fails that worker with `upload-unconfirmed`, exit 1. Every upload makes a new version, even with the same values, and the `step-finished` event gives its ID.
+
+If wrangler fails on one worker, the workers before it keep their new secrets and the rest keep the ones they had. Fix the cause and run it again: sending the same values again is harmless.
 
 `secrets check` expects the names in `secrets.required`, which wrangler doesn't inherit into an env, and the keys of a `.dev.vars.example` next to the worker's config. A missing name is exit 1, and an unexpected one is a warning. The results go to stdout, one line per worker, so `monocf secrets check -e production | grep missing` works, and notices go to stderr. A worker with neither source is skipped with a note.
 
 **`secrets.required` limits `apply`.** Wrangler enforces it itself: `versions upload` and `deploy` refuse while a name is unset. A worker that doesn't exist yet could only get one through `--secrets-file`, which `apply` doesn't pass. So `plan` can say `upload` or `create`, and `apply` then fails that worker with exit 1. Run `secrets check` before `apply` and set what's missing first. Don't add `secrets.required` to a worker until it exists.
+
+#### Secrets from CI
+
+In CI the values are usually in the CI's secret store, such as a GitHub environment's secrets, and not in a file. `secrets deploy --from-env` reads them from environment variables instead of `.dev.vars` files:
+
+```yaml
+jobs:
+  secrets:
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npx monocf secrets deploy -a -e production --from-env
+        env:
+          STRIPE_KEY: ${{ secrets.STRIPE_KEY }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          ORDERS__DATABASE_URL: ${{ secrets.ORDERS__DATABASE_URL }}
+      - run: npx monocf secrets check -e production
+```
+
+- **Which names.** Each worker gets the names it declares, in `secrets.required` for the env and in its `.dev.vars.example`. Those are the names `secrets check` expects. Only those names are read: which variables become secrets is the project's choice, made where it declares them. A worker that declares no names is skipped with a notice.
+- **Which variable.** For the worker in `workers/orders`, `DATABASE_URL` comes from `ORDERS__DATABASE_URL` if it's set, and from `DATABASE_URL` otherwise. The prefix is the directory's name in upper case, with each character other than a letter or a digit as `_`, then `__`: `user-service` reads `USER_SERVICE__`. That suits GitHub, whose secret names take only letters, digits and `_`. Two directories with one prefix, such as `user-service` and `user_service`, are exit 2.
+- **An empty variable counts as unset.** GitHub gives an empty string for a secret the environment doesn't have, so uploading it would replace the live secret with an empty one.
+- **Checked before anything is uploaded.** If any selected worker has no value for a name, `secrets deploy` names each worker, secret and variable it tried, uploads nothing, and exits 2. A worker that doesn't exist stops it too, as above. A failure after that is handled as for any upload: see above.
+- **Names, never values.** Each worker's line says which variable each value came from, such as `orders: uploading DATABASE_URL from ORDERS__DATABASE_URL, STRIPE_KEY`.
+
+GitHub only passes a step the secrets its `env:` names, so every variable has to be listed there. `${{ toJSON(secrets) }}` would pass them all, including the API token, and monocf doesn't read it.
+
+Each upload makes a new active version of the worker, and the next `plan` gives it `upload` with the reason `secret-changed`. So run the upload in its own workflow, when secrets change, rather than in every deploy, and keep `secrets check` in the deploy pipeline.
 
 ### Recreated workers
 

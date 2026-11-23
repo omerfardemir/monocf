@@ -89,8 +89,13 @@ const entry = {
 }
 
 const secretsFile = flagValues(['--secrets-file'])[0]
-if (startsWithCommand('secret bulk')) {
-  entry.secretFile = readSecretFile(resolve(argv[argv.indexOf('bulk') + 1]))
+const bulkFile = argv[argv.indexOf('bulk') + 1]
+if (startsWithCommand('secret bulk') && bulkFile !== undefined && !bulkFile.startsWith('-')) {
+  entry.secretFile = readSecretFile(resolve(bulkFile))
+} else if (startsWithCommand('secret bulk')) {
+  // As real wrangler: with no file, the values come on stdin.
+  const raw = readFileSync(0, 'utf8')
+  entry.secretInput = {raw, vars: JSON.parse(raw)}
 } else if (secretsFile !== undefined) {
   entry.secretFile = readSecretFile(resolve(secretsFile))
 }
@@ -371,6 +376,24 @@ function applyTails(worker) {
   if (own.streaming_tail_consumers !== undefined) worker.streamingTailConsumers = own.streaming_tail_consumers.map(({service}) => service)
 }
 
+/** As real wrangler in a run with no terminal: a missing worker is created as a draft. Each upload is a new live version. */
+function secretBulkWrite() {
+  const path = process.env.FAKE_WRANGLER_CF
+  const state = JSON.parse(readFileSync(path, 'utf8'))
+  state.workers ??= {}
+  state.workers[deployedName] ??= {active: [], tags: {}}
+  const worker = state.workers[deployedName]
+  state.nextVersion = (state.nextVersion ?? 0) + 1
+  const versionId = `version-${state.nextVersion}-of-${workerDir}`
+  worker.tags = {...worker.tags, [versionId]: null}
+  worker.triggeredBy = {...worker.triggeredBy, [versionId]: 'secret'}
+  worker.active = [[versionId, 100]]
+  const uploaded = Object.keys((entry.secretInput ?? entry.secretFile)?.vars ?? {})
+  worker.secrets = [...new Set([...(worker.secrets ?? []), ...uploaded])].sort()
+  writeFileSync(path, JSON.stringify(state))
+  return {}
+}
+
 /** What a real write leaves behind. Nothing happens without a Cloudflare to keep it in. */
 function cloudflareWrite() {
   const path = process.env.FAKE_WRANGLER_CF
@@ -428,7 +451,7 @@ function cloudflareWrite() {
 // `effectThenFail` takes effect and then fails anyway, as a process killed right after `Uploaded` does. `noEffect` exits 0 and
 // changes nothing, as the loser of two parallel writes does.
 const failsAnyway = (rule.exitCode ?? cloudflare?.exitCode ?? 0) !== 0
-const written = !rule.noEffect && (!failsAnyway || rule.effectThenFail) && process.env.FAKE_WRANGLER_CF ? withCloudflareLock(process.env.FAKE_WRANGLER_CF, cloudflareWrite) : null
+const written = !rule.noEffect && (!failsAnyway || rule.effectThenFail) && process.env.FAKE_WRANGLER_CF ? withCloudflareLock(process.env.FAKE_WRANGLER_CF, startsWithCommand('secret bulk') ? secretBulkWrite : cloudflareWrite) : null
 
 // `otherDeploy` has someone else's version with no monocf tag go live meanwhile, as a person's own `wrangler deploy` does.
 if (rule.otherDeploy) {

@@ -25,6 +25,8 @@ export interface RunOptions {
   cwd: string
   /** Added to the real environment: the worker's `.env` files, which wrangler can't see from the run directory. */
   environment?: Record<string, string>
+  /** Written to wrangler's stdin, which is then closed. Secret values go this way, so they never touch the disk. */
+  input?: string
   mode: OutputMode
   /** Per spawn, so that parallel processes can't mix their results. */
   outputFile?: string
@@ -52,10 +54,12 @@ function stdinFor(): 'ignore' | 'inherit' {
   return process.stdin.isTTY ? 'inherit' : 'ignore'
 }
 
-function stdioFor(mode: OutputMode): StdioOptions {
-  if (mode === 'inherit') return [stdinFor(), 'inherit', 'inherit']
-  if (mode === 'stderr') return process.stderr.isTTY && !process.env.CI ? [stdinFor(), 2, 2] : [stdinFor(), 'pipe', 'pipe']
-  return ['ignore', 'pipe', 'pipe']
+function stdioFor(mode: OutputMode, input: string | undefined): StdioOptions {
+  const piped = input !== undefined
+  const stdin = piped ? 'pipe' : stdinFor()
+  if (mode === 'inherit') return [stdin, 'inherit', 'inherit']
+  if (mode === 'stderr') return process.stderr.isTTY && !process.env.CI ? [stdin, 2, 2] : [stdin, 'pipe', 'pipe']
+  return [piped ? 'pipe' : 'ignore', 'pipe', 'pipe']
 }
 
 const ACCOUNT_ID = /^[0-9a-f]{32}$/i
@@ -115,12 +119,17 @@ function environmentFor({accountId, environment: added, mode, outputFile}: Pick<
 export function spawnWrangler(
   wrangler: Wrangler,
   argv: string[],
-  {accountId, cwd, environment, mode, outputFile}: RunOptions,
+  {accountId, cwd, environment, input, mode, outputFile}: RunOptions,
 ): RunningWrangler {
   // The same flag bin/wrangler.js adds.
   const env = environmentFor({accountId, environment, mode, outputFile})
-  const child = spawn(process.execPath, ['--no-warnings', wrangler.cli, ...argv], {cwd, env, shell: false, stdio: stdioFor(mode)})
+  const child = spawn(process.execPath, ['--no-warnings', wrangler.cli, ...argv], {cwd, env, shell: false, stdio: stdioFor(mode, input)})
   const collected = collect(child, mode, accountScrubber(env))
+  if (input !== undefined) {
+    // A process that ends before reading it all breaks the pipe. Its exit code says what went wrong, so this error says nothing more.
+    child.stdin?.on('error', () => {})
+    child.stdin?.end(input)
+  }
 
   const done = new Promise<WranglerResult>((resolve, reject) => {
     child.once('error', (error) => {

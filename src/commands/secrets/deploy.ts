@@ -7,13 +7,22 @@ export default class SecretsDeploy extends BaseCommand {
   static args = {
     workerName: Args.string({description: 'Worker name', required: false}),
   }
-  static description = 'Upload secrets from the exact .dev.vars files for the env, to a worker that already exists'
-  static examples = ['<%= config.bin %> secrets deploy orders -e production', '<%= config.bin %> secrets deploy -a -e production']
+  static description =
+    'Upload secrets to a worker that already exists, from the exact .dev.vars files for the env, or with --from-env from environment variables'
+  static examples = [
+    '<%= config.bin %> secrets deploy orders -e production',
+    '<%= config.bin %> secrets deploy -a -e production',
+    '<%= config.bin %> secrets deploy -a -e production --from-env',
+  ]
   static flags = {
     all: Flags.boolean({char: 'a', default: false, description: 'Run command for all workers'}),
     'base-config': Flags.string({char: 'b', description: 'Base wrangler config file'}),
     create: Flags.boolean({description: 'Create the worker if it does not exist yet'}),
     env: Flags.string({char: 'e', description: 'Environment to use (dev, production etc.)'}),
+    'from-env': Flags.boolean({
+      description:
+        'Read each name the worker declares from <WORKER>__<NAME>, else <NAME>, instead of from .dev.vars files. Fails before uploading if one is unset or empty',
+    }),
     json: Flags.boolean({description: 'Print results as NDJSON on stdout'}),
     'root-dir': Flags.string({char: 'r', description: 'Root directory of the project'}),
     'workers-dir-name': Flags.string({char: 'w', description: 'Workers directory name in monorepo'}),
@@ -28,6 +37,7 @@ export default class SecretsDeploy extends BaseCommand {
       baseConfig: flags['base-config'],
       create: flags.create,
       env: flags.env,
+      fromEnv: flags['from-env'],
       json: flags.json,
       rootDir: flags['root-dir'],
       workersDirName: flags['workers-dir-name'],

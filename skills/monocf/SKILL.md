@@ -20,6 +20,7 @@ Rules:
 - **Don't run a `writes-cloudflare` command unless a person asked for it,** for that env. `rollback --dry-run` is the one exception: it changes nothing.
 - **Don't pass `--force`, `--allow-recreate` or `--first-run`, or `--on-drift warn` over a blocked plan,** unless a person asked for that flag. Each accepts a risk a guard was put there to catch.
 - **Never read, print or copy `.dev.vars` files or `.env` files,** or any secret value. `secrets check` gives names only, and that's enough.
+- `secrets deploy --from-env` reads values from environment variables that the CI sets from its secret store. Don't set or print them yourself. A `secret-env-missing` error names the variables a person has to add.
 - `dev` keeps running until it's stopped. Don't start it in a step that waits for it to exit.
 
 ## The workflow

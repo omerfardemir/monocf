@@ -39,7 +39,7 @@ The first event of a run.
 | `message` | string, optional | Why it failed, when it failed |
 | `reason` | string, optional | For `skipped`: the worker whose failure skipped it |
 | `status` | string | `ok`, `failed`, `skipped` or `cancelled` |
-| `versionId` | string, optional | The version a `deploy` or an upload made |
+| `versionId` | string, optional | The version a `deploy`, an upload or a `secrets deploy` made |
 | `worker` | string | The worker |
 
 ### `notice`
@@ -303,6 +303,8 @@ Generated from the registry `monocf explain` reads, by `npm run docs`.
 | `rollback-refused` | 1 | rollback refused a worker, as going back would cross a Durable Object change or one that can't be checked. | Ask a person whether to pass --force. |
 | `root-dir-missing` | 2 | The root directory doesn't exist. | Fix --root-dir. |
 | `run-not-found` | 2 | The state has no run with that ID for this env. | Use a run ID from an earlier apply, as its run-started output or state/<env>/runs/ shows. |
+| `secret-env-missing` | 2 | secrets deploy --from-env found no value for a name a worker declares, so it uploaded nothing. An empty variable counts as unset. | Set the variables the message names in the job's environment, for example from the CI's secrets. Never print a value. |
+| `secret-prefix-collision` | 2 | Two worker directories give the same variable prefix for secrets deploy --from-env, such as user-service and user_service. | Rename one worker's directory, or upload those secrets from .dev.vars files. |
 | `secret-value-invalid` | 2 | A secret's value can't be written to a .dev.vars file without changing it. | Change the value, or upload that secret with wrangler secret put. |
 | `secrets-file-missing` | 2 | Uploading secrets needs the exact .dev.vars.<env> file, and there is none. | Ask a person to create it. Never print or read its values. |
 | `state-invalid` | 3 | The state manifest or a run record can't be trusted: a field is missing, or its schema version is newer. | Use a newer monocf, or ask a person to look at the state store. |
@@ -316,7 +318,7 @@ Generated from the registry `monocf explain` reads, by `npm run docs`.
 | `unknown-env` | 2 | The env is defined neither in the base config nor in the config of the worker. | Define it under "env", or pick another --env. |
 | `unknown-flag` | 2 | A flag the command doesn't take. | Run monocf <command> --help. |
 | `unknown-placeholder` | 2 | A config uses a placeholder that monocf.config.json does not define, or one outside a string. | Define it under "variables" in monocf.config.json. To keep it literal, map it to itself there. |
-| `upload-unconfirmed` | 1 | wrangler exited 0 without reporting a version ID, so the upload is unconfirmed. | Plan again: the plan shows what went live. |
+| `upload-unconfirmed` | 1 | wrangler exited 0, but monocf can't confirm the upload: a deploy reported no version ID, or after secrets deploy Cloudflare doesn't serve a new version that holds every name. | After a deploy, plan again: the plan shows what went live. After secrets deploy, run secrets check, then upload again. |
 | `verify-mismatch` | 1 | After a promote, Cloudflare serves something other than the version apply deployed. | Look at what is live, then plan again. |
 | `version-not-live` | 1 | The version the run deployed isn't live any more, and the run didn't change it, so there's nothing of its to undo. | Use rollback <worker> --to <version-id> to choose a version. |
 | `worker-exists` | 2 | A worker with that name already exists. | Pick another name. |

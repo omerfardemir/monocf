@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **`secrets deploy --from-env`** reads secret values from environment variables instead of `.dev.vars` files, for a CI that keeps them in its own secret store, such as a GitHub environment. Each worker gets the names it declares in `secrets.required` and `.dev.vars.example`, from `<WORKER>__<NAME>` if set, else `<NAME>`. An empty variable counts as unset, and a missing value stops the run before anything is uploaded, with the new code `secret-env-missing`. Two worker directories with one prefix fail with `secret-prefix-collision`. See [Secrets from CI](README.md#secrets-from-ci).
+
+### Changed
+
+- **`secrets deploy` gives wrangler the values on stdin,** so they no longer touch the disk. Before, it wrote them to a file in `.monocf` for the length of the run. `deploy -s` and `preview -s` still use a file, as wrangler takes those only from one.
+- **`secrets deploy` confirms each upload.** wrangler exits 0 on input it can't read, having uploaded nothing. Now monocf reads the worker back after each upload and fails it with `upload-unconfirmed` unless Cloudflare serves a new version that holds every name. The `step-finished` event carries that version's `versionId`.
+- **`secrets deploy` checks that every selected worker exists before it uploads to any,** and names each missing one. Before, it found a missing worker only when it reached it, after uploading to the ones before.
+
 ## 0.4.1
 
 `apply` no longer fails a deploy when Cloudflare is slow to list a version it has just uploaded.
