@@ -1,0 +1,23 @@
+# LF on every OS, whatever core.autocrlf says. Tools that rewrite a file in place break on CRLF:
+# `oclif readme` can't find its own block in a CRLF README.md and adds a second copy (#22).
+* text=auto eol=lf
+
+# Windows scripts get CRLF in the working copy and in the package. The index keeps LF.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+*.psd1 text eol=crlf
+*.psm1 text eol=crlf
+
+# Never converted, even if text=auto takes one for text.
+*.gif binary
+*.ico binary
+*.jpeg binary
+*.jpg binary
+*.png binary
+*.tgz binary
+*.wasm binary
+*.webp binary
+*.woff binary
+*.woff2 binary
+*.zip binary
